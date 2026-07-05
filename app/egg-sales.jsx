@@ -3382,12 +3382,21 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, onSave, onClose 
           <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
         </div>
 
+        {/* ลำดับหัวข้อ ตามฟอร์มกระดาษ: ไฟ/แสง → สูญเสีย → อาหาร → น้ำ → ยา */}
+        <div style={section("#FDF4FF", "#F0C8F5", "#A21CAF")}>
+          <div style={{ fontWeight: 800, color: "#86198F", fontSize: 13, marginBottom: 8 }}>💡 ไฟ / แสง</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+            {fw("lh", "ไฟ (ชั่วโมง)", <input {...numProps(0, "pfLight")} value={light.hours} onChange={(e) => setLight((p) => ({ ...p, hours: dec(e.target.value) }))} autoFocus />, "#86198F")}
+            {fw("lx", "แสง (ค่า Lux)", <input {...numProps(1, "pfLight")} value={light.lux} onChange={(e) => setLight((p) => ({ ...p, lux: dec(e.target.value) }))} />, "#86198F")}
+          </div>
+        </div>
+
         <div style={section("#FEF2F2", "#FECACA", "#DC2626")}>
           <div style={{ fontWeight: 800, color: "#B91C1C", fontSize: 13, marginBottom: 8 }}>🐔 แม่ไก่สูญเสีย (ตัว)</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9 }}>
-            {fw("cull", "ไก่คัด", <input {...numProps(0, "pfLoss")} value={loss.cull} onChange={(e) => setLoss((p) => ({ ...p, cull: int_(e.target.value) }))} autoFocus />, "#B91C1C")}
-            {fw("dam", "ตาย (เช้า)", <input {...numProps(1, "pfLoss")} value={loss.deadAm} onChange={(e) => setLoss((p) => ({ ...p, deadAm: int_(e.target.value) }))} />, "#B91C1C")}
-            {fw("dpm", "ตาย (บ่าย)", <input {...numProps(2, "pfLoss")} value={loss.deadPm} onChange={(e) => setLoss((p) => ({ ...p, deadPm: int_(e.target.value) }))} />, "#B91C1C")}
+            {fw("cull", "ไก่คัด", <input {...numProps(2, "pfLoss")} value={loss.cull} onChange={(e) => setLoss((p) => ({ ...p, cull: int_(e.target.value) }))} />, "#B91C1C")}
+            {fw("dam", "ตาย (เช้า)", <input {...numProps(3, "pfLoss")} value={loss.deadAm} onChange={(e) => setLoss((p) => ({ ...p, deadAm: int_(e.target.value) }))} />, "#B91C1C")}
+            {fw("dpm", "ตาย (บ่าย)", <input {...numProps(4, "pfLoss")} value={loss.deadPm} onChange={(e) => setLoss((p) => ({ ...p, deadPm: int_(e.target.value) }))} />, "#B91C1C")}
           </div>
           <div style={{ fontSize: 12, color: "#B91C1C", fontWeight: 700, margin: "6px 2px 4px", textAlign: "right" }}>ตายรวมวันนี้ {fmt(deadTotal)} ตัว</div>
         </div>
@@ -3395,12 +3404,12 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, onSave, onClose 
         <div style={section("#FEF6EC", "#FBD9A8", "#D97706")}>
           <div style={{ fontWeight: 800, color: "#B45309", fontSize: 13, marginBottom: 8 }}>🌾 อาหาร (กก.)</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9, marginBottom: 8 }}>
-            {fw("fno", "เบอร์อาหาร", <input ref={(el) => { refs.current[3] = el; }} onKeyDown={onKey(3)} onFocus={(e) => e.target.select()} className="prodInput pfFeed" type="text" placeholder="เช่น 324" style={{ ...cell, textAlign: "left" }} value={feed.no} onChange={(e) => setFeed((p) => ({ ...p, no: e.target.value }))} />, "#B45309")}
-            {fw("s1r", "ไซโล 1 · รับเข้า", <input {...numProps(4, "pfFeed")} value={feed.s1recv} onChange={(e) => setFeed((p) => ({ ...p, s1recv: dec(e.target.value) }))} />, "#B45309")}
-            {fw("s1u", "ไซโล 1 · ใช้ไป", <input {...numProps(5, "pfFeed")} value={feed.s1used} onChange={(e) => setFeed((p) => ({ ...p, s1used: dec(e.target.value) }))} />, "#B45309")}
+            {fw("fno", "เบอร์อาหาร", <input ref={(el) => { refs.current[5] = el; }} onKeyDown={onKey(5)} onFocus={(e) => e.target.select()} className="prodInput pfFeed" type="text" placeholder="เช่น 324" style={{ ...cell, textAlign: "left" }} value={feed.no} onChange={(e) => setFeed((p) => ({ ...p, no: e.target.value }))} />, "#B45309")}
+            {fw("s1r", "ไซโล 1 · รับเข้า", <input {...numProps(6, "pfFeed")} value={feed.s1recv} onChange={(e) => setFeed((p) => ({ ...p, s1recv: dec(e.target.value) }))} />, "#B45309")}
+            {fw("s1u", "ไซโล 1 · ใช้ไป", <input {...numProps(7, "pfFeed")} value={feed.s1used} onChange={(e) => setFeed((p) => ({ ...p, s1used: dec(e.target.value) }))} />, "#B45309")}
             <div />
-            {fw("s2r", "ไซโล 2 · รับเข้า", <input {...numProps(6, "pfFeed")} value={feed.s2recv} onChange={(e) => setFeed((p) => ({ ...p, s2recv: dec(e.target.value) }))} />, "#B45309")}
-            {fw("s2u", "ไซโล 2 · ใช้ไป", <input {...numProps(7, "pfFeed")} value={feed.s2used} onChange={(e) => setFeed((p) => ({ ...p, s2used: dec(e.target.value) }))} />, "#B45309")}
+            {fw("s2r", "ไซโล 2 · รับเข้า", <input {...numProps(8, "pfFeed")} value={feed.s2recv} onChange={(e) => setFeed((p) => ({ ...p, s2recv: dec(e.target.value) }))} />, "#B45309")}
+            {fw("s2u", "ไซโล 2 · ใช้ไป", <input {...numProps(9, "pfFeed")} value={feed.s2used} onChange={(e) => setFeed((p) => ({ ...p, s2used: dec(e.target.value) }))} />, "#B45309")}
           </div>
           <div style={{ fontSize: 12, color: "#92400E", margin: "0 2px 4px", display: "flex", justifyContent: "space-between" }}>
             <span>คงเหลือ ไซโล1 {fmt1(siloRemain.s1 + nf(feed.s1recv) - nf(feed.s1used))} · ไซโล2 {fmt1(siloRemain.s2 + nf(feed.s2recv) - nf(feed.s2used))} กก.</span>
@@ -3411,15 +3420,7 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, onSave, onClose 
         <div style={section("#EFF8FF", "#BAE0FD", "#0284C7")}>
           <div style={{ fontWeight: 800, color: "#0369A1", fontSize: 13, marginBottom: 8 }}>💧 มิเตอร์น้ำ (จดเลขมิเตอร์ 6 ตัว) · ระบบคิดผลต่างจากวันก่อนให้เอง</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9 }}>
-            {["m1", "m2", "m3", "m4", "m5", "m6"].map((k, i) => fw(k, `มิเตอร์ ${i + 1}`, <input {...numProps(8 + i, "pfWater")} value={water[k]} onChange={(e) => setWater((p) => ({ ...p, [k]: dec(e.target.value) }))} />, "#0369A1"))}
-          </div>
-        </div>
-
-        <div style={section("#FDF4FF", "#F0C8F5", "#A21CAF")}>
-          <div style={{ fontWeight: 800, color: "#86198F", fontSize: 13, marginBottom: 8 }}>💡 ไฟ / แสง</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
-            {fw("lh", "ไฟ (ชั่วโมง)", <input {...numProps(14, "pfLight")} value={light.hours} onChange={(e) => setLight((p) => ({ ...p, hours: dec(e.target.value) }))} />, "#86198F")}
-            {fw("lx", "แสง (ค่า Lux)", <input {...numProps(15, "pfLight")} value={light.lux} onChange={(e) => setLight((p) => ({ ...p, lux: dec(e.target.value) }))} />, "#86198F")}
+            {["m1", "m2", "m3", "m4", "m5", "m6"].map((k, i) => fw(k, `มิเตอร์ ${i + 1}`, <input {...numProps(10 + i, "pfWater")} value={water[k]} onChange={(e) => setWater((p) => ({ ...p, [k]: dec(e.target.value) }))} />, "#0369A1"))}
           </div>
         </div>
 
@@ -3446,6 +3447,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
   const [day, setDay] = useState(() => rearDates[rearDates.length - 1] || prodDates[prodDates.length - 1] || isoFromTs(Date.now()));
   const [editHouse, setEditHouse] = useState(null);   // {hid, date} ที่กำลังกรอก
   const [flockHouse, setFlockHouse] = useState(null); // houseId ที่กำลังตั้งค่ารุ่น
+  const [afterFlock, setAfterFlock] = useState(null); // วันแรกของรุ่น: เซฟหน้ารุ่นเสร็จ → เปิดหน้ากรอกรายวันต่อทันที ({hid,date})
   const dayTH = toThaiDate(day);
   const dayData = rearingByDate[day] || {};
   // แนะนำจำนวนเริ่มเลี้ยงจากยอดไก่ในหน้าผลผลิต (วันแรกสุดที่มีข้อมูลของหลังนั้น)
@@ -3544,7 +3546,10 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
           </div>
           {/* ปุ่มกรอกวันถัดไป */}
           <div style={{ marginBottom: 12 }}>
-            <button onClick={() => setEditHouse({ hid: selHouse, date: newDay })} style={{ ...S.primaryBtn, width: "auto", padding: "10px 18px", fontSize: 14.5 }}>＋ กรอกวันถัดไป · {toThaiDate(newDay, false)}</button>
+            <button onClick={() => {
+              if (!fl) { setAfterFlock({ hid: selHouse, date: newDay }); setFlockHouse(selHouse); }   // วันแรกที่เริ่มเลี้ยง → กรอกหน้ารุ่นก่อน แล้วต่อหน้ากรอกรายวัน
+              else setEditHouse({ hid: selHouse, date: newDay });
+            }} style={{ ...S.primaryBtn, width: "auto", padding: "10px 18px", fontSize: 14.5 }}>＋ กรอกวันถัดไป · {toThaiDate(newDay, false)}{!fl ? " (เริ่มรุ่นใหม่ — กรอกข้อมูลรุ่นก่อน)" : ""}</button>
           </div>
 
           {hDays.length === 0 ? (
@@ -3636,6 +3641,8 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
               <th style={{ ...th, textAlign: "left" }}>หลัง</th>
               <th style={th}>รุ่น/ฝูง</th>
               <th style={th}>อายุ (สป.)</th>
+              <th style={th}>ไฟ (ชม.)</th>
+              <th style={th}>แสง Lux</th>
               <th style={th}>ไก่คัด</th>
               <th style={th}>ตายเช้า</th>
               <th style={th}>ตายบ่าย</th>
@@ -3648,7 +3655,6 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
               <th style={th}>กรัม/ตัว</th>
               <th style={th}>คงเหลือไซโล (กก.)</th>
               <th style={th}>น้ำ (ยูนิต)</th>
-              <th style={th}>ไฟ (ชม.)</th>
               <th style={{ ...th, textAlign: "left" }}>ยา/วัคซีน</th>
             </tr>
           </thead>
@@ -3662,6 +3668,8 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                 </td>
                 <td style={td}>{x.fl?.gen ? `${x.fl.gen}${x.fl.flock ? "/" + x.fl.flock : ""}` : <span style={{ color: "#c9c0ad" }}>—</span>}</td>
                 <td style={td}>{x.ageWk != null ? x.ageWk : <span style={{ color: "#c9c0ad" }}>—</span>}</td>
+                <td style={td}>{x.r?.light?.hours || "—"}</td>
+                <td style={td}>{x.r?.light?.lux || "—"}</td>
                 <td style={td}>{x.r ? fmt(nf(x.r.loss?.cull)) : "—"}</td>
                 <td style={td}>{x.r ? fmt(nf(x.r.loss?.deadAm)) : "—"}</td>
                 <td style={td}>{x.r ? fmt(nf(x.r.loss?.deadPm)) : "—"}</td>
@@ -3674,13 +3682,12 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                 <td style={td}>{x.gPerBird != null ? fmt1(x.gPerBird) : "—"}</td>
                 <td style={td}>{fmt1(x.silo.s1)} · {fmt1(x.silo.s2)}</td>
                 <td style={td}>{x.water != null ? fmt1(x.water) : "—"}</td>
-                <td style={td}>{x.r?.light?.hours || "—"}</td>
                 <td style={{ ...td, textAlign: "left", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }} title={(x.r?.meds || "") + (x.r?.note ? " · " + x.r.note : "")}>{x.r?.meds || (x.r?.note ? "📝" : "—")}</td>
               </tr>
             ))}
             <tr style={{ background: "#F6F1E7", fontWeight: 800 }}>
               <td style={{ ...td, textAlign: "left" }}>รวม</td>
-              <td style={td} /><td style={td} />
+              <td style={td} /><td style={td} /><td style={td} /><td style={td} />
               <td style={td}>{fmt(sum((x) => x.r ? nf(x.r.loss?.cull) : 0))}</td>
               <td style={td}>{fmt(sum((x) => x.r ? nf(x.r.loss?.deadAm) : 0))}</td>
               <td style={td}>{fmt(sum((x) => x.r ? nf(x.r.loss?.deadPm) : 0))}</td>
@@ -3693,7 +3700,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
               <td style={td} />
               <td style={td}>{fmt1(sum((x) => x.silo.s1 + x.silo.s2))}</td>
               <td style={td}>{fmt1(sum((x) => x.water))}</td>
-              <td style={td} /><td style={td} />
+              <td style={td} />
             </tr>
           </tbody>
         </table>
@@ -3713,8 +3720,14 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
       )}
       {flockHouse && (
         <FlockModal key={flockHouse} houseId={flockHouse} flock={flocks[flockHouse]} suggestStart={suggestStart(flockHouse)}
-          onSave={(hid, f) => { saveFlock(hid, f); setFlockHouse(null); }}
-          onClose={() => setFlockHouse(null)} />
+          onSave={(hid, f) => {
+            saveFlock(hid, f); setFlockHouse(null);
+            if (afterFlock && afterFlock.hid === hid) {   // มาจากปุ่ม "กรอกวันถัดไป" วันแรกของรุ่น → เปิดหน้ากรอกรายวันต่อเลย (เริ่มที่วันเริ่มเลี้ยง ถ้าตั้งไว้)
+              setEditHouse({ hid, date: f.startDate || afterFlock.date });
+              setAfterFlock(null);
+            }
+          }}
+          onClose={() => { setFlockHouse(null); setAfterFlock(null); }} />
       )}
     </div>
   );
