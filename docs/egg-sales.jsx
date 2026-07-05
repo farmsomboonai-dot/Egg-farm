@@ -3144,21 +3144,22 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
 // แยกสีตามหมวด (ไก่=ฟ้า · ไข่ดี=เขียว · ตกเกรด=ส้ม) + กด Enter เพื่อเด้งไปช่องถัดไป (กรอกเร็ว)
 function HouseEditModal({ house, defaultDate, onClose, onSave }) {
   const [chickens, setChickens] = useState(String(house.chickens || ""));
-  const [ber, setBer] = useState(() => { const o = {}; Object.keys(house.grade.เบอร์).forEach((k) => o[k] = String(house.grade.เบอร์[k] ?? "")); return o; });
+  // ไข่ดีเบอร์: กรอก/แสดงเป็น "แผง" (ตรงกับใบงานหน้าฟาร์มและตารางรายงาน) — ภายในเก็บเป็นฟอง จึงแปลง ÷30 ตอนเปิด, ×30 ตอนบันทึก
+  const [ber, setBer] = useState(() => { const o = {}; Object.keys(house.grade.เบอร์).forEach((k) => o[k] = house.grade.เบอร์[k] == null ? "" : String(Math.round((house.grade.เบอร์[k] || 0) / PER_PRADANG))); return o; });
   const [off, setOff] = useState(() => { const o = {}; Object.keys(house.grade.ตกเกรด).forEach((k) => o[k] = String(house.grade.ตกเกรด[k] ?? "")); return o; });
   const [date, setDate] = useState(house.date || defaultDate || "");
   const insp0 = house.inspect || {};
   const [inspN, setInspN] = useState(insp0.count != null ? String(insp0.count) : "4");   // สุ่มตรวจ: ตอกไข่ วันละ 4 ฟอง/หลัง (ค่าเริ่มต้น)
   const [inspResult, setInspResult] = useState(insp0.result || "");
   const berKeys = Object.keys(ber), offKeys = Object.keys(off);
-  const goodFong = Object.values(ber).reduce((s, v) => s + (parseInt(v) || 0), 0);
+  const goodPrang = Object.values(ber).reduce((s, v) => s + (parseInt(v) || 0), 0);   // แผง (ตามที่กรอก)
   const offPrang = Object.values(off).reduce((s, v) => s + (parseInt(v) || 0), 0);
   const inputsRef = React.useRef([]);   // input เรียงตามลำดับกรอก (ไก่ → เบอร์ 0-5 → ตกเกรด)
   const saveRef = React.useRef(null);
   const dateTH = toThaiDate(date);
   const withCommas = (s) => { const d = String(s ?? "").replace(/\D/g, ""); return d ? Number(d).toLocaleString("en-US") : ""; };  // แสดงเลขมีลูกน้ำ (เก็บ state เป็นเลขล้วน)
   const save = () => {
-    const eB = {}; Object.keys(ber).forEach((k) => eB[k] = parseInt(ber[k]) || 0);
+    const eB = {}; Object.keys(ber).forEach((k) => eB[k] = (parseInt(ber[k]) || 0) * PER_PRADANG);   // แผงที่กรอก → เก็บเป็นฟอง
     const eO = {}; Object.keys(off).forEach((k) => eO[k] = parseInt(off[k]) || 0);
     onSave(house.id, { เบอร์: eB, ตกเกรด: eO }, parseInt(chickens) || 0, date, { count: parseInt(inspN) || 0, result: inspResult.trim() });
   };
@@ -3201,7 +3202,7 @@ function HouseEditModal({ house, defaultDate, onClose, onSave }) {
         </div>
 
         <div style={section("#F1FAF3", "#BBE7C9", "#16A34A")}>
-          <div style={{ fontWeight: 800, color: "#15803D", fontSize: 13, marginBottom: 8 }}>🥚 ไข่ดี (ฟอง) · แยกเบอร์</div>
+          <div style={{ fontWeight: 800, color: "#15803D", fontSize: 13, marginBottom: 8 }}>🥚 ไข่ดี (แผง) · แยกเบอร์</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9 }}>
             {berKeys.map((k, i) => fieldWrap(k, `เบอร์ ${k}`, <input {...regInput(berBase + i, "pfGood")} value={withCommas(ber[k])} onChange={stripSet((v) => setBer((p) => ({ ...p, [k]: v })))} />, "#15803D"))}
           </div>
@@ -3230,7 +3231,7 @@ function HouseEditModal({ house, defaultDate, onClose, onSave }) {
         </div>
 
         <div style={S.weighSummary}>
-          <div style={S.wsRow}><span>ไข่ดีรวม</span><span style={{ color: "#15803D", fontWeight: 700 }}>{fmt(goodFong)} ฟอง · {fmt(Math.round(goodFong / PER_PRADANG))} แผง</span></div>
+          <div style={S.wsRow}><span>ไข่ดีรวม</span><span style={{ color: "#15803D", fontWeight: 700 }}>{fmt(goodPrang)} แผง · {fmt(goodPrang * PER_PRADANG)} ฟอง</span></div>
           <div style={S.wsRow}><span>ตกเกรดรวม</span><span style={{ color: "#B45309", fontWeight: 700 }}>{fmt(offPrang)} แผง</span></div>
         </div>
         <button ref={saveRef} style={S.primaryBtn} onClick={save}>บันทึกข้อมูล {house.id}</button>
