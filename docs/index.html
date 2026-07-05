@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ฟาร์มไข่สมบูรณ์ · ระบบขายไข่ (เอสเจเอฟ ฟาร์ม)</title>
+
+<!--
+  ==========================================================================
+  ระบบขายไข่ฟาร์มสมบูรณ์ — เว็บแอป (เวอร์ชันไม่ต้องบิลด์)
+  --------------------------------------------------------------------------
+  แก้โค้ดหน้าตา/ฟังก์ชันได้ที่ไฟล์เดียว:  egg-sales.jsx  (อยู่ข้างไฟล์นี้)
+  ไฟล์ index.html นี้เป็นแค่ "เปลือก" โหลดไลบรารีและเรียก egg-sales.jsx มาแสดง
+
+  วิธีรันบนเครื่อง:  powershell -ExecutionPolicy Bypass -File serve.ps1
+  แล้วเปิด          :  http://localhost:5173
+  วิธีเอาขึ้นเซิร์ฟเวอร์: ดู README.md  (อัปโหลดทั้งโฟลเดอร์ขึ้นโฮสต์สถิตได้เลย)
+  ==========================================================================
+-->
+
+<style>
+  html, body, #root { height: 100%; margin: 0; }
+  body { font-family: "Noto Sans Thai", system-ui, -apple-system, sans-serif; background: #FBF8F2; }
+  #boot { position: fixed; inset: 0; display: grid; place-items: center; color: #8a8170; text-align: center; }
+  #boot .sp { width: 34px; height: 34px; border: 3px solid #eadfce; border-top-color: #E8943A; border-radius: 50%; animation: spin .8s linear infinite; margin: 0 auto; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+
+<script>
+  // แสดงข้อผิดพลาดตอนโหลด CDN / แปลง JSX ให้เห็นบนหน้าจอ (กันจอขาว)
+  window.__bootErr = function (msg) {
+    var b = document.getElementById('boot');
+    if (b) {
+      b.innerHTML =
+        '<div style="max-width:560px;color:#b4451f;font-size:14px;line-height:1.6">' +
+        '⚠️ โหลดแอปไม่สำเร็จ<br>' +
+        '<pre style="white-space:pre-wrap;text-align:left;background:#fff;padding:12px;border-radius:8px;border:1px solid #eee;color:#444">' +
+        String(msg) + '</pre>' +
+        'ต้องต่ออินเทอร์เน็ตได้ (โหลด React / ไอคอน / Babel จาก CDN)</div>';
+    }
+  };
+  window.addEventListener('error', function (e) { if (e && e.message) window.__bootErr(e.message); });
+  window.addEventListener('unhandledrejection', function (e) { window.__bootErr((e.reason && e.reason.message) || e.reason || 'unhandled rejection'); });
+</script>
+
+<!-- map ชื่อไลบรารี → CDN (esm.sh) เปลี่ยนเวอร์ชันได้ที่นี่ที่เดียว -->
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.3.1",
+    "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime",
+    "react-dom": "https://esm.sh/react-dom@18.3.1",
+    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+    "lucide-react": "https://esm.sh/lucide-react@0.460.0?external=react",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2"
+  }
+}
+</script>
+
+<!-- ตัวแปลง JSX → JS ในเบราว์เซอร์ -->
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+</head>
+
+<body>
+  <div id="root"></div>
+  <div id="boot">
+    <div>
+      <div class="sp"></div>
+      <div style="margin-top:12px;font-size:15px">กำลังโหลดระบบ…<br><span style="font-size:12.5px;color:#aaa199">แปลง JSX ครั้งแรกอาจใช้เวลาสักครู่</span></div>
+    </div>
+  </div>
+
+  <!-- ค่าเชื่อม Supabase (ไฟล์นี้ .gitignore ไว้ ; ถ้าไม่มีไฟล์ แอปจะ fallback ใช้ localStorage) -->
+  <script src="./supabase-config.js"></script>
+
+  <!-- โหลดโค้ดแอปจากไฟล์แยก egg-sales.jsx แล้วให้ Babel แปลง -->
+  <script type="text/babel" data-type="module" data-presets="react" src="./egg-sales.jsx"></script>
+</body>
+</html>
