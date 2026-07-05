@@ -41,7 +41,7 @@ create table if not exists houses (
 -- 2) ลูกค้า
 -- ---------------------------------------------------------------------------
 create table if not exists customers (
-  id         uuid primary key default gen_random_uuid(),
+  id         text primary key,          -- ใช้ id เดิมจากแอป (r1, npt1, c<timestamp>) — ไม่ใช่ uuid
   code       text,                      -- KK-001 ...
   name       text not null,
   company    text,
@@ -98,7 +98,7 @@ create table if not exists bills (
   no                text primary key,   -- IVE6906-xxxx
   bill_date         date,
   ts                bigint,             -- timestamp จริงตอนออกบิล (ใช้กรองช่วงเวลา)
-  customer_id       uuid references customers(id),
+  customer_id       text references customers(id),
   customer_snapshot jsonb,             -- สำเนาข้อมูลลูกค้า ณ ตอนออกบิล
   items             jsonb,             -- [{productId,name,qty,price,weight,subtotal}]
   egg_total         numeric default 0,
@@ -132,7 +132,7 @@ create table if not exists payments (
 -- ---------------------------------------------------------------------------
 create table if not exists tray_records (
   id            text primary key,       -- RT-0001
-  customer_id   uuid references customers(id),
+  customer_id   text references customers(id),
   rt_date       date,
   received      jsonb,                  -- {"ใหญ่":n,"เล็ก":n}
   sorted        jsonb,                  -- {"good":{...},"broken":{...}}
@@ -151,7 +151,7 @@ create table if not exists tray_records (
 create table if not exists drafts (
   id         text primary key,
   draft_date date,
-  customer_id uuid references customers(id),
+  customer_id text references customers(id),
   data       jsonb,                     -- ก้อนข้อมูลร่างทั้งหมด
   updated_at timestamptz default now()
 );
