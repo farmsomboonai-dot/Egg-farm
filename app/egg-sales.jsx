@@ -3273,7 +3273,7 @@ function HouseEditModal({ house, defaultDate, onClose, onSave }) {
 ============================================================ */
 const nf = (v) => { const n = parseFloat(String(v ?? "").replace(/,/g, "")); return isNaN(n) ? 0 : n; };
 const shiftDayISO = (iso, delta) => { const [y, m, d] = iso.split("-").map(Number); const dt = new Date(y, m - 1, d + delta); return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`; };
-const emptyRearing = () => ({ loss: { cull: "", deadAm: "", deadPm: "" }, feed: { no: "", s1recv: "", s1used: "", s2recv: "", s2used: "" }, water: { m1: "", m2: "", m3: "", m4: "", m5: "", m6: "" }, light: { hours: "", lux: "" }, meds: "", note: "" });
+const emptyRearing = () => ({ loss: { cull: "", deadAm: "", deadPm: "", deadWt: "" }, feed: { no: "", s1recv: "", s1used: "", s2recv: "", s2used: "" }, water: { m1: "", m2: "", m3: "", m4: "", m5: "", m6: "" }, light: { hours: "", lux: "" }, meds: "", note: "" });   // deadWt = นน.ไก่ตายชั่งรวมทุกตัว (กก.)
 // อายุไก่ (สัปดาห์) ณ วันที่ระบุ = อายุรับเข้า + สัปดาห์ที่ผ่านไปนับจากวันเริ่มเลี้ยง
 function flockAgeWk(flock, dateISO) {
   if (!flock || !flock.startDate || flock.startAgeWk == null || flock.startAgeWk === "") return null;
@@ -3397,19 +3397,22 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, onSave, onClose 
             {fw("cull", "ไก่คัด", <input {...numProps(2, "pfLoss")} value={loss.cull} onChange={(e) => setLoss((p) => ({ ...p, cull: int_(e.target.value) }))} />, "#B91C1C")}
             {fw("dam", "ตาย (เช้า)", <input {...numProps(3, "pfLoss")} value={loss.deadAm} onChange={(e) => setLoss((p) => ({ ...p, deadAm: int_(e.target.value) }))} />, "#B91C1C")}
             {fw("dpm", "ตาย (บ่าย)", <input {...numProps(4, "pfLoss")} value={loss.deadPm} onChange={(e) => setLoss((p) => ({ ...p, deadPm: int_(e.target.value) }))} />, "#B91C1C")}
+            {fw("dwt", "นน.ไก่ตายชั่งรวม (กก.)", <input {...numProps(5, "pfLoss")} value={loss.deadWt} onChange={(e) => setLoss((p) => ({ ...p, deadWt: dec(e.target.value) }))} />, "#B91C1C")}
           </div>
-          <div style={{ fontSize: 12, color: "#B91C1C", fontWeight: 700, margin: "6px 2px 4px", textAlign: "right" }}>ตายรวมวันนี้ {fmt(deadTotal)} ตัว</div>
+          <div style={{ fontSize: 12, color: "#B91C1C", fontWeight: 700, margin: "6px 2px 4px", textAlign: "right" }}>
+            ตายรวมวันนี้ {fmt(deadTotal)} ตัว{nf(loss.deadWt) > 0 && deadTotal > 0 ? ` · ชั่งรวม ${fmt2(nf(loss.deadWt))} กก. · เฉลี่ย ${fmt2(nf(loss.deadWt) / deadTotal)} กก./ตัว` : ""}
+          </div>
         </div>
 
         <div style={section("#FEF6EC", "#FBD9A8", "#D97706")}>
           <div style={{ fontWeight: 800, color: "#B45309", fontSize: 13, marginBottom: 8 }}>🌾 อาหาร (กก.)</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9, marginBottom: 8 }}>
-            {fw("fno", "เบอร์อาหาร", <input ref={(el) => { refs.current[5] = el; }} onKeyDown={onKey(5)} onFocus={(e) => e.target.select()} className="prodInput pfFeed" type="text" placeholder="เช่น 324" style={{ ...cell, textAlign: "left" }} value={feed.no} onChange={(e) => setFeed((p) => ({ ...p, no: e.target.value }))} />, "#B45309")}
-            {fw("s1r", "ไซโล 1 · รับเข้า", <input {...numProps(6, "pfFeed")} value={feed.s1recv} onChange={(e) => setFeed((p) => ({ ...p, s1recv: dec(e.target.value) }))} />, "#B45309")}
-            {fw("s1u", "ไซโล 1 · ใช้ไป", <input {...numProps(7, "pfFeed")} value={feed.s1used} onChange={(e) => setFeed((p) => ({ ...p, s1used: dec(e.target.value) }))} />, "#B45309")}
+            {fw("fno", "เบอร์อาหาร", <input ref={(el) => { refs.current[6] = el; }} onKeyDown={onKey(6)} onFocus={(e) => e.target.select()} className="prodInput pfFeed" type="text" placeholder="เช่น 324" style={{ ...cell, textAlign: "left" }} value={feed.no} onChange={(e) => setFeed((p) => ({ ...p, no: e.target.value }))} />, "#B45309")}
+            {fw("s1r", "ไซโล 1 · รับเข้า", <input {...numProps(7, "pfFeed")} value={feed.s1recv} onChange={(e) => setFeed((p) => ({ ...p, s1recv: dec(e.target.value) }))} />, "#B45309")}
+            {fw("s1u", "ไซโล 1 · ใช้ไป", <input {...numProps(8, "pfFeed")} value={feed.s1used} onChange={(e) => setFeed((p) => ({ ...p, s1used: dec(e.target.value) }))} />, "#B45309")}
             <div />
-            {fw("s2r", "ไซโล 2 · รับเข้า", <input {...numProps(8, "pfFeed")} value={feed.s2recv} onChange={(e) => setFeed((p) => ({ ...p, s2recv: dec(e.target.value) }))} />, "#B45309")}
-            {fw("s2u", "ไซโล 2 · ใช้ไป", <input {...numProps(9, "pfFeed")} value={feed.s2used} onChange={(e) => setFeed((p) => ({ ...p, s2used: dec(e.target.value) }))} />, "#B45309")}
+            {fw("s2r", "ไซโล 2 · รับเข้า", <input {...numProps(9, "pfFeed")} value={feed.s2recv} onChange={(e) => setFeed((p) => ({ ...p, s2recv: dec(e.target.value) }))} />, "#B45309")}
+            {fw("s2u", "ไซโล 2 · ใช้ไป", <input {...numProps(10, "pfFeed")} value={feed.s2used} onChange={(e) => setFeed((p) => ({ ...p, s2used: dec(e.target.value) }))} />, "#B45309")}
           </div>
           <div style={{ fontSize: 12, color: "#92400E", margin: "0 2px 4px", display: "flex", justifyContent: "space-between" }}>
             <span>คงเหลือ ไซโล1 {fmt1(siloRemain.s1 + nf(feed.s1recv) - nf(feed.s1used))} · ไซโล2 {fmt1(siloRemain.s2 + nf(feed.s2recv) - nf(feed.s2used))} กก.</span>
@@ -3420,7 +3423,7 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, onSave, onClose 
         <div style={section("#EFF8FF", "#BAE0FD", "#0284C7")}>
           <div style={{ fontWeight: 800, color: "#0369A1", fontSize: 13, marginBottom: 8 }}>💧 มิเตอร์น้ำ (จดเลขมิเตอร์ 6 ตัว) · ระบบคิดผลต่างจากวันก่อนให้เอง</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9 }}>
-            {["m1", "m2", "m3", "m4", "m5", "m6"].map((k, i) => fw(k, `มิเตอร์ ${i + 1}`, <input {...numProps(10 + i, "pfWater")} value={water[k]} onChange={(e) => setWater((p) => ({ ...p, [k]: dec(e.target.value) }))} />, "#0369A1"))}
+            {["m1", "m2", "m3", "m4", "m5", "m6"].map((k, i) => fw(k, `มิเตอร์ ${i + 1}`, <input {...numProps(11 + i, "pfWater")} value={water[k]} onChange={(e) => setWater((p) => ({ ...p, [k]: dec(e.target.value) }))} />, "#0369A1"))}
           </div>
         </div>
 
@@ -3461,10 +3464,11 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
     const remainBirds = fl?.startCount ? fl.startCount - cum.total : null;
     const silo = feedRemain(rearingByDate, hid, day, fl);
     const deadToday = r ? nf(r.loss?.deadAm) + nf(r.loss?.deadPm) : 0;
+    const deadWt = r ? nf(r.loss?.deadWt) : 0;   // นน.ไก่ตายชั่งรวม (กก.)
     const feedUsed = r ? nf(r.feed?.s1used) + nf(r.feed?.s2used) : 0;
     const water = waterUsage(rearingByDate, hid, day);
     return {
-      hid, r, fl, cum, remainBirds, silo, deadToday, feedUsed, water,
+      hid, r, fl, cum, remainBirds, silo, deadToday, deadWt, feedUsed, water,
       ageWk: flockAgeWk(fl, day),
       pctDead: fl?.startCount ? (cum.dead / fl.startCount) * 100 : null,
       gPerBird: r && remainBirds ? (feedUsed * 1000) / remainBirds : null,
@@ -3484,9 +3488,10 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
     const remain = fl?.startCount ? fl.startCount - cum.total : null;
     const silo = feedRemain(rearingByDate, selHouse, d, fl);
     const deadToday = nf(r?.loss?.deadAm) + nf(r?.loss?.deadPm);
+    const deadWt = nf(r?.loss?.deadWt);   // นน.ไก่ตายชั่งรวม (กก.)
     const feedUsed = nf(r?.feed?.s1used) + nf(r?.feed?.s2used);
     return {
-      d, r, cum, remain, silo, deadToday, feedUsed,
+      d, r, cum, remain, silo, deadToday, deadWt, feedUsed,
       feedRecv: nf(r?.feed?.s1recv) + nf(r?.feed?.s2recv),
       water: waterUsage(rearingByDate, selHouse, d),
       ageWk: flockAgeWk(fl, d),
@@ -3569,6 +3574,8 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                     <th style={th}>ตายเช้า</th>
                     <th style={th}>ตายบ่าย</th>
                     <th style={th}>ตายรวม</th>
+                    <th style={th}>นน.ตาย (กก.)</th>
+                    <th style={th}>กก./ตัว</th>
                     <th style={th}>สะสม</th>
                     <th style={th}>%ตายสะสม</th>
                     <th style={{ ...th, color: "#15803D" }}>คงเหลือ (ตัว)</th>
@@ -3591,6 +3598,8 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                       <td style={td}>{fmt(gsum(b.items, (x) => nf(x.r?.loss?.deadAm)))}</td>
                       <td style={td}>{fmt(gsum(b.items, (x) => nf(x.r?.loss?.deadPm)))}</td>
                       <td style={{ ...td, color: "#B91C1C" }}>{fmt(gsum(b.items, (x) => x.deadToday))}</td>
+                      <td style={td}>{fmt2(gsum(b.items, (x) => x.deadWt))}</td>
+                      <td style={td}>{gsum(b.items, (x) => x.deadToday) > 0 && gsum(b.items, (x) => x.deadWt) > 0 ? fmt2(gsum(b.items, (x) => x.deadWt) / gsum(b.items, (x) => x.deadToday)) : ""}</td>
                       <td style={td} /><td style={td} />
                       <td style={{ ...td, color: "#15803D" }}>{b.items[b.items.length - 1].remain != null ? fmt(b.items[b.items.length - 1].remain) : ""}</td>
                       <td style={td} />
@@ -3610,6 +3619,8 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                       <td style={td}>{fmt(nf(b.r?.loss?.deadAm))}</td>
                       <td style={td}>{fmt(nf(b.r?.loss?.deadPm))}</td>
                       <td style={{ ...td, fontWeight: 700, color: b.deadToday > 0 ? "#B91C1C" : undefined }}>{fmt(b.deadToday)}</td>
+                      <td style={td}>{b.deadWt > 0 ? fmt2(b.deadWt) : "—"}</td>
+                      <td style={td}>{b.deadWt > 0 && b.deadToday > 0 ? fmt2(b.deadWt / b.deadToday) : "—"}</td>
                       <td style={td}>{fmt(b.cum.dead)}</td>
                       <td style={td}>{b.pctDead != null ? b.pctDead.toFixed(2) + "%" : "—"}</td>
                       <td style={{ ...td, fontWeight: 800, color: "#15803D" }}>{b.remain != null ? fmt(b.remain) : "—"}</td>
@@ -3647,6 +3658,8 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
               <th style={th}>ตายเช้า</th>
               <th style={th}>ตายบ่าย</th>
               <th style={th}>ตายรวม</th>
+              <th style={th}>นน.ตาย (กก.)</th>
+              <th style={th}>กก./ตัว</th>
               <th style={th}>ตายสะสม</th>
               <th style={th}>%ตายสะสม</th>
               <th style={{ ...th, color: "#15803D" }}>คงเหลือ (ตัว)</th>
@@ -3674,6 +3687,8 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                 <td style={td}>{x.r ? fmt(nf(x.r.loss?.deadAm)) : "—"}</td>
                 <td style={td}>{x.r ? fmt(nf(x.r.loss?.deadPm)) : "—"}</td>
                 <td style={{ ...td, fontWeight: 700, color: x.deadToday > 0 ? "#B91C1C" : undefined }}>{x.r ? fmt(x.deadToday) : "—"}</td>
+                <td style={td}>{x.deadWt > 0 ? fmt2(x.deadWt) : "—"}</td>
+                <td style={td}>{x.deadWt > 0 && x.deadToday > 0 ? fmt2(x.deadWt / x.deadToday) : "—"}</td>
                 <td style={td}>{fmt(x.cum.dead)}</td>
                 <td style={td}>{x.pctDead != null ? x.pctDead.toFixed(2) + "%" : <span style={{ color: "#c9c0ad" }}>—</span>}</td>
                 <td style={{ ...td, fontWeight: 800, color: "#15803D" }}>{x.remainBirds != null ? fmt(x.remainBirds) : <span style={{ color: "#c9c0ad" }}>ตั้งรุ่นก่อน</span>}</td>
@@ -3692,6 +3707,8 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
               <td style={td}>{fmt(sum((x) => x.r ? nf(x.r.loss?.deadAm) : 0))}</td>
               <td style={td}>{fmt(sum((x) => x.r ? nf(x.r.loss?.deadPm) : 0))}</td>
               <td style={{ ...td, color: "#B91C1C" }}>{fmt(sum((x) => x.deadToday))}</td>
+              <td style={td}>{fmt2(sum((x) => x.deadWt))}</td>
+              <td style={td}>{sum((x) => x.deadToday) > 0 && sum((x) => x.deadWt) > 0 ? fmt2(sum((x) => x.deadWt) / sum((x) => x.deadToday)) : ""}</td>
               <td style={td}>{fmt(sum((x) => x.cum.dead))}</td>
               <td style={td} />
               <td style={{ ...td, color: "#15803D" }}>{fmt(sum((x) => x.remainBirds))}</td>
