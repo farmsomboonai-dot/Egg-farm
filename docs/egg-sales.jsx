@@ -3367,7 +3367,7 @@ function FlockModal({ houseId, flock, suggestStart, onSave, onClose }) {
 
 /* กรอกข้อมูลการเลี้ยงประจำวัน ต่อโรงเรือน (ครบทุกช่องตามฟอร์มกระดาษ)
    birds = ไก่คงเหลือต้นวัน (จากรุ่นการเลี้ยง หรือยอดไก่หน้าผลผลิต) — ใช้คิดกินเฉลี่ย/ตัวแบบสด */
-function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, onSave, onClose }) {
+function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, feedMin = 4000, onSave, onClose }) {
   const d0 = { ...emptyRearing(), ...(data || {}) };
   const [loss, setLoss] = useState({ ...emptyRearing().loss, ...(d0.loss || {}) });
   const [feed, setFeed] = useState({ ...emptyRearing().feed, ...(d0.feed || {}) });
@@ -3429,7 +3429,11 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, onSave, o
             {fw("s2u", "ไซโล 2 · ใช้ไป", <input {...numProps(10, "pfFeed")} value={feed.s2used} onChange={(e) => setFeed((p) => ({ ...p, s2used: dec(e.target.value) }))} />, "#B45309")}
           </div>
           <div style={{ fontSize: 12, color: "#92400E", margin: "0 2px 4px", display: "flex", justifyContent: "space-between" }}>
-            <span>คงเหลือ ไซโล1 {fmt1(siloRemain.s1 + nf(feed.s1recv) - nf(feed.s1used))} · ไซโล2 {fmt1(siloRemain.s2 + nf(feed.s2recv) - nf(feed.s2used))} กก.</span>
+            <span>
+              {(() => { const r1 = siloRemain.s1 + nf(feed.s1recv) - nf(feed.s1used), r2 = siloRemain.s2 + nf(feed.s2recv) - nf(feed.s2used); return (<>
+                คงเหลือ <span style={r1 < feedMin ? { color: "#B91C1C", fontWeight: 800 } : {}}>ไซโล1 {fmt1(r1)}{r1 < feedMin ? " ⚠️" : ""}</span> · <span style={r2 < feedMin ? { color: "#B91C1C", fontWeight: 800 } : {}}>ไซโล2 {fmt1(r2)}{r2 < feedMin ? " ⚠️" : ""}</span> กก.
+              </>); })()}
+            </span>
             <span style={{ fontWeight: 700 }}>กินรวมวันนี้ {fmt1(feedUsed)} กก.{gPerBirdLive != null ? ` · เฉลี่ย ${fmt1(gPerBirdLive)} กรัม/ตัว (ไก่ ${fmt(birdsLive)} ตัว)` : ""}</span>
           </div>
         </div>
@@ -3465,6 +3469,34 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
   const [editHouse, setEditHouse] = useState(null);   // {hid, date} ที่กำลังกรอก
   const [flockHouse, setFlockHouse] = useState(null); // houseId ที่กำลังตั้งค่ารุ่น
   const [afterFlock, setAfterFlock] = useState(null); // วันแรกของรุ่น: เซฟหน้ารุ่นเสร็จ → เปิดหน้ากรอกรายวันต่อทันที ({hid,date})
+  // เกณฑ์เตือนอาหารใกล้หมด (กก./ไซโล) — แก้ได้ในแถบเตือน, เก็บถาวร
+  const [feedMin, setFeedMin] = useState(() => { const v = parseFloat(localStorage.getItem("eggFeedAlertMin")); return isNaN(v) ? 4000 : v; });
+  useEffect(() => { try { localStorage.setItem("eggFeedAlertMin", String(feedMin)); } catch {} }, [feedMin]);
+  // ไซโลไหน "ใช้งานจริง" (เคยบันทึก รับ/ใช้ อย่างน้อย 1 ครั้ง) — เตือนเฉพาะไซโลที่ใช้งาน
+  const siloAct = useMemo(() => {
+    const m = {};
+    houseIds.forEach((hid) => { m[hid] = { s1: false, s2: false }; });
+    Object.keys(rearingByDate).forEach((d) => {
+      Object.keys(rearingByDate[d] || {}).forEach((hid) => {
+        const f = rearingByDate[d][hid]?.feed; if (!f || !m[hid]) return;
+        if (nf(f.s1recv) || nf(f.s1used)) m[hid].s1 = true;
+        if (nf(f.s2recv) || nf(f.s2used)) m[hid].s2 = true;
+      });
+    });
+    return m;
+  }, [rearingByDate, houseIds.join(",")]);
+  // แจ้งเตือน: ไซโลที่ใช้งานจริง และคงเหลือปัจจุบัน (สะสมทั้งหมด) < เกณฑ์
+  const feedAlerts = useMemo(() => {
+    const out = [];
+    houseIds.forEach((hid) => {
+      const a = siloAct[hid]; if (!a || (!a.s1 && !a.s2)) return;
+      const rem = feedRemain(rearingByDate, hid, "9999-12-31", flocks[hid]);
+      if (a.s1 && rem.s1 < feedMin) out.push({ hid, silo: 1, remain: rem.s1 });
+      if (a.s2 && rem.s2 < feedMin) out.push({ hid, silo: 2, remain: rem.s2 });
+    });
+    return out;
+  }, [rearingByDate, flocks, feedMin, siloAct, houseIds.join(",")]);
+  const anyFeedActivity = houseIds.some((h) => siloAct[h]?.s1 || siloAct[h]?.s2);
   const dayTH = toThaiDate(day);
   const dayData = rearingByDate[day] || {};
   // แนะนำจำนวนเริ่มเลี้ยงจากยอดไก่ในหน้าผลผลิต (วันแรกสุดที่มีข้อมูลของหลังนั้น)
@@ -3548,6 +3580,35 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
           </>}
         </div>
       </div>
+
+      {/* แจ้งเตือนอาหารในไซโลใกล้หมด (< เกณฑ์ กก./ไซโล) — เฉพาะไซโลที่มีการบันทึกใช้งานจริง */}
+      {anyFeedActivity && (feedAlerts.length > 0 ? (
+        <div style={{ background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 12, padding: "10px 14px", marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 800, color: "#B91C1C", fontSize: 13.5 }}>🔔 อาหารใกล้หมด · {feedAlerts.length} ไซโล</span>
+            <span style={{ fontSize: 12, color: "#B91C1C", marginLeft: "auto" }}>เกณฑ์เตือน ต่ำกว่า</span>
+            <input type="text" inputMode="numeric" value={feedMin} onChange={(e) => setFeedMin(parseFloat(e.target.value.replace(/[^0-9.]/g, "")) || 0)}
+              style={{ width: 72, padding: "3px 7px", border: "1px solid #FECACA", borderRadius: 7, fontSize: 12.5, textAlign: "right", fontFamily: "inherit", color: "#B91C1C", fontWeight: 700, outline: "none" }} />
+            <span style={{ fontSize: 12, color: "#B91C1C" }}>กก./ไซโล</span>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+            {feedAlerts.map((a, i) => (
+              <button key={i} onClick={() => { setMode("house"); setSelHouse(a.hid); }} title={`ไปที่สมุดโรงเรือน ${a.hid}`}
+                style={{ border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 999, padding: "4px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                {a.hid} · ไซโล {a.silo} เหลือ {fmt1(a.remain)} กก. — สั่งอาหารเพิ่ม
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 12, padding: "8px 14px", marginBottom: 12, fontSize: 12.5, fontWeight: 700, color: "#15803D", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span>🌾 อาหารทุกไซโลเหลือเกินเกณฑ์</span>
+          <span style={{ marginLeft: "auto", fontWeight: 600 }}>เกณฑ์เตือน ต่ำกว่า</span>
+          <input type="text" inputMode="numeric" value={feedMin} onChange={(e) => setFeedMin(parseFloat(e.target.value.replace(/[^0-9.]/g, "")) || 0)}
+            style={{ width: 72, padding: "3px 7px", border: "1px solid #BBF7D0", borderRadius: 7, fontSize: 12.5, textAlign: "right", fontFamily: "inherit", color: "#15803D", fontWeight: 700, outline: "none" }} />
+          <span style={{ fontWeight: 600 }}>กก./ไซโล</span>
+        </div>
+      ))}
 
       {mode === "house" && (
         <div>
@@ -3643,7 +3704,11 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                       <td style={td}>{b.r?.feed?.no || "—"}</td>
                       <td style={td}>{fmt1(b.feedRecv)}</td>
                       <td style={td}>{fmt1(b.feedUsed)}</td>
-                      <td style={td}>{fmt1(b.silo.s1)} · {fmt1(b.silo.s2)}</td>
+                      <td style={td}>
+                        <span style={siloAct[selHouse]?.s1 && b.silo.s1 < feedMin ? { color: "#B91C1C", fontWeight: 800 } : {}}>{fmt1(b.silo.s1)}</span>
+                        {" · "}
+                        <span style={siloAct[selHouse]?.s2 && b.silo.s2 < feedMin ? { color: "#B91C1C", fontWeight: 800 } : {}}>{fmt1(b.silo.s2)}</span>
+                      </td>
                       <td style={td}>{b.gPerBird != null ? fmt1(b.gPerBird) : "—"}</td>
                       <td style={td}>{b.water != null ? fmt1(b.water) : "—"}</td>
                       <td style={{ ...td, textAlign: "left", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }} title={(b.r?.meds || "") + (b.r?.note ? " · " + b.r.note : "")}>{b.r?.meds || (b.r?.note ? "📝" : "—")}</td>
@@ -3711,7 +3776,11 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                 <td style={td}>{x.r?.feed?.no || "—"}</td>
                 <td style={td}>{x.r ? fmt1(x.feedUsed) : "—"}</td>
                 <td style={td}>{x.gPerBird != null ? fmt1(x.gPerBird) : "—"}</td>
-                <td style={td}>{fmt1(x.silo.s1)} · {fmt1(x.silo.s2)}</td>
+                <td style={td}>
+                  <span style={siloAct[x.hid]?.s1 && x.silo.s1 < feedMin ? { color: "#B91C1C", fontWeight: 800 } : {}}>{fmt1(x.silo.s1)}</span>
+                  {" · "}
+                  <span style={siloAct[x.hid]?.s2 && x.silo.s2 < feedMin ? { color: "#B91C1C", fontWeight: 800 } : {}}>{fmt1(x.silo.s2)}</span>
+                </td>
                 <td style={td}>{x.water != null ? fmt1(x.water) : "—"}</td>
                 <td style={{ ...td, textAlign: "left", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }} title={(x.r?.meds || "") + (x.r?.note ? " · " + x.r.note : "")}>{x.r?.meds || (x.r?.note ? "📝" : "—")}</td>
               </tr>
@@ -3749,6 +3818,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
         <RearingEditModal key={editHouse.hid + editHouse.date} houseId={editHouse.hid} dateISO={editHouse.date} data={rearingByDate[editHouse.date]?.[editHouse.hid]}
           siloRemain={feedRemain(rearingByDate, editHouse.hid, shiftDayISO(editHouse.date, -1), flocks[editHouse.hid])}
           birds={(() => { const f = flocks[editHouse.hid]; return f?.startCount ? f.startCount - rearingCum(rearingByDate, editHouse.hid, shiftDayISO(editHouse.date, -1), f).total : prodChickens(production, editHouse.hid, editHouse.date); })()}
+          feedMin={feedMin}
           onSave={(hid, dISO, d) => { saveRearing(dISO, hid, d); setEditHouse(null); }}
           onClose={() => setEditHouse(null)} />
       )}
