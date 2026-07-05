@@ -3550,8 +3550,25 @@ function trialStats(production, rearingByDate, houseId, a, b) {
   };
 }
 
-/* รายการทดลอง + เพิ่ม/ลบ */
-function TrialListModal({ trials, houseIds, defaultHouse, onAdd, onDelete, onView, onClose }) {
+/* รายการทดลอง + เพิ่ม/ลบ — พร้อมตรวจจับยาจากบันทึกรายวัน (💊 medsList) ให้อัตโนมัติ */
+function TrialListModal({ trials, houseIds, defaultHouse, rearingByDate = {}, onAdd, onDelete, onView, onClose }) {
+  // ยาที่เจอในบันทึกรายวัน: จับกลุ่ม (หลัง, ชื่อยา) → ช่วงวันแรก-วันสุดท้ายที่ให้
+  const detected = (() => {
+    const m = {};
+    Object.keys(rearingByDate).sort().forEach((d) => {
+      Object.keys(rearingByDate[d] || {}).forEach((hid) => {
+        (rearingByDate[d][hid]?.medsList || []).forEach((x) => {
+          const nm = (x.name || "").trim(); if (!nm) return;
+          const k = hid + "|" + nm; (m[k] = m[k] || []).push(d);
+        });
+      });
+    });
+    return Object.entries(m).map(([k, dates]) => {
+      const [hid, nm] = k.split("|");
+      const uniq = [...new Set(dates)].sort();
+      return { hid, name: nm, from: uniq[0], to: uniq[uniq.length - 1], days: uniq.length };
+    }).filter((s) => !trials.some((t) => t.houseId === s.hid && t.name === s.name));   // ซ่อนตัวที่สร้างการทดลองแล้ว
+  })();
   const [name, setName] = useState("");
   const [hid, setHid] = useState(defaultHouse || houseIds[0] || "H2");
   const [from, setFrom] = useState("");
@@ -3568,6 +3585,21 @@ function TrialListModal({ trials, houseIds, defaultHouse, onAdd, onDelete, onVie
           <div><div style={S.modalTitle}>🧪 ติดตามผลยา / สารเสริม</div><div style={S.modalSub}>บันทึกการทดลอง แล้วกด "ดูผล" เพื่อเทียบตัวเลขก่อนให้-ช่วงให้</div></div>
           <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
         </div>
+        {detected.length > 0 && (
+          <div style={{ background: "#F0FDFA", border: "1px solid #99F6E4", borderRadius: 12, padding: "10px 12px", marginBottom: 12 }}>
+            <div style={{ fontWeight: 800, color: "#0F766E", fontSize: 13, marginBottom: 7 }}>💊 ตรวจพบจากบันทึกยารายวัน — กดเพื่อดูผลได้ทันที ไม่ต้องกรอกซ้ำ</div>
+            <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+              {detected.map((s, i) => (
+                <button key={i} onClick={() => {
+                  const t = { id: "tr" + Date.now() + i, name: s.name, houseId: s.hid, startDate: s.from, endDate: s.to, note: `จากบันทึกรายวัน · ให้ ${s.days} วัน` };
+                  onAdd(t); onView(t);
+                }} style={{ border: "1.5px solid #0D9488", background: "#fff", color: "#0F766E", borderRadius: 999, padding: "6px 13px", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
+                  📊 {s.name} · {s.hid} · {toThaiDate(s.from, false)}{s.to !== s.from ? " – " + toThaiDate(s.to, false) : ""} ({s.days} วัน)
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div style={{ background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 12, padding: "12px 12px 10px", marginBottom: 14 }}>
           <div style={{ fontWeight: 800, color: ACCENT_DK, fontSize: 13, marginBottom: 8 }}>＋ เริ่มการทดลองใหม่</div>
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
@@ -4169,7 +4201,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
           deliveries={feedDeliveries} onAdd={addFeedDelivery} onDelete={deleteFeedDelivery} onClose={() => setShowDelivery(false)} />
       )}
       {showTrials && (
-        <TrialListModal trials={medTrials} houseIds={houseIds} defaultHouse={selHouse}
+        <TrialListModal trials={medTrials} houseIds={houseIds} defaultHouse={selHouse} rearingByDate={rearingByDate}
           onAdd={addMedTrial} onDelete={deleteMedTrial} onView={(t) => { setShowTrials(false); setViewTrial(t); }} onClose={() => setShowTrials(false)} />
       )}
       {viewTrial && (
