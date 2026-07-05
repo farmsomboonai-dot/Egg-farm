@@ -713,6 +713,30 @@ export default function App() {
     setStockCounts((prev) => { const n = { ...prev }; delete n[date]; return n; });
     setCloseMeta((prev) => { const n = { ...prev }; delete n[date]; return n; });
   };
+  // การเลี้ยงรายวัน (ฟอร์มตรวจติดตามการเลี้ยงไก่ไข่) — {date:{houseId:{loss,feed,water,light,meds,note}}} + รุ่นการเลี้ยงต่อโรงเรือน
+  const [rearingByDate, setRearingByDate] = useState(() => { try { return JSON.parse(localStorage.getItem("eggRearing") || "{}"); } catch { return {}; } });
+  useEffect(() => { try { localStorage.setItem("eggRearing", JSON.stringify(rearingByDate)); } catch {} }, [rearingByDate]);
+  const [flocks, setFlocks] = useState(() => { try { return JSON.parse(localStorage.getItem("eggFlocks") || "{}"); } catch { return {}; } });
+  useEffect(() => { try { localStorage.setItem("eggFlocks", JSON.stringify(flocks)); } catch {} }, [flocks]);
+  const saveFlock = (houseId, f) => setFlocks((prev) => ({ ...prev, [houseId]: f }));
+  const saveRearing = (date, houseId, data) => {
+    setRearingByDate((prev) => {
+      const next = { ...prev, [date]: { ...(prev[date] || {}), [houseId]: data } };
+      // ไก่คงเหลือ (เริ่มเลี้ยง − คัดสะสม − ตายสะสม) → อัปเดตยอดไก่ในหน้าผลผลิตของวันเดียวกันอัตโนมัติ
+      const fl = flocks[houseId];
+      if (fl?.startCount) {
+        const cum = rearingCum(next, houseId, date, fl);
+        const remain = fl.startCount - cum.total;
+        setProductionByDate((pp) => {
+          const dayHouses = pp[date];
+          if (!dayHouses || !dayHouses.some((h) => h.id === houseId)) return pp;
+          return { ...pp, [date]: dayHouses.map((h) => h.id === houseId ? { ...h, chickens: remain } : h) };
+        });
+      }
+      return next;
+    });
+  };
+
   const [trayStock, setTrayStock] = useState({ ใหญ่: 1240, เล็ก: 860 });
   // รายการรับแผงคืนภายหลัง (RT) — ยกขึ้นมาไว้ส่วนกลาง เพื่อให้หน้าออกบิลเห็นยอดค้างแผงของลูกค้าด้วย
   const [trayRecords, setTrayRecords] = useState(TRAY_SEED);
@@ -815,6 +839,7 @@ export default function App() {
             { id: "dash", icon: <LayoutDashboard size={16} />, label: "แดชบอร์ด" },
             { id: "stock", icon: <Warehouse size={16} />, label: "คลังรายวัน" },
             { id: "prod", icon: <Egg size={16} />, label: "ผลผลิต" },
+            { id: "rear", icon: <ClipboardCheck size={16} />, label: "การเลี้ยง" },
             { id: "tray", icon: <RotateCcw size={16} />, label: "แผงไข่" },
           ].map((t) => (
             <button
@@ -834,6 +859,7 @@ export default function App() {
       {view === "dash" && <DashboardView bills={bills} payments={payments} />}
       {view === "stock" && <StockView salesByDay={salesByDay} productionByDate={productionByDate} defaultDay={stockDay} stockCounts={stockCounts} closeMeta={closeMeta} refPrices={refPrices} onCloseDay={closeDay} onReopenDay={reopenDay} />}
       {view === "prod" && <ProductionView houses={houses} setHouses={setHouses} prodDate={prodDate} setProdDate={setProdDate} production={productionByDate} />}
+      {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={saveRearing} flocks={flocks} saveFlock={saveFlock} production={productionByDate} />}
       {view === "tray" && <PanelTrayView trayStock={trayStock} setTrayStock={setTrayStock} bills={bills} trayRecords={trayRecords} setTrayRecords={setTrayRecords} />}
     </div>
   );
@@ -3241,6 +3267,308 @@ function HouseEditModal({ house, defaultDate, onClose, onSave }) {
 }
 
 /* ============================================================
+   หน้าจอ: การเลี้ยง (รายงานการตรวจติดตามการเลี้ยงไก่ไข่ — ตามฟอร์มกระดาษ)
+   บันทึกรายวันต่อโรงเรือน: แม่ไก่สูญเสีย(คัด/ตายเช้า/ตายบ่าย) · อาหารไซโล 1-2 ·
+   มิเตอร์น้ำ 1-6 · ไฟ/แสง · ยา-วัคซีน · หมายเหตุ  +  ตั้งค่ารุ่นการเลี้ยงต่อโรงเรือน
+============================================================ */
+const nf = (v) => { const n = parseFloat(String(v ?? "").replace(/,/g, "")); return isNaN(n) ? 0 : n; };
+const shiftDayISO = (iso, delta) => { const [y, m, d] = iso.split("-").map(Number); const dt = new Date(y, m - 1, d + delta); return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`; };
+const emptyRearing = () => ({ loss: { cull: "", deadAm: "", deadPm: "" }, feed: { no: "", s1recv: "", s1used: "", s2recv: "", s2used: "" }, water: { m1: "", m2: "", m3: "", m4: "", m5: "", m6: "" }, light: { hours: "", lux: "" }, meds: "", note: "" });
+// อายุไก่ (สัปดาห์) ณ วันที่ระบุ = อายุรับเข้า + สัปดาห์ที่ผ่านไปนับจากวันเริ่มเลี้ยง
+function flockAgeWk(flock, dateISO) {
+  if (!flock || !flock.startDate || flock.startAgeWk == null || flock.startAgeWk === "") return null;
+  const ms = new Date(dateISO) - new Date(flock.startDate);
+  if (isNaN(ms) || ms < 0) return null;
+  return Math.floor(nf(flock.startAgeWk) + ms / (7 * 24 * 3600 * 1000));
+}
+// ยอดสะสมของรุ่น (นับเฉพาะวันที่ >= วันเริ่มเลี้ยง ถ้าตั้งไว้) จนถึงวันที่ระบุ
+function rearingCum(rearingByDate, houseId, uptoISO, flock) {
+  let cull = 0, dead = 0;
+  Object.keys(rearingByDate).sort().forEach((d) => {
+    if (d > uptoISO) return;
+    if (flock?.startDate && d < flock.startDate) return;
+    const r = rearingByDate[d]?.[houseId];
+    if (!r) return;
+    cull += nf(r.loss?.cull); dead += nf(r.loss?.deadAm) + nf(r.loss?.deadPm);
+  });
+  return { cull, dead, total: cull + dead };
+}
+// อาหารคงเหลือต่อไซโล (rolling: Σรับ − Σใช้ ภายในรุ่น) จนถึงวันที่ระบุ
+function feedRemain(rearingByDate, houseId, uptoISO, flock) {
+  let s1 = 0, s2 = 0;
+  Object.keys(rearingByDate).sort().forEach((d) => {
+    if (d > uptoISO) return;
+    if (flock?.startDate && d < flock.startDate) return;
+    const f = rearingByDate[d]?.[houseId]?.feed;
+    if (!f) return;
+    s1 += nf(f.s1recv) - nf(f.s1used); s2 += nf(f.s2recv) - nf(f.s2used);
+  });
+  return { s1, s2 };
+}
+// น้ำใช้วันนี้ = ผลต่างมิเตอร์จาก "วันก่อนหน้าที่มีจดมิเตอร์" (รวม 6 ตัว; ตัวไหนไม่ครบคู่ข้าม)
+function waterUsage(rearingByDate, houseId, dateISO) {
+  const days = Object.keys(rearingByDate).sort().filter((d) => d < dateISO);
+  let prev = null;
+  for (let i = days.length - 1; i >= 0; i--) {
+    const w = rearingByDate[days[i]]?.[houseId]?.water;
+    if (w && Object.values(w).some((v) => String(v).trim() !== "")) { prev = w; break; }
+  }
+  const cur = rearingByDate[dateISO]?.[houseId]?.water;
+  if (!cur || !prev) return null;
+  let sum = 0, used = false;
+  ["m1", "m2", "m3", "m4", "m5", "m6"].forEach((k) => {
+    if (String(cur[k] ?? "").trim() === "" || String(prev[k] ?? "").trim() === "") return;
+    const diff = nf(cur[k]) - nf(prev[k]);
+    if (diff > 0) { sum += diff; used = true; } else if (diff === 0) { used = true; }
+  });
+  return used ? sum : null;
+}
+
+/* ตั้งค่ารุ่นการเลี้ยงของโรงเรือน: รุ่นที่/ฝูงที่/จำนวนเริ่มเลี้ยง/วันที่เริ่ม/อายุรับเข้า */
+function FlockModal({ houseId, flock, suggestStart, onSave, onClose }) {
+  const [gen, setGen] = useState(flock?.gen || "");
+  const [flockNo, setFlockNo] = useState(flock?.flock || "");
+  const [startCount, setStartCount] = useState(flock?.startCount != null ? String(flock.startCount) : (suggestStart ? String(suggestStart) : ""));
+  const [startDate, setStartDate] = useState(flock?.startDate || "");
+  const [startAgeWk, setStartAgeWk] = useState(flock?.startAgeWk != null ? String(flock.startAgeWk) : "");
+  const inp = { width: "100%", padding: "9px 10px", border: "1.5px solid #e3ddd0", borderRadius: 9, fontSize: 15, fontFamily: "inherit", outline: "none" };
+  const lbl = { display: "block", fontSize: 12.5, fontWeight: 700, color: INK, marginBottom: 3 };
+  return (
+    <div style={S.modalOverlay} onClick={onClose}>
+      <div style={{ ...S.modal, maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+        <div style={S.modalHead}>
+          <div><div style={S.modalTitle}>รุ่นการเลี้ยง · โรงเรือน {houseId}</div><div style={S.modalSub}>ใช้คำนวณ อายุ(สัปดาห์) · %ตายสะสม · ไก่คงเหลือ</div></div>
+          <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
+        </div>
+        <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+          <div style={{ flex: 1 }}><label style={lbl}>รุ่นที่</label><input style={inp} value={gen} onChange={(e) => setGen(e.target.value)} placeholder="เช่น 12" /></div>
+          <div style={{ flex: 1 }}><label style={lbl}>ฝูงที่</label><input style={inp} value={flockNo} onChange={(e) => setFlockNo(e.target.value)} placeholder="เช่น 3" /></div>
+        </div>
+        <div style={{ marginBottom: 10 }}><label style={lbl}>จำนวนเริ่มเลี้ยง (ตัว)</label><input style={inp} inputMode="numeric" value={startCount} onChange={(e) => setStartCount(e.target.value.replace(/[^0-9]/g, ""))} placeholder="เช่น 66000" /></div>
+        <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+          <div style={{ flex: 1.4 }}><label style={lbl}>วันที่เริ่มเลี้ยง</label><ThaiDateField value={startDate} onChange={setStartDate} style={{ ...inp }} /></div>
+          <div style={{ flex: 1 }}><label style={lbl}>อายุรับเข้า (สัปดาห์)</label><input style={inp} inputMode="numeric" value={startAgeWk} onChange={(e) => setStartAgeWk(e.target.value.replace(/[^0-9]/g, ""))} placeholder="เช่น 17" /></div>
+        </div>
+        <button style={S.primaryBtn} onClick={() => onSave(houseId, { gen: gen.trim(), flock: flockNo.trim(), startCount: startCount ? parseInt(startCount) : null, startDate: startDate || null, startAgeWk: startAgeWk ? parseInt(startAgeWk) : null })}>บันทึกรุ่นการเลี้ยง</button>
+      </div>
+    </div>
+  );
+}
+
+/* กรอกข้อมูลการเลี้ยงประจำวัน ต่อโรงเรือน (ครบทุกช่องตามฟอร์มกระดาษ) */
+function RearingEditModal({ houseId, dateISO, data, siloRemain, onSave, onClose }) {
+  const d0 = { ...emptyRearing(), ...(data || {}) };
+  const [loss, setLoss] = useState({ ...emptyRearing().loss, ...(d0.loss || {}) });
+  const [feed, setFeed] = useState({ ...emptyRearing().feed, ...(d0.feed || {}) });
+  const [water, setWater] = useState({ ...emptyRearing().water, ...(d0.water || {}) });
+  const [light, setLight] = useState({ ...emptyRearing().light, ...(d0.light || {}) });
+  const [meds, setMeds] = useState(d0.meds || "");
+  const [note, setNote] = useState(d0.note || "");
+  const refs = React.useRef([]); const saveRef = React.useRef(null);
+  const onKey = (i) => (e) => { if (e.key !== "Enter") return; e.preventDefault(); const n = refs.current[i + 1]; if (n) n.focus(); else if (saveRef.current) saveRef.current.focus(); };
+  const cell = { width: "100%", padding: "8px 9px", border: "1.5px solid #e3ddd0", borderRadius: 9, fontSize: 14.5, fontFamily: "inherit", textAlign: "right", outline: "none" };
+  const numProps = (i, cls) => ({ ref: (el) => { refs.current[i] = el; }, onKeyDown: onKey(i), onFocus: (e) => e.target.select(), className: `prodInput ${cls}`, type: "text", inputMode: "decimal", placeholder: "0", style: cell });
+  const dec = (v) => v.replace(/[^0-9.]/g, "").replace(/(\..*)\./g, "$1");   // ตัวเลข + จุดทศนิยม 1 จุด
+  const int_ = (v) => v.replace(/[^0-9]/g, "");
+  const fw = (key, label, node, color) => <div key={key}><label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color, marginBottom: 3, textAlign: "left" }}>{label}</label>{node}</div>;
+  const section = (bg, border, accent) => ({ background: bg, border: `1px solid ${border}`, borderLeft: `4px solid ${accent}`, borderRadius: 12, padding: "12px 12px 8px", marginBottom: 12 });
+  const deadTotal = nf(loss.deadAm) + nf(loss.deadPm);
+  const feedUsed = nf(feed.s1used) + nf(feed.s2used);
+  return (
+    <div style={S.modalOverlay} onClick={onClose}>
+      <div style={{ ...S.modal, maxWidth: 500, maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <div style={S.modalHead}>
+          <div><div style={S.modalTitle}>การเลี้ยงประจำวัน · {houseId}</div><div style={S.modalSub}>{toThaiDate(dateISO)} · ใส่ตัวเลข แล้วกด Enter ไปช่องถัดไป</div></div>
+          <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
+        </div>
+
+        <div style={section("#FEF2F2", "#FECACA", "#DC2626")}>
+          <div style={{ fontWeight: 800, color: "#B91C1C", fontSize: 13, marginBottom: 8 }}>🐔 แม่ไก่สูญเสีย (ตัว)</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9 }}>
+            {fw("cull", "ไก่คัด", <input {...numProps(0, "pfLoss")} value={loss.cull} onChange={(e) => setLoss((p) => ({ ...p, cull: int_(e.target.value) }))} autoFocus />, "#B91C1C")}
+            {fw("dam", "ตาย (เช้า)", <input {...numProps(1, "pfLoss")} value={loss.deadAm} onChange={(e) => setLoss((p) => ({ ...p, deadAm: int_(e.target.value) }))} />, "#B91C1C")}
+            {fw("dpm", "ตาย (บ่าย)", <input {...numProps(2, "pfLoss")} value={loss.deadPm} onChange={(e) => setLoss((p) => ({ ...p, deadPm: int_(e.target.value) }))} />, "#B91C1C")}
+          </div>
+          <div style={{ fontSize: 12, color: "#B91C1C", fontWeight: 700, margin: "6px 2px 4px", textAlign: "right" }}>ตายรวมวันนี้ {fmt(deadTotal)} ตัว</div>
+        </div>
+
+        <div style={section("#FEF6EC", "#FBD9A8", "#D97706")}>
+          <div style={{ fontWeight: 800, color: "#B45309", fontSize: 13, marginBottom: 8 }}>🌾 อาหาร (กก.)</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9, marginBottom: 8 }}>
+            {fw("fno", "เบอร์อาหาร", <input ref={(el) => { refs.current[3] = el; }} onKeyDown={onKey(3)} onFocus={(e) => e.target.select()} className="prodInput pfFeed" type="text" placeholder="เช่น 324" style={{ ...cell, textAlign: "left" }} value={feed.no} onChange={(e) => setFeed((p) => ({ ...p, no: e.target.value }))} />, "#B45309")}
+            {fw("s1r", "ไซโล 1 · รับเข้า", <input {...numProps(4, "pfFeed")} value={feed.s1recv} onChange={(e) => setFeed((p) => ({ ...p, s1recv: dec(e.target.value) }))} />, "#B45309")}
+            {fw("s1u", "ไซโล 1 · ใช้ไป", <input {...numProps(5, "pfFeed")} value={feed.s1used} onChange={(e) => setFeed((p) => ({ ...p, s1used: dec(e.target.value) }))} />, "#B45309")}
+            <div />
+            {fw("s2r", "ไซโล 2 · รับเข้า", <input {...numProps(6, "pfFeed")} value={feed.s2recv} onChange={(e) => setFeed((p) => ({ ...p, s2recv: dec(e.target.value) }))} />, "#B45309")}
+            {fw("s2u", "ไซโล 2 · ใช้ไป", <input {...numProps(7, "pfFeed")} value={feed.s2used} onChange={(e) => setFeed((p) => ({ ...p, s2used: dec(e.target.value) }))} />, "#B45309")}
+          </div>
+          <div style={{ fontSize: 12, color: "#92400E", margin: "0 2px 4px", display: "flex", justifyContent: "space-between" }}>
+            <span>คงเหลือ ไซโล1 {fmt1(siloRemain.s1 + nf(feed.s1recv) - nf(feed.s1used))} · ไซโล2 {fmt1(siloRemain.s2 + nf(feed.s2recv) - nf(feed.s2used))} กก.</span>
+            <span style={{ fontWeight: 700 }}>กินรวมวันนี้ {fmt1(feedUsed)} กก.</span>
+          </div>
+        </div>
+
+        <div style={section("#EFF8FF", "#BAE0FD", "#0284C7")}>
+          <div style={{ fontWeight: 800, color: "#0369A1", fontSize: 13, marginBottom: 8 }}>💧 มิเตอร์น้ำ (จดเลขมิเตอร์ 6 ตัว) · ระบบคิดผลต่างจากวันก่อนให้เอง</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9 }}>
+            {["m1", "m2", "m3", "m4", "m5", "m6"].map((k, i) => fw(k, `มิเตอร์ ${i + 1}`, <input {...numProps(8 + i, "pfWater")} value={water[k]} onChange={(e) => setWater((p) => ({ ...p, [k]: dec(e.target.value) }))} />, "#0369A1"))}
+          </div>
+        </div>
+
+        <div style={section("#FDF4FF", "#F0C8F5", "#A21CAF")}>
+          <div style={{ fontWeight: 800, color: "#86198F", fontSize: 13, marginBottom: 8 }}>💡 ไฟ / แสง</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+            {fw("lh", "ไฟ (ชั่วโมง)", <input {...numProps(14, "pfLight")} value={light.hours} onChange={(e) => setLight((p) => ({ ...p, hours: dec(e.target.value) }))} />, "#86198F")}
+            {fw("lx", "แสง (ค่า Lux)", <input {...numProps(15, "pfLight")} value={light.lux} onChange={(e) => setLight((p) => ({ ...p, lux: dec(e.target.value) }))} />, "#86198F")}
+          </div>
+        </div>
+
+        <div style={section("#F0FDFA", "#99F6E4", "#0D9488")}>
+          <div style={{ fontWeight: 800, color: "#0F766E", fontSize: 13, marginBottom: 8 }}>💊 ยา / สารเสริม / วัคซีน · หมายเหตุ</div>
+          <input className="prodInput pfInsp" type="text" placeholder="เช่น วัคซีน ND-IB · วิตามินละลายน้ำ" value={meds} onChange={(e) => setMeds(e.target.value)}
+            style={{ ...cell, textAlign: "left", marginBottom: 8 }} />
+          <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="หมายเหตุอื่น ๆ"
+            style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #99F6E4", borderRadius: 9, fontSize: 13.5, fontFamily: "inherit", outline: "none", resize: "vertical" }} />
+        </div>
+
+        <button ref={saveRef} style={S.primaryBtn} onClick={() => onSave(houseId, dateISO, { loss, feed, water, light, meds: meds.trim(), note: note.trim() })}>บันทึกการเลี้ยง {houseId}</button>
+      </div>
+    </div>
+  );
+}
+
+function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, production = {} }) {
+  const prodDates = Object.keys(production).sort();
+  const houseIds = (production[prodDates[prodDates.length - 1]] || []).map((h) => h.id);
+  const rearDates = Object.keys(rearingByDate).sort();
+  const [day, setDay] = useState(() => rearDates[rearDates.length - 1] || prodDates[prodDates.length - 1] || isoFromTs(Date.now()));
+  const [editHouse, setEditHouse] = useState(null);   // houseId ที่กำลังกรอก
+  const [flockHouse, setFlockHouse] = useState(null); // houseId ที่กำลังตั้งค่ารุ่น
+  const dayTH = toThaiDate(day);
+  const dayData = rearingByDate[day] || {};
+  // แนะนำจำนวนเริ่มเลี้ยงจากยอดไก่ในหน้าผลผลิต (วันแรกสุดที่มีข้อมูลของหลังนั้น)
+  const suggestStart = (hid) => { for (const d of prodDates) { const h = (production[d] || []).find((x) => x.id === hid); if (h && h.chickens) return h.chickens; } return null; };
+  const th = { padding: "8px 6px", fontSize: 12, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", whiteSpace: "nowrap", textAlign: "right" };
+  const td = { padding: "8px 6px", fontSize: 13.5, textAlign: "right", borderBottom: "1px solid #eee7d8", whiteSpace: "nowrap" };
+  const rows = houseIds.map((hid) => {
+    const r = dayData[hid];
+    const fl = flocks[hid];
+    const cum = rearingCum(rearingByDate, hid, day, fl);
+    const remainBirds = fl?.startCount ? fl.startCount - cum.total : null;
+    const silo = feedRemain(rearingByDate, hid, day, fl);
+    const deadToday = r ? nf(r.loss?.deadAm) + nf(r.loss?.deadPm) : 0;
+    const feedUsed = r ? nf(r.feed?.s1used) + nf(r.feed?.s2used) : 0;
+    const water = waterUsage(rearingByDate, hid, day);
+    return {
+      hid, r, fl, cum, remainBirds, silo, deadToday, feedUsed, water,
+      ageWk: flockAgeWk(fl, day),
+      pctDead: fl?.startCount ? (cum.dead / fl.startCount) * 100 : null,
+      gPerBird: r && remainBirds ? (feedUsed * 1000) / remainBirds : null,
+    };
+  });
+  const sum = (f) => rows.reduce((s, x) => s + (f(x) || 0), 0);
+  return (
+    <div style={{ padding: "18px 22px 40px" }}>
+      <div style={S.subBar}>
+        <span style={S.subBarTitle}>การเลี้ยงไก่ไข่ · {dayTH}{rearDates.length > 0 ? <span style={{ fontSize: 12.5, fontWeight: 600, color: "#9b8e78" }}> · บันทึกแล้ว {rearDates.length} วัน</span> : null}</span>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button onClick={() => setDay(shiftDayISO(day, -1))} title="วันก่อนหน้า" style={{ padding: "6px 11px", border: `1px solid ${ACCENT}`, background: "#fff", color: ACCENT_DK, borderRadius: 8, fontSize: 15, fontWeight: 800, cursor: "pointer" }}>‹</button>
+          <ThaiDateField value={day} onChange={setDay} style={{ padding: "7px 11px", border: `1px solid ${ACCENT}`, borderRadius: 8, fontSize: 13.5, background: "#fff", color: INK, fontWeight: 700 }} />
+          <button onClick={() => setDay(shiftDayISO(day, 1))} title="วันถัดไป" style={{ padding: "6px 11px", border: `1px solid ${ACCENT}`, background: "#fff", color: ACCENT_DK, borderRadius: 8, fontSize: 15, fontWeight: 800, cursor: "pointer" }}>›</button>
+        </div>
+      </div>
+
+      <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflow: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1080 }}>
+          <thead>
+            <tr>
+              <th style={{ ...th, textAlign: "left" }}>หลัง</th>
+              <th style={th}>รุ่น/ฝูง</th>
+              <th style={th}>อายุ (สป.)</th>
+              <th style={th}>ไก่คัด</th>
+              <th style={th}>ตายเช้า</th>
+              <th style={th}>ตายบ่าย</th>
+              <th style={th}>ตายรวม</th>
+              <th style={th}>ตายสะสม</th>
+              <th style={th}>%ตายสะสม</th>
+              <th style={{ ...th, color: "#15803D" }}>คงเหลือ (ตัว)</th>
+              <th style={th}>เบอร์อาหาร</th>
+              <th style={th}>กินรวม (กก.)</th>
+              <th style={th}>กรัม/ตัว</th>
+              <th style={th}>คงเหลือไซโล (กก.)</th>
+              <th style={th}>น้ำ (ยูนิต)</th>
+              <th style={th}>ไฟ (ชม.)</th>
+              <th style={{ ...th, textAlign: "left" }}>ยา/วัคซีน</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((x) => (
+              <tr key={x.hid} style={{ background: x.r ? "#fff" : "#FDFAF3" }}>
+                <td style={{ ...td, textAlign: "left", fontWeight: 800 }}>
+                  {x.hid}
+                  <button onClick={() => setEditHouse(x.hid)} title="กรอก/แก้ไขการเลี้ยงวันนี้" style={{ marginLeft: 6, border: "1px solid #E8943A55", background: "#FFF7EC", color: ACCENT_DK, borderRadius: 7, padding: "2px 7px", cursor: "pointer" }}><Pencil size={12} /></button>
+                  <button onClick={() => setFlockHouse(x.hid)} title="ตั้งค่ารุ่นการเลี้ยง" style={{ marginLeft: 4, border: "1px solid #d8cdb6", background: "#fff", color: "#7a6f5c", borderRadius: 7, padding: "2px 7px", cursor: "pointer", fontSize: 11.5, fontWeight: 700 }}>รุ่น</button>
+                </td>
+                <td style={td}>{x.fl?.gen ? `${x.fl.gen}${x.fl.flock ? "/" + x.fl.flock : ""}` : <span style={{ color: "#c9c0ad" }}>—</span>}</td>
+                <td style={td}>{x.ageWk != null ? x.ageWk : <span style={{ color: "#c9c0ad" }}>—</span>}</td>
+                <td style={td}>{x.r ? fmt(nf(x.r.loss?.cull)) : "—"}</td>
+                <td style={td}>{x.r ? fmt(nf(x.r.loss?.deadAm)) : "—"}</td>
+                <td style={td}>{x.r ? fmt(nf(x.r.loss?.deadPm)) : "—"}</td>
+                <td style={{ ...td, fontWeight: 700, color: x.deadToday > 0 ? "#B91C1C" : undefined }}>{x.r ? fmt(x.deadToday) : "—"}</td>
+                <td style={td}>{fmt(x.cum.dead)}</td>
+                <td style={td}>{x.pctDead != null ? x.pctDead.toFixed(2) + "%" : <span style={{ color: "#c9c0ad" }}>—</span>}</td>
+                <td style={{ ...td, fontWeight: 800, color: "#15803D" }}>{x.remainBirds != null ? fmt(x.remainBirds) : <span style={{ color: "#c9c0ad" }}>ตั้งรุ่นก่อน</span>}</td>
+                <td style={td}>{x.r?.feed?.no || "—"}</td>
+                <td style={td}>{x.r ? fmt1(x.feedUsed) : "—"}</td>
+                <td style={td}>{x.gPerBird != null ? fmt1(x.gPerBird) : "—"}</td>
+                <td style={td}>{fmt1(x.silo.s1)} · {fmt1(x.silo.s2)}</td>
+                <td style={td}>{x.water != null ? fmt1(x.water) : "—"}</td>
+                <td style={td}>{x.r?.light?.hours || "—"}</td>
+                <td style={{ ...td, textAlign: "left", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }} title={(x.r?.meds || "") + (x.r?.note ? " · " + x.r.note : "")}>{x.r?.meds || (x.r?.note ? "📝" : "—")}</td>
+              </tr>
+            ))}
+            <tr style={{ background: "#F6F1E7", fontWeight: 800 }}>
+              <td style={{ ...td, textAlign: "left" }}>รวม</td>
+              <td style={td} /><td style={td} />
+              <td style={td}>{fmt(sum((x) => x.r ? nf(x.r.loss?.cull) : 0))}</td>
+              <td style={td}>{fmt(sum((x) => x.r ? nf(x.r.loss?.deadAm) : 0))}</td>
+              <td style={td}>{fmt(sum((x) => x.r ? nf(x.r.loss?.deadPm) : 0))}</td>
+              <td style={{ ...td, color: "#B91C1C" }}>{fmt(sum((x) => x.deadToday))}</td>
+              <td style={td}>{fmt(sum((x) => x.cum.dead))}</td>
+              <td style={td} />
+              <td style={{ ...td, color: "#15803D" }}>{fmt(sum((x) => x.remainBirds))}</td>
+              <td style={td} />
+              <td style={td}>{fmt1(sum((x) => x.feedUsed))}</td>
+              <td style={td} />
+              <td style={td}>{fmt1(sum((x) => x.silo.s1 + x.silo.s2))}</td>
+              <td style={td}>{fmt1(sum((x) => x.water))}</td>
+              <td style={td} /><td style={td} />
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div style={{ fontSize: 12, color: "#9b8e78", marginTop: 10, lineHeight: 1.8 }}>
+        กด ✎ เพื่อกรอกการเลี้ยงของวันนั้น (สูญเสีย/อาหาร/มิเตอร์น้ำ/ไฟ/วัคซีน) · กด "รุ่น" เพื่อตั้งค่ารุ่นการเลี้ยง (จำนวนเริ่มเลี้ยง/วันที่เริ่ม/อายุรับเข้า)
+        · <b>ไก่คงเหลือ = จำนวนเริ่มเลี้ยง − คัดสะสม − ตายสะสม</b> และจะอัปเดตยอดไก่ในหน้าผลผลิตของวันเดียวกันให้อัตโนมัติ
+        · น้ำ = ผลต่างเลขมิเตอร์จากวันก่อนหน้าที่จดไว้ (รวม 6 ตัว) · คงเหลือไซโล = สะสม รับเข้า − ใช้ไป
+      </div>
+
+      {editHouse && (
+        <RearingEditModal key={editHouse + day} houseId={editHouse} dateISO={day} data={dayData[editHouse]}
+          siloRemain={(() => { const s = feedRemain(rearingByDate, editHouse, shiftDayISO(day, -1), flocks[editHouse]); return s; })()}
+          onSave={(hid, dISO, d) => { saveRearing(dISO, hid, d); setEditHouse(null); }}
+          onClose={() => setEditHouse(null)} />
+      )}
+      {flockHouse && (
+        <FlockModal key={flockHouse} houseId={flockHouse} flock={flocks[flockHouse]} suggestStart={suggestStart(flockHouse)}
+          onSave={(hid, f) => { saveFlock(hid, f); setFlockHouse(null); }}
+          onClose={() => setFlockHouse(null)} />
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
    หน้าจอ: ระบบแผงดำ
 ============================================================ */
 function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], setTrayRecords }) {
@@ -4132,6 +4460,14 @@ const CSS = `
   .pfOff:focus { border-color: #D97706 !important; box-shadow: 0 0 0 3px rgba(217,119,6,.20); }
   .pfInsp { border-color: #99F6E4 !important; background: #fff; }
   .pfInsp:focus { border-color: #0D9488 !important; box-shadow: 0 0 0 3px rgba(13,148,136,.20); }
+  .pfLoss { border-color: #FECACA !important; background: #fff; }
+  .pfLoss:focus { border-color: #DC2626 !important; box-shadow: 0 0 0 3px rgba(220,38,38,.16); }
+  .pfFeed { border-color: #FBD9A8 !important; background: #fff; }
+  .pfFeed:focus { border-color: #D97706 !important; box-shadow: 0 0 0 3px rgba(217,119,6,.20); }
+  .pfWater { border-color: #BAE0FD !important; background: #fff; }
+  .pfWater:focus { border-color: #0284C7 !important; box-shadow: 0 0 0 3px rgba(2,132,199,.18); }
+  .pfLight { border-color: #F0C8F5 !important; background: #fff; }
+  .pfLight:focus { border-color: #A21CAF !important; box-shadow: 0 0 0 3px rgba(162,28,175,.16); }
   ::-webkit-scrollbar { width: 8px; height: 8px; }
   ::-webkit-scrollbar-thumb { background: #e3ddd0; border-radius: 4px; }
   @media (max-width: 900px) {
