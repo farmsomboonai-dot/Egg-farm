@@ -10,6 +10,9 @@ files.zip
 **/*.secret.*
 supabase/.env
 
+# คีย์ Supabase ฝั่งเว็บ (มีค่าจริง) — ใช้ supabase-config.example.js เป็นแม่แบบแทน
+app/supabase-config.js
+
 # ค่าตั้งเฉพาะเครื่อง Claude Code (คง launch.json ไว้ให้ preview)
 .claude/settings.local.json
 

@@ -51,7 +51,8 @@
     "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime",
     "react-dom": "https://esm.sh/react-dom@18.3.1",
     "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
-    "lucide-react": "https://esm.sh/lucide-react@0.460.0?external=react"
+    "lucide-react": "https://esm.sh/lucide-react@0.460.0?external=react",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2"
   }
 }
 </script>
@@ -68,6 +69,9 @@
       <div style="margin-top:12px;font-size:15px">กำลังโหลดระบบ…<br><span style="font-size:12.5px;color:#aaa199">แปลง JSX ครั้งแรกอาจใช้เวลาสักครู่</span></div>
     </div>
   </div>
+
+  <!-- ค่าเชื่อม Supabase (ไฟล์นี้ .gitignore ไว้ ; ถ้าไม่มีไฟล์ แอปจะ fallback ใช้ localStorage) -->
+  <script src="./supabase-config.js"></script>
 
   <!-- โหลดโค้ดแอปจากไฟล์แยก egg-sales.jsx แล้วให้ Babel แปลง -->
   <script type="text/babel" data-type="module" data-presets="react" src="./egg-sales.jsx"></script>

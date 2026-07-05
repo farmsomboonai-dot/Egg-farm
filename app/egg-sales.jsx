@@ -6,6 +6,21 @@ import {
   FileText, Wallet, LayoutDashboard, TrendingUp, Calendar, CheckCircle2, CircleDollarSign, QrCode, Pencil, Printer,
   Bell, Settings,
 } from "lucide-react";
+import { createClient } from "@supabase/supabase-js";
+
+// Supabase client — อ่าน URL/key จาก window (ตั้งใน index.html ผ่าน supabase-config.js)
+// ไม่มีค่า → supabase = null → แอป fallback ใช้ localStorage เหมือนเดิม
+const supabase = (typeof window !== "undefined" && window.SB_URL && window.SB_ANON)
+  ? createClient(window.SB_URL, window.SB_ANON)
+  : null;
+if (supabase) {
+  console.log("[Supabase] เชื่อมต่อ:", window.SB_URL);
+  supabase.from("products").select("id", { count: "exact", head: true })
+    .then(({ error, count }) => console.log(error ? "[Supabase] query error: " + error.message : "[Supabase] ✓ ตาราง products = " + count + " แถว"))
+    .catch((e) => console.log("[Supabase] ✗ " + (e && e.message)));
+} else {
+  console.log("[Supabase] ยังไม่ตั้งค่า — ใช้ localStorage");
+}
 
 /* =================================================================
    ฟาร์มไข่สมบูรณ์ · บริษัท เอสเจเอฟ ฟาร์ม จำกัด
