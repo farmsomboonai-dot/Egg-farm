@@ -742,6 +742,11 @@ export default function App() {
   useEffect(() => { try { localStorage.setItem("eggFeedDeliveries", JSON.stringify(feedDeliveries)); } catch {} }, [feedDeliveries]);
   const addFeedDelivery = (x) => setFeedDeliveries((prev) => [...prev, x]);
   const deleteFeedDelivery = (id) => setFeedDeliveries((prev) => prev.filter((x) => x.id !== id));
+  // 🧪 การทดลองยา/สารเสริม [{id,name,houseId,startDate,endDate,note}]
+  const [medTrials, setMedTrials] = useState(() => { try { return JSON.parse(localStorage.getItem("eggMedTrials") || "[]"); } catch { return []; } });
+  useEffect(() => { try { localStorage.setItem("eggMedTrials", JSON.stringify(medTrials)); } catch {} }, [medTrials]);
+  const addMedTrial = (t) => setMedTrials((prev) => [...prev, t]);
+  const deleteMedTrial = (id) => setMedTrials((prev) => prev.filter((x) => x.id !== id));
 
   const [trayStock, setTrayStock] = useState({ ใหญ่: 1240, เล็ก: 860 });
   // รายการรับแผงคืนภายหลัง (RT) — ยกขึ้นมาไว้ส่วนกลาง เพื่อให้หน้าออกบิลเห็นยอดค้างแผงของลูกค้าด้วย
@@ -865,7 +870,7 @@ export default function App() {
       {view === "dash" && <DashboardView bills={bills} payments={payments} />}
       {view === "stock" && <StockView salesByDay={salesByDay} productionByDate={productionByDate} defaultDay={stockDay} stockCounts={stockCounts} closeMeta={closeMeta} refPrices={refPrices} onCloseDay={closeDay} onReopenDay={reopenDay} />}
       {view === "prod" && <ProductionView houses={houses} setHouses={setHouses} prodDate={prodDate} setProdDate={setProdDate} production={productionByDate} />}
-      {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={saveRearing} flocks={flocks} saveFlock={saveFlock} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} />}
+      {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={saveRearing} flocks={flocks} saveFlock={saveFlock} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} medTrials={medTrials} addMedTrial={addMedTrial} deleteMedTrial={deleteMedTrial} />}
       {view === "tray" && <PanelTrayView trayStock={trayStock} setTrayStock={setTrayStock} bills={bills} trayRecords={trayRecords} setTrayRecords={setTrayRecords} />}
     </div>
   );
@@ -3511,6 +3516,187 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, feedMin =
   );
 }
 
+/* ---------- 🧪 ติดตามผลการให้ยา/สารเสริม (trial) ----------
+   trial = {id, name, houseId, startDate, endDate, note} — เทียบตัวเลขช่วง "ก่อนให้" กับ "ช่วงให้"
+   จากข้อมูลผลผลิต (productionByDate) + การเลี้ยง (rearingByDate) ที่บันทึกอยู่แล้ว */
+function trialStats(production, rearingByDate, houseId, a, b) {
+  let days = 0, fongTotal = 0, fongGood = 0, birdDays = 0, dead = 0;
+  const offT = {};   // ตกเกรดรายชนิด (แผง)
+  Object.keys(production || {}).sort().forEach((d) => {
+    if (d < a || d > b) return;
+    const h = (production[d] || []).find((x) => x.id === houseId);
+    if (!h || !h.grade) return;
+    days++;
+    const good = Object.values(h.grade.เบอร์ || {}).reduce((s, v) => s + (+v || 0), 0);   // ฟอง
+    let off = 0;
+    Object.entries(h.grade.ตกเกรด || {}).forEach(([k, v]) => { const n = +v || 0; off += n; offT[k] = (offT[k] || 0) + n; });
+    fongGood += good;
+    fongTotal += good + off * PER_PRADANG;
+    birdDays += h.chickens || 0;
+  });
+  let deadDays = 0;
+  Object.keys(rearingByDate || {}).forEach((d) => {
+    if (d < a || d > b) return;
+    const r = rearingByDate[d]?.[houseId];
+    if (!r) return;
+    deadDays++;
+    dead += nf(r.loss?.deadAm) + nf(r.loss?.deadPm);
+  });
+  return {
+    days, deadDays, fongTotal, fongGood, birdDays, dead, offT,
+    pctTotal: birdDays ? (fongTotal / birdDays) * 100 : null,
+    pctGood: birdDays ? (fongGood / birdDays) * 100 : null,
+    pctOff: fongTotal ? ((fongTotal - fongGood) / fongTotal) * 100 : null,
+  };
+}
+
+/* รายการทดลอง + เพิ่ม/ลบ */
+function TrialListModal({ trials, houseIds, defaultHouse, onAdd, onDelete, onView, onClose }) {
+  const [name, setName] = useState("");
+  const [hid, setHid] = useState(defaultHouse || houseIds[0] || "H2");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [note, setNote] = useState("");
+  const inp = { width: "100%", padding: "9px 10px", border: "1.5px solid #e3ddd0", borderRadius: 9, fontSize: 14, fontFamily: "inherit", outline: "none" };
+  const lbl = { display: "block", fontSize: 12, fontWeight: 700, color: INK, marginBottom: 3 };
+  const valid = name.trim() && from && to && to >= from;
+  const dayCount = (t) => Math.round((new Date(t.endDate) - new Date(t.startDate)) / 86400000) + 1;
+  return (
+    <div style={S.modalOverlay} onClick={onClose}>
+      <div style={{ ...S.modal, maxWidth: 520, maxHeight: "88vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <div style={S.modalHead}>
+          <div><div style={S.modalTitle}>🧪 ติดตามผลยา / สารเสริม</div><div style={S.modalSub}>บันทึกการทดลอง แล้วกด "ดูผล" เพื่อเทียบตัวเลขก่อนให้-ช่วงให้</div></div>
+          <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
+        </div>
+        <div style={{ background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 12, padding: "12px 12px 10px", marginBottom: 14 }}>
+          <div style={{ fontWeight: 800, color: ACCENT_DK, fontSize: 13, marginBottom: 8 }}>＋ เริ่มการทดลองใหม่</div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <div style={{ flex: 1.6 }}><label style={lbl}>ยา/สารเสริมที่ให้</label><input style={inp} placeholder="เช่น Calcium+D3" value={name} onChange={(e) => setName(e.target.value)} /></div>
+            <div style={{ flex: 0.7 }}><label style={lbl}>โรงเรือน</label><select style={inp} value={hid} onChange={(e) => setHid(e.target.value)}>{houseIds.map((h) => <option key={h}>{h}</option>)}</select></div>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <div style={{ flex: 1 }}><label style={lbl}>เริ่มให้วันที่</label><ThaiDateField value={from} onChange={setFrom} style={inp} /></div>
+            <div style={{ flex: 1 }}><label style={lbl}>ให้ถึงวันที่</label><ThaiDateField value={to} onChange={setTo} style={inp} /></div>
+          </div>
+          <div style={{ marginBottom: 10 }}><label style={lbl}>หมายเหตุ (เช่น กิน 5 วัน สัปดาห์ที่ 1)</label><input style={inp} value={note} onChange={(e) => setNote(e.target.value)} /></div>
+          <button disabled={!valid} onClick={() => { onAdd({ id: "tr" + Date.now(), name: name.trim(), houseId: hid, startDate: from, endDate: to, note: note.trim() }); setName(""); setFrom(""); setTo(""); setNote(""); }}
+            style={{ ...S.primaryBtn, opacity: valid ? 1 : 0.5 }}>บันทึกการทดลอง</button>
+        </div>
+        <div style={{ fontSize: 12.5, fontWeight: 800, color: "#7a6f5c", marginBottom: 6 }}>การทดลองทั้งหมด · {trials.length} รายการ</div>
+        {trials.length === 0 ? <div style={{ fontSize: 12.5, color: "#9b8e78" }}>ยังไม่มีการทดลอง</div> : trials.map((t) => (
+          <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "#FDFAF3", border: "1px solid #eee3cd", borderRadius: 10, padding: "9px 11px", marginBottom: 7, fontSize: 13, flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 800 }}>🧪 {t.name}</span>
+            <span style={{ fontWeight: 700, color: ACCENT_DK }}>{t.houseId}</span>
+            <span style={{ color: "#9b8e78" }}>{toThaiDate(t.startDate, false)} – {toThaiDate(t.endDate, false)} ({dayCount(t)} วัน)</span>
+            {t.note ? <span style={{ color: "#9b8e78" }}>· {t.note}</span> : null}
+            <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+              <button onClick={() => onView(t)} style={{ border: `1px solid ${ACCENT_DK}`, background: ACCENT_DK, color: "#fff", borderRadius: 8, padding: "4px 12px", cursor: "pointer", fontWeight: 800, fontSize: 12.5, fontFamily: "inherit" }}>📊 ดูผล / วินิจฉัย</button>
+              <button onClick={() => { if (window.confirm(`ลบการทดลอง "${t.name}" ?`)) onDelete(t.id); }} style={{ border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 8, padding: "4px 9px", cursor: "pointer", fontWeight: 800 }}>✕</button>
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* 📊 ผลการทดลอง: เทียบก่อนให้ vs ช่วงให้ — เลือกเมตริกที่อยากเปรียบเทียบได้ */
+function TrialResultModal({ trial, production, rearingByDate, onClose }) {
+  const len = Math.max(1, Math.round((new Date(trial.endDate) - new Date(trial.startDate)) / 86400000) + 1);
+  const [aFrom, setAFrom] = useState(shiftDayISO(trial.startDate, -len));
+  const [aTo, setATo] = useState(shiftDayISO(trial.startDate, -1));
+  const [bFrom, setBFrom] = useState(trial.startDate);
+  const [bTo, setBTo] = useState(trial.endDate);
+  const [unsel, setUnsel] = useState(() => new Set());   // เมตริกที่ผู้ใช้ "เอาออก" (ค่าเริ่มต้น = เทียบทุกตัว)
+  const A = trialStats(production, rearingByDate, trial.houseId, aFrom, aTo);
+  const B = trialStats(production, rearingByDate, trial.houseId, bFrom, bTo);
+  const offKeys = [...new Set([...Object.keys(A.offT), ...Object.keys(B.offT)])];
+  const pctFm = (v) => v == null ? "—" : v.toFixed(2) + "%";
+  const metrics = [
+    { key: "pctTotal", label: "%ผลผลิตรวม (ไข่รวม ÷ ไก่)", better: "up", get: (s) => s.pctTotal, fm: pctFm, unit: " จุด" },
+    { key: "pctGood", label: "%ไข่ดี (ไข่ดี ÷ ไก่)", better: "up", get: (s) => s.pctGood, fm: pctFm, unit: " จุด" },
+    { key: "pctOff", label: "%ไข่ตกเกรด", better: "down", get: (s) => s.pctOff, fm: pctFm, unit: " จุด" },
+    { key: "dead", label: "ไก่ตายเฉลี่ย (ตัว/วัน)", better: "down", get: (s) => s.deadDays ? s.dead / s.deadDays : null, fm: (v) => v == null ? "—" : fmt1(v), unit: " ตัว/วัน" },
+    ...offKeys.map((k) => ({ key: "off:" + k, label: `ตกเกรด · ${k} (แผง/วัน)`, better: "down", get: (s) => s.days ? (s.offT[k] || 0) / s.days : null, fm: (v) => v == null ? "—" : fmt1(v), unit: " แผง/วัน" })),
+  ];
+  const toggle = (k) => setUnsel((p) => { const n = new Set(p); n.has(k) ? n.delete(k) : n.add(k); return n; });
+  const trend = (m) => {
+    const va = m.get(A), vb = m.get(B);
+    if (va == null || vb == null) return null;
+    const d = vb - va;
+    return { va, vb, d, flat: Math.abs(d) < 0.005, good: m.better === "up" ? d > 0 : d < 0 };
+  };
+  const selMetrics = metrics.filter((m) => !unsel.has(m.key));
+  const improved = selMetrics.map((m) => ({ m, t: trend(m) })).filter((x) => x.t && !x.t.flat && x.t.good);
+  const worsened = selMetrics.map((m) => ({ m, t: trend(m) })).filter((x) => x.t && !x.t.flat && !x.t.good);
+  const dateInp = { padding: "6px 9px", border: "1.5px solid #e3ddd0", borderRadius: 8, fontSize: 12.5, fontFamily: "inherit" };
+  const th2 = { padding: "7px 8px", fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", textAlign: "right", whiteSpace: "nowrap" };
+  const td2 = { padding: "7px 8px", fontSize: 13, textAlign: "right", borderBottom: "1px solid #eee7d8", whiteSpace: "nowrap" };
+  return (
+    <div style={S.modalOverlay} onClick={onClose}>
+      <div style={{ ...S.modal, maxWidth: 640, maxHeight: "92vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <div style={S.modalHead}>
+          <div><div style={S.modalTitle}>📊 ผลการให้ {trial.name} · {trial.houseId}</div><div style={S.modalSub}>ให้ {toThaiDate(trial.startDate, false)} – {toThaiDate(trial.endDate, false)}{trial.note ? " · " + trial.note : ""}</div></div>
+          <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
+        </div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12, fontSize: 12.5 }}>
+          <div style={{ flex: 1, minWidth: 240, background: "#F6F1E7", borderRadius: 10, padding: "8px 10px" }}>
+            <b>ช่วงก่อนให้:</b> <ThaiDateField value={aFrom} onChange={setAFrom} style={dateInp} long={false} /> – <ThaiDateField value={aTo} onChange={setATo} style={dateInp} long={false} />
+            <div style={{ color: "#9b8e78", marginTop: 3 }}>มีข้อมูลผลผลิต {A.days} วัน · การเลี้ยง {A.deadDays} วัน</div>
+          </div>
+          <div style={{ flex: 1, minWidth: 240, background: "#FFEDD5", borderRadius: 10, padding: "8px 10px" }}>
+            <b>ช่วงให้ยา:</b> <ThaiDateField value={bFrom} onChange={setBFrom} style={dateInp} long={false} /> – <ThaiDateField value={bTo} onChange={setBTo} style={dateInp} long={false} />
+            <div style={{ color: "#9b8e78", marginTop: 3 }}>มีข้อมูลผลผลิต {B.days} วัน · การเลี้ยง {B.deadDays} วัน</div>
+          </div>
+        </div>
+        {A.days === 0 && B.days === 0 ? (
+          <div style={{ background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 10, padding: "12px 14px", fontSize: 13, color: "#B91C1C", fontWeight: 700, marginBottom: 12 }}>
+            ยังไม่มีข้อมูลผลผลิตของ {trial.houseId} ในช่วงวันที่เลือก — กรอกผลผลิตรายวัน (แท็บผลผลิต) ให้ครอบคลุมช่วงทดลองก่อน แล้วผลจะคำนวณให้อัตโนมัติ
+          </div>
+        ) : (
+          <>
+            <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 12 }}>
+              <thead><tr>
+                <th style={{ ...th2, textAlign: "left" }}>✓ เลือกตัวเลขที่เทียบ</th>
+                <th style={th2}>ก่อนให้</th>
+                <th style={{ ...th2, background: "#FFEDD5" }}>ช่วงให้</th>
+                <th style={th2}>เปลี่ยนแปลง</th>
+                <th style={th2}>ผล</th>
+              </tr></thead>
+              <tbody>
+                {metrics.map((m) => {
+                  const t = trend(m);
+                  const on = !unsel.has(m.key);
+                  return (
+                    <tr key={m.key} style={{ opacity: on ? 1 : 0.4 }}>
+                      <td style={{ ...td2, textAlign: "left" }}>
+                        <label style={{ cursor: "pointer", display: "flex", gap: 7, alignItems: "center", fontWeight: 600 }}>
+                          <input type="checkbox" checked={on} onChange={() => toggle(m.key)} style={{ accentColor: ACCENT_DK }} />{m.label}
+                        </label>
+                      </td>
+                      <td style={td2}>{m.fm(m.get(A))}</td>
+                      <td style={{ ...td2, background: "#FFF7EC", fontWeight: 700 }}>{m.fm(m.get(B))}</td>
+                      <td style={{ ...td2, fontWeight: 700 }}>{t ? (t.flat ? "คงที่" : (t.d > 0 ? "▲ +" : "▼ ") + (m.key.startsWith("pct") ? t.d.toFixed(2) : fmt1(t.d))) : "—"}</td>
+                      <td style={{ ...td2, fontWeight: 800, color: t ? (t.flat ? "#9b8e78" : t.good ? "#15803D" : "#B91C1C") : "#c9c0ad" }}>{t ? (t.flat ? "—" : t.good ? "🟢 ดีขึ้น" : "🔴 แย่ลง") : "ไม่มีข้อมูล"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <div style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 10, padding: "10px 13px", fontSize: 13, marginBottom: 8 }}>
+              <div style={{ fontWeight: 800, color: "#15803D", marginBottom: 4 }}>🩺 สรุปวินิจฉัยเบื้องต้น (จากตัวเลขที่เลือก)</div>
+              {improved.length ? <div style={{ marginBottom: 3 }}>🟢 <b>ดีขึ้น:</b> {improved.map((x) => `${x.m.label.replace(/ \(.*\)/, "")} (${x.t.d > 0 ? "+" : ""}${x.m.key.startsWith("pct") ? x.t.d.toFixed(2) : fmt1(x.t.d)}${x.m.unit})`).join(" · ")}</div> : null}
+              {worsened.length ? <div style={{ marginBottom: 3 }}>🔴 <b>แย่ลง:</b> {worsened.map((x) => `${x.m.label.replace(/ \(.*\)/, "")} (${x.t.d > 0 ? "+" : ""}${x.m.key.startsWith("pct") ? x.t.d.toFixed(2) : fmt1(x.t.d)}${x.m.unit})`).join(" · ")}</div> : null}
+              {!improved.length && !worsened.length ? <div>ตัวเลขโดยรวมคงที่ — ยังไม่เห็นความแตกต่างชัดเจนในช่วงที่เทียบ</div> : null}
+              <div style={{ color: "#9b8e78", fontSize: 11.5, marginTop: 6 }}>⚠️ เป็นการเทียบตัวเลขล้วน ๆ — อายุไก่ อากาศ ความเครียด และปัจจัยอื่นมีผลร่วมด้วย ควรดูซ้ำหลายสัปดาห์ก่อนสรุป</div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* เสมียนบันทึก "รับอาหารเข้า" (ช่องทางที่ 2) — เสมียนรับรถส่งอาหารเป็นคนแรก
    ระบบเอาตัวเลขนี้ไปรีเช็คกับ "รับเข้า" ที่สัตวบาลลงในบันทึกการเลี้ยงของวันเดียวกัน */
 function FeedDeliveryModal({ houseIds, defaultDate, deliveries, onAdd, onDelete, onClose }) {
@@ -3567,7 +3753,7 @@ function FeedDeliveryModal({ houseIds, defaultDate, deliveries, onAdd, onDelete,
   );
 }
 
-function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, production = {}, feedDeliveries = [], addFeedDelivery, deleteFeedDelivery }) {
+function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, production = {}, feedDeliveries = [], addFeedDelivery, deleteFeedDelivery, medTrials = [], addMedTrial, deleteMedTrial }) {
   const prodDates = Object.keys(production).sort();
   const houseIds = (production[prodDates[prodDates.length - 1]] || []).map((h) => h.id);
   const rearDates = Object.keys(rearingByDate).sort();
@@ -3607,6 +3793,9 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
   const anyFeedActivity = houseIds.some((h) => siloAct[h]?.s1 || siloAct[h]?.s2);
   // รีเช็ครับอาหาร: เทียบยอดเสมียน (feedDeliveries) กับ "รับเข้า" ที่สัตวบาลลงไว้ ต่อ วัน/หลัง/ไซโล
   const [showDelivery, setShowDelivery] = useState(false);
+  const [showTrials, setShowTrials] = useState(false);   // 🧪 รายการทดลองยา
+  const [viewTrial, setViewTrial] = useState(null);      // trial ที่กำลังดูผล
+  const trialOfDay = (hid, d) => medTrials.find((t) => t.houseId === hid && d >= t.startDate && d <= t.endDate);
   const feedRecheck = useMemo(() => {
     const byKey = {};
     (feedDeliveries || []).forEach((x) => { const k = x.date + "|" + x.houseId + "|" + x.silo; byKey[k] = (byKey[k] || 0) + (parseFloat(x.kg) || 0); });
@@ -3699,6 +3888,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
           <button style={chip(mode === "house")} onClick={() => setMode("house")}>📒 สมุดรายหลัง</button>
           <button style={chip(mode === "day")} onClick={() => setMode("day")}>ทุกหลัง · รายวัน</button>
           <button style={{ ...chip(false), borderColor: "#B45309", color: "#B45309" }} onClick={() => setShowDelivery(true)}>🚚 รับอาหาร (เสมียน)</button>
+          <button style={{ ...chip(false), borderColor: "#0D9488", color: "#0F766E" }} onClick={() => setShowTrials(true)}>🧪 ติดตามผลยา{medTrials.length ? ` · ${medTrials.length}` : ""}</button>
           {mode === "day" && <>
             <button onClick={() => setDay(shiftDayISO(day, -1))} title="วันก่อนหน้า" style={{ padding: "6px 11px", border: `1px solid ${ACCENT}`, background: "#fff", color: ACCENT_DK, borderRadius: 8, fontSize: 15, fontWeight: 800, cursor: "pointer" }}>‹</button>
             <ThaiDateField value={day} onChange={setDay} style={{ padding: "7px 11px", border: `1px solid ${ACCENT}`, borderRadius: 8, fontSize: 13.5, background: "#fff", color: INK, fontWeight: 700 }} />
@@ -3837,7 +4027,9 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                     </tr>
                   ) : (
                     <tr key={b.d}>
-                      <td style={{ ...td, textAlign: "left", fontWeight: 700 }}>{toThaiDate(b.d, false)}</td>
+                      {(() => { const tr = trialOfDay(selHouse, b.d); return (
+                        <td style={{ ...td, textAlign: "left", fontWeight: 700, ...(tr ? { background: "#FFEDD5" } : {}) }} title={tr ? `🧪 ช่วงให้ ${tr.name}` : undefined}>{toThaiDate(b.d, false)}{tr ? " 🧪" : ""}</td>
+                      ); })()}
                       <td style={td}>{b.ageWk != null ? b.ageWk : "—"}</td>
                       <td style={td}>{b.r?.light?.hours || "—"}</td>
                       <td style={td}>{b.r?.light?.lux || "—"}</td>
@@ -3975,6 +4167,13 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
       {showDelivery && (
         <FeedDeliveryModal houseIds={houseIds} defaultDate={mode === "day" ? day : (rearDates[rearDates.length - 1] || isoFromTs(Date.now()))}
           deliveries={feedDeliveries} onAdd={addFeedDelivery} onDelete={deleteFeedDelivery} onClose={() => setShowDelivery(false)} />
+      )}
+      {showTrials && (
+        <TrialListModal trials={medTrials} houseIds={houseIds} defaultHouse={selHouse}
+          onAdd={addMedTrial} onDelete={deleteMedTrial} onView={(t) => { setShowTrials(false); setViewTrial(t); }} onClose={() => setShowTrials(false)} />
+      )}
+      {viewTrial && (
+        <TrialResultModal trial={viewTrial} production={production} rearingByDate={rearingByDate} onClose={() => setViewTrial(null)} />
       )}
       {flockHouse && (
         <FlockModal key={flockHouse} houseId={flockHouse} flock={flocks[flockHouse]} suggestStart={suggestStart(flockHouse)}
