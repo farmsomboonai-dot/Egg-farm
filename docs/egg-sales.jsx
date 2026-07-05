@@ -150,6 +150,7 @@ function addGroupRecord(g) {
     saved.push(g);
     localStorage.setItem("eggCustomerGroups", JSON.stringify(saved));
   } catch (e) {}
+  sbUpsertGroup(g, CUSTOMER_GROUPS.length);   // ส่งขึ้นฐานข้อมูลกลางด้วย (นิยามอยู่ท้าย section ลูกค้า)
 }
 
 // ---------- ลูกค้า ----------
@@ -206,11 +207,13 @@ function addCustomerRecord(c) {
     saved.push(c);
     localStorage.setItem("eggCustomers", JSON.stringify(saved));
   } catch (e) {}
+  sbUpsertCustomer(c);   // ส่งขึ้นฐานข้อมูลกลางด้วย
 }
 // แก้ไขข้อมูลลูกค้า (id เดิม) + บันทึกถาวร — ลูกค้าที่เพิ่มเองอัปเดตใน eggCustomers, ลูกค้า seed เก็บลง eggCustomerEdits
 function updateCustomerRecord(id, patch) {
   const c = CUSTOMERS.find((x) => x.id === id);
   if (c) Object.assign(c, patch);
+  if (c) sbUpsertCustomer(c);   // ส่งข้อมูลที่แก้แล้ว (รวม patch) ขึ้นฐานข้อมูลกลาง
   try {
     const saved = JSON.parse(localStorage.getItem("eggCustomers") || "[]");
     const idx = saved.findIndex((x) => x.id === id);
@@ -224,6 +227,72 @@ function updateCustomerRecord(id, patch) {
     }
   } catch (e) {}
 }
+/* ---------- Supabase sync — ลูกค้า + กลุ่มลูกค้า (เฟส 1 ของการย้ายขึ้นฐานข้อมูลกลาง) ----------
+   หลักการ: เชื่อมต่อได้ → ฐานข้อมูลเป็นแหล่งความจริง · localStorage เป็นตัวสำรอง/แคชออฟไลน์
+   - เปิดแอป: โหลดกลุ่ม+ลูกค้าจาก DB, รายการที่มีแต่ในเครื่อง (seed ครั้งแรก/เพิ่มตอนออฟไลน์) ถูกส่งขึ้น DB ให้เอง
+   - เพิ่ม/แก้ลูกค้า, เพิ่มกลุ่ม: เขียน localStorage เหมือนเดิม + ส่งขึ้น DB (ส่งไม่ผ่าน → เตือนใน console เฉย ๆ)
+   - ถ้า DB ยังเป็น schema เก่า (customers.id = uuid — ยังไม่ได้รัน supabase/migrate-002) การส่งขึ้นจะไม่ผ่าน
+     แอปทำงานแบบ localStorage ต่อได้ครบทุกอย่าง และจะ seed ขึ้น DB เองอัตโนมัติหลัง migration ถูกรัน */
+const custToRow = (c) => ({
+  id: c.id, code: c.code || null, name: c.name || "",
+  company: c.company || null, tax_id: c.taxId || null,
+  phone: c.phone || null, address: c.address || null, group_id: c.group || null,
+});
+const custFromRow = (r) => {
+  const c = { id: r.id, code: r.code || "", group: r.group_id || "", name: r.name || "" };
+  if (r.phone) c.phone = r.phone;
+  if (r.company) c.company = r.company;
+  if (r.tax_id) c.taxId = r.tax_id;
+  if (r.address) c.address = r.address;
+  return c;
+};
+function sbUpsertCustomer(c) {
+  if (!supabase) return;
+  supabase.from("customers").upsert(custToRow(c)).then(({ error }) => {
+    if (error) console.warn("[Supabase] บันทึกลูกค้าขึ้นฐานข้อมูลไม่สำเร็จ (ข้อมูลเก็บในเครื่องแล้ว):", error.message);
+  });
+}
+function sbUpsertGroup(g, sort) {
+  if (!supabase) return;
+  supabase.from("customer_groups").upsert({ id: g.id, name: g.name, sort: sort || 0 }).then(({ error }) => {
+    if (error) console.warn("[Supabase] บันทึกกลุ่มลูกค้าขึ้นฐานข้อมูลไม่สำเร็จ:", error.message);
+  });
+}
+// โหลดกลุ่ม+ลูกค้าจาก DB แล้วแทนที่รายชื่อในแอป (เรียกครั้งเดียวตอนเปิดแอป) — คืน true เมื่อโหลดสำเร็จ
+async function sbSyncCustomers() {
+  if (!supabase) return false;
+  const [gr, cr] = await Promise.all([
+    supabase.from("customer_groups").select("*").order("sort", { ascending: true }),
+    supabase.from("customers").select("*").order("code", { ascending: true }),
+  ]);
+  if (gr.error || cr.error) {
+    console.warn("[Supabase] โหลดลูกค้าไม่สำเร็จ — ใช้ข้อมูลในเครื่อง:", (gr.error || cr.error).message);
+    return false;
+  }
+  // ส่งขึ้น DB: กลุ่ม/ลูกค้าที่ DB ยังไม่มี (ครั้งแรก = seed ทั้งชุด / ที่เพิ่มตอนออฟไลน์)
+  const haveG = new Set(gr.data.map((r) => r.id));
+  const haveC = new Set(cr.data.map((r) => r.id));
+  const upG = CUSTOMER_GROUPS.filter((g) => !haveG.has(g.id));
+  const upC = CUSTOMERS.filter((c) => !haveC.has(c.id));
+  if (upG.length) {
+    const { error } = await supabase.from("customer_groups")
+      .upsert(upG.map((g) => ({ id: g.id, name: g.name, sort: CUSTOMER_GROUPS.indexOf(g) + 1 })));
+    if (error) console.warn("[Supabase] ส่งกลุ่มลูกค้าขึ้นฐานข้อมูลไม่สำเร็จ:", error.message);
+  }
+  if (upC.length) {
+    const { error } = await supabase.from("customers").upsert(upC.map(custToRow));
+    if (error) console.warn("[Supabase] ส่งลูกค้าขึ้นฐานข้อมูลไม่สำเร็จ (ใช้ข้อมูลในเครื่องต่อ — ถ้าขึ้นว่า uuid ให้รัน supabase/migrate-002):", error.message);
+    else console.log("[Supabase] ✓ ส่งลูกค้าขึ้นฐานข้อมูล " + upC.length + " ราย");
+  }
+  // รวมรายชื่อ: ของจาก DB (ความจริงกลาง) + ของที่มีแต่ในเครื่อง (ไม่ให้หายไม่ว่ากรณีไหน)
+  const groups = [...gr.data.map((r) => ({ id: r.id, name: r.name })), ...upG];
+  const custs = [...cr.data.map(custFromRow), ...upC];
+  CUSTOMER_GROUPS.length = 0; groups.forEach((g) => CUSTOMER_GROUPS.push(g));
+  CUSTOMERS.length = 0; custs.forEach((c) => CUSTOMERS.push(c));
+  console.log("[Supabase] ✓ รายชื่อลูกค้า " + CUSTOMERS.length + " ราย (จากฐานข้อมูล " + cr.data.length + ")");
+  return true;
+}
+
 // รหัสลูกค้าถัดไป — รูปแบบ KK-XXX นับต่อจากรหัส KK- ที่มีอยู่
 function nextCustomerCode() {
   let max = 0;
@@ -600,6 +669,14 @@ const STOCK_DAY = "2026-07-03";
 
 export default function App() {
   const [view, setView] = useState("sales");
+
+  // Supabase: โหลดลูกค้า+กลุ่มจากฐานข้อมูลกลางครั้งแรกที่เปิดแอป — สำเร็จแล้ว bump เพื่อ re-render ให้เห็นรายชื่อล่าสุด
+  const [, setCustSyncRev] = useState(0);
+  useEffect(() => {
+    let live = true;
+    sbSyncCustomers().then((ok) => { if (ok && live) setCustSyncRev((v) => v + 1); });
+    return () => { live = false; };
+  }, []);
 
   // ผลผลิตรายวัน (ย้อนดูได้) — เก็บลง localStorage ; houses = ของวันที่เลือก (prodDate)
   const [productionByDate, setProductionByDate] = useState(() => {

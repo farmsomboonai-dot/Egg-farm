@@ -6,6 +6,12 @@
       "runtimeExecutable": "powershell",
       "runtimeArgs": ["-ExecutionPolicy", "Bypass", "-NoProfile", "-NoLogo", "-File", "app/serve.ps1", "5173"],
       "port": 5173
+    },
+    {
+      "name": "egg-sales-5174",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": ["-ExecutionPolicy", "Bypass", "-NoProfile", "-NoLogo", "-File", "app/serve.ps1", "5174"],
+      "port": 5174
     }
   ]
 }
