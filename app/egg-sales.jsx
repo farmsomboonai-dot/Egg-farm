@@ -3390,7 +3390,7 @@ function FlockModal({ houseId, flock, suggestStart, onSave, onClose }) {
 
 /* กรอกข้อมูลการเลี้ยงประจำวัน ต่อโรงเรือน (ครบทุกช่องตามฟอร์มกระดาษ)
    birds = ไก่คงเหลือต้นวัน (จากรุ่นการเลี้ยง หรือยอดไก่หน้าผลผลิต) — ใช้คิดกินเฉลี่ย/ตัวแบบสด */
-function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, feedMin = 4000, onSave, onClose }) {
+function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, feedMin = 4000, seqLabel = null, onSkip = null, onSave, onClose }) {
   const d0 = { ...emptyRearing(), ...(data || {}) };
   const [loss, setLoss] = useState({ ...emptyRearing().loss, ...(d0.loss || {}) });
   const [feed, setFeed] = useState({ ...emptyRearing().feed, ...(d0.feed || {}) });
@@ -3422,7 +3422,10 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, feedMin =
     <div style={S.modalOverlay} onClick={onClose}>
       <div style={{ ...S.modal, maxWidth: 500, maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
         <div style={S.modalHead}>
-          <div><div style={S.modalTitle}>การเลี้ยงประจำวัน · {houseId}</div><div style={S.modalSub}>{toThaiDate(dateISO)} · ใส่ตัวเลข แล้วกด Enter ไปช่องถัดไป</div></div>
+          <div>
+            <div style={S.modalTitle}>การเลี้ยงประจำวัน · {houseId}{seqLabel ? <span style={{ marginLeft: 8, fontSize: 13, fontWeight: 800, color: "#fff", background: "#16A34A", borderRadius: 999, padding: "3px 11px", verticalAlign: "middle" }}>{seqLabel}</span> : null}</div>
+            <div style={S.modalSub}>{toThaiDate(dateISO)} · ใส่ตัวเลข แล้วกด Enter ไปช่องถัดไป{seqLabel ? " · บันทึกแล้วเด้งหลังถัดไปให้เอง" : ""}</div>
+          </div>
           <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
         </div>
 
@@ -3510,7 +3513,12 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, feedMin =
             style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #99F6E4", borderRadius: 9, fontSize: 13.5, fontFamily: "inherit", outline: "none", resize: "vertical" }} />
         </div>
 
-        <button ref={saveRef} style={S.primaryBtn} onClick={() => onSave(houseId, dateISO, { loss, feed, water, light, meds: "", medsList: medsList.filter((m) => (m.name || "").trim()), note: note.trim() })}>บันทึกการเลี้ยง {houseId}</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          {onSkip ? <button onClick={onSkip} style={{ flex: "0 0 auto", border: "1.5px solid #d8cdb6", background: "#fff", color: "#7a6f5c", borderRadius: 12, padding: "13px 16px", cursor: "pointer", fontSize: 14, fontWeight: 800, fontFamily: "inherit" }}>ข้ามหลังนี้ ▸</button> : null}
+          <button ref={saveRef} style={{ ...S.primaryBtn, flex: 1 }} onClick={() => onSave(houseId, dateISO, { loss, feed, water, light, meds: "", medsList: medsList.filter((m) => (m.name || "").trim()), note: note.trim() })}>
+            บันทึก {houseId}{onSkip ? " · ไปหลังถัดไป ▸" : ""}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -3633,7 +3641,7 @@ function TrialListModal({ trials, houseIds, defaultHouse, rearingByDate = {}, on
 }
 
 /* 📊 ผลการทดลอง: เทียบก่อนให้ vs ช่วงให้ — เลือกเมตริกที่อยากเปรียบเทียบได้ */
-function TrialResultModal({ trial, production, rearingByDate, onClose }) {
+function TrialResultModal({ trial, production, rearingByDate, onBack = null, onClose }) {
   const len = Math.max(1, Math.round((new Date(trial.endDate) - new Date(trial.startDate)) / 86400000) + 1);
   const [aFrom, setAFrom] = useState(shiftDayISO(trial.startDate, -len));
   const [aTo, setATo] = useState(shiftDayISO(trial.startDate, -1));
@@ -3668,7 +3676,10 @@ function TrialResultModal({ trial, production, rearingByDate, onClose }) {
     <div style={S.modalOverlay} onClick={onClose}>
       <div style={{ ...S.modal, maxWidth: 640, maxHeight: "92vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
         <div style={S.modalHead}>
-          <div><div style={S.modalTitle}>📊 ผลการให้ {trial.name} · {trial.houseId}</div><div style={S.modalSub}>ให้ {toThaiDate(trial.startDate, false)} – {toThaiDate(trial.endDate, false)}{trial.note ? " · " + trial.note : ""}</div></div>
+          <div>
+            <div style={S.modalTitle}>{onBack ? <button onClick={onBack} title="กลับรายการทดลอง" style={{ border: "1px solid #e0d7c3", background: "#fff", color: "#7a6f5c", borderRadius: 8, padding: "3px 10px", cursor: "pointer", fontWeight: 800, fontSize: 13, marginRight: 8, fontFamily: "inherit", verticalAlign: "middle" }}>← กลับ</button> : null}📊 ผลการให้ {trial.name} · {trial.houseId}</div>
+            <div style={S.modalSub}>ให้ {toThaiDate(trial.startDate, false)} – {toThaiDate(trial.endDate, false)}{trial.note ? " · " + trial.note : ""}</div>
+          </div>
           <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
         </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12, fontSize: 12.5 }}>
@@ -3828,6 +3839,24 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
   const [showTrials, setShowTrials] = useState(false);   // 🧪 รายการทดลองยา
   const [viewTrial, setViewTrial] = useState(null);      // trial ที่กำลังดูผล
   const trialOfDay = (hid, d) => medTrials.find((t) => t.houseId === hid && d >= t.startDate && d <= t.endDate);
+
+  // 📝 "กรอกรอบเดียวจบ": พากรอกทีละหลังต่อเนื่อง H2→H6 อัตโนมัติ (บันทึก/ข้าม แล้วเด้งหลังถัดไปเอง)
+  const [round, setRound] = useState(null);   // {date, idx}
+  const roundDate = (() => {
+    const last = rearDates[rearDates.length - 1];
+    if (last && houseIds.some((h) => !rearingByDate[last]?.[h])) return last;   // วันล่าสุดยังกรอกไม่ครบ → ทำวันนั้นต่อ
+    return last ? shiftDayISO(last, 1) : (prodDates[prodDates.length - 1] || isoFromTs(Date.now()));
+  })();
+  const startRound = () => { if (!houseIds.length) return; setRound({ date: roundDate, idx: 0 }); setEditHouse({ hid: houseIds[0], date: roundDate }); };
+  const advanceRound = () => {
+    setRound((r) => {
+      if (!r) { setEditHouse(null); return null; }
+      const nextIdx = r.idx + 1;
+      if (nextIdx >= houseIds.length) { setEditHouse(null); return null; }   // ครบทุกหลังแล้ว
+      setEditHouse({ hid: houseIds[nextIdx], date: r.date });
+      return { ...r, idx: nextIdx };
+    });
+  };
   const feedRecheck = useMemo(() => {
     const byKey = {};
     (feedDeliveries || []).forEach((x) => { const k = x.date + "|" + x.houseId + "|" + x.silo; byKey[k] = (byKey[k] || 0) + (parseFloat(x.kg) || 0); });
@@ -3917,6 +3946,10 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
       <div style={S.subBar}>
         <span style={S.subBarTitle}>การเลี้ยงไก่ไข่{mode === "house" ? <span style={{ fontSize: 30, verticalAlign: "middle", color: ACCENT_DK }}> · โรงเรือน {selHouse}</span> : ` · ${dayTH}`}{rearDates.length > 0 ? <span style={{ fontSize: 12.5, fontWeight: 600, color: "#9b8e78" }}> · บันทึกแล้ว {rearDates.length} วัน</span> : null}</span>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <button onClick={startRound} title="กรอกการเลี้ยงครบทุกโรงเรือนต่อเนื่อง ไม่ต้องสลับหน้า"
+            style={{ padding: "7px 15px", borderRadius: 999, border: "1.5px solid #15803D", background: "#16A34A", color: "#fff", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
+            📝 กรอกทุกหลัง · {toThaiDate(roundDate, false)} ▸
+          </button>
           <button style={chip(mode === "house")} onClick={() => setMode("house")}>📒 สมุดรายหลัง</button>
           <button style={chip(mode === "day")} onClick={() => setMode("day")}>ทุกหลัง · รายวัน</button>
           <button style={{ ...chip(false), borderColor: "#B45309", color: "#B45309" }} onClick={() => setShowDelivery(true)}>🚚 รับอาหาร (เสมียน)</button>
@@ -4193,8 +4226,10 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
           siloRemain={feedRemain(rearingByDate, editHouse.hid, shiftDayISO(editHouse.date, -1), flocks[editHouse.hid])}
           birds={(() => { const f = flocks[editHouse.hid]; return f?.startCount ? f.startCount - rearingCum(rearingByDate, editHouse.hid, shiftDayISO(editHouse.date, -1), f).total : prodChickens(production, editHouse.hid, editHouse.date); })()}
           feedMin={feedMin}
-          onSave={(hid, dISO, d) => { saveRearing(dISO, hid, d); setEditHouse(null); }}
-          onClose={() => setEditHouse(null)} />
+          seqLabel={round ? `หลังที่ ${round.idx + 1}/${houseIds.length}` : null}
+          onSkip={round ? advanceRound : null}
+          onSave={(hid, dISO, d) => { saveRearing(dISO, hid, d); if (round) advanceRound(); else setEditHouse(null); }}
+          onClose={() => { setRound(null); setEditHouse(null); }} />
       )}
       {showDelivery && (
         <FeedDeliveryModal houseIds={houseIds} defaultDate={mode === "day" ? day : (rearDates[rearDates.length - 1] || isoFromTs(Date.now()))}
@@ -4205,7 +4240,8 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
           onAdd={addMedTrial} onDelete={deleteMedTrial} onView={(t) => { setShowTrials(false); setViewTrial(t); }} onClose={() => setShowTrials(false)} />
       )}
       {viewTrial && (
-        <TrialResultModal trial={viewTrial} production={production} rearingByDate={rearingByDate} onClose={() => setViewTrial(null)} />
+        <TrialResultModal trial={viewTrial} production={production} rearingByDate={rearingByDate}
+          onBack={() => { setViewTrial(null); setShowTrials(true); }} onClose={() => setViewTrial(null)} />
       )}
       {flockHouse && (
         <FlockModal key={flockHouse} houseId={flockHouse} flock={flocks[flockHouse]} suggestStart={suggestStart(flockHouse)}
