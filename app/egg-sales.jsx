@@ -3324,6 +3324,16 @@ function waterUsage(rearingByDate, houseId, dateISO) {
   return used ? sum : null;
 }
 
+// ยอดไก่จากหน้าผลผลิต (วันนั้น หรือวันล่าสุดก่อนหน้า) — ใช้เป็นตัวหาร "กินเฉลี่ย/ตัว" เมื่อยังไม่ตั้งรุ่นการเลี้ยง
+function prodChickens(production, houseId, dateISO) {
+  const dates = Object.keys(production || {}).sort().filter((x) => x <= dateISO);
+  for (let i = dates.length - 1; i >= 0; i--) {
+    const h = (production[dates[i]] || []).find((x) => x.id === houseId);
+    if (h && h.chickens) return h.chickens;
+  }
+  return null;
+}
+
 /* ตั้งค่ารุ่นการเลี้ยงของโรงเรือน: รุ่นที่/ฝูงที่/จำนวนเริ่มเลี้ยง/วันที่เริ่ม/อายุรับเข้า */
 function FlockModal({ houseId, flock, suggestStart, onSave, onClose }) {
   const [gen, setGen] = useState(flock?.gen || "");
@@ -3355,8 +3365,9 @@ function FlockModal({ houseId, flock, suggestStart, onSave, onClose }) {
   );
 }
 
-/* กรอกข้อมูลการเลี้ยงประจำวัน ต่อโรงเรือน (ครบทุกช่องตามฟอร์มกระดาษ) */
-function RearingEditModal({ houseId, dateISO, data, siloRemain, onSave, onClose }) {
+/* กรอกข้อมูลการเลี้ยงประจำวัน ต่อโรงเรือน (ครบทุกช่องตามฟอร์มกระดาษ)
+   birds = ไก่คงเหลือต้นวัน (จากรุ่นการเลี้ยง หรือยอดไก่หน้าผลผลิต) — ใช้คิดกินเฉลี่ย/ตัวแบบสด */
+function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, onSave, onClose }) {
   const d0 = { ...emptyRearing(), ...(data || {}) };
   const [loss, setLoss] = useState({ ...emptyRearing().loss, ...(d0.loss || {}) });
   const [feed, setFeed] = useState({ ...emptyRearing().feed, ...(d0.feed || {}) });
@@ -3374,6 +3385,9 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, onSave, onClose 
   const section = (bg, border, accent) => ({ background: bg, border: `1px solid ${border}`, borderLeft: `4px solid ${accent}`, borderRadius: 12, padding: "12px 12px 8px", marginBottom: 12 });
   const deadTotal = nf(loss.deadAm) + nf(loss.deadPm);
   const feedUsed = nf(feed.s1used) + nf(feed.s2used);
+  // ไก่คงเหลือสด = ต้นวัน − คัด/ตายที่กำลังพิมพ์ → กินเฉลี่ย(กรัม/ตัว) = กินรวม(กก.)×1000 ÷ ไก่คงเหลือ
+  const birdsLive = birds != null ? Math.max(0, birds - nf(loss.cull) - deadTotal) : null;
+  const gPerBirdLive = birdsLive && feedUsed > 0 ? (feedUsed * 1000) / birdsLive : null;
   return (
     <div style={S.modalOverlay} onClick={onClose}>
       <div style={{ ...S.modal, maxWidth: 500, maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
@@ -3416,7 +3430,7 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, onSave, onClose 
           </div>
           <div style={{ fontSize: 12, color: "#92400E", margin: "0 2px 4px", display: "flex", justifyContent: "space-between" }}>
             <span>คงเหลือ ไซโล1 {fmt1(siloRemain.s1 + nf(feed.s1recv) - nf(feed.s1used))} · ไซโล2 {fmt1(siloRemain.s2 + nf(feed.s2recv) - nf(feed.s2used))} กก.</span>
-            <span style={{ fontWeight: 700 }}>กินรวมวันนี้ {fmt1(feedUsed)} กก.</span>
+            <span style={{ fontWeight: 700 }}>กินรวมวันนี้ {fmt1(feedUsed)} กก.{gPerBirdLive != null ? ` · เฉลี่ย ${fmt1(gPerBirdLive)} กรัม/ตัว (ไก่ ${fmt(birdsLive)} ตัว)` : ""}</span>
           </div>
         </div>
 
@@ -3471,7 +3485,8 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
       hid, r, fl, cum, remainBirds, silo, deadToday, deadWt, feedUsed, water,
       ageWk: flockAgeWk(fl, day),
       pctDead: fl?.startCount ? (cum.dead / fl.startCount) * 100 : null,
-      gPerBird: r && remainBirds ? (feedUsed * 1000) / remainBirds : null,
+      // กินเฉลี่ย (กรัม/ตัว) = กินรวมวันนี้(กก.)×1000 ÷ ไก่คงเหลือ — ยังไม่ตั้งรุ่น → ใช้ยอดไก่จากหน้าผลผลิตแทน
+      gPerBird: (() => { const birds = remainBirds != null ? remainBirds : prodChickens(production, hid, day); return r && birds ? (feedUsed * 1000) / birds : null; })(),
     };
   });
   const sum = (f) => rows.reduce((s, x) => s + (f(x) || 0), 0);
@@ -3496,7 +3511,8 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
       water: waterUsage(rearingByDate, selHouse, d),
       ageWk: flockAgeWk(fl, d),
       pctDead: fl?.startCount ? (cum.dead / fl.startCount) * 100 : null,
-      gPerBird: remain ? (feedUsed * 1000) / remain : null,
+      // กินเฉลี่ย (กรัม/ตัว) — ยังไม่ตั้งรุ่น → ใช้ยอดไก่จากหน้าผลผลิตแทน
+      gPerBird: (() => { const birds = remain != null ? remain : prodChickens(production, selHouse, d); return birds ? (feedUsed * 1000) / birds : null; })(),
     };
   };
   // จัดกลุ่มเป็นสัปดาห์ (ตามอายุไก่ ถ้าตั้งรุ่นแล้ว; ไม่งั้นตามเดือนปฏิทิน) → แทรกแถว "ผลรวม" แบบฟอร์มกระดาษ
@@ -3583,7 +3599,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                     <th style={th}>รับอาหาร (กก.)</th>
                     <th style={th}>ใช้ไป (กก.)</th>
                     <th style={th}>คงเหลือไซโล</th>
-                    <th style={th}>กรัม/ตัว</th>
+                    <th style={th}>กินเฉลี่ย (กรัม/ตัว)</th>
                     <th style={th}>น้ำ (ยูนิต)</th>
                     <th style={{ ...th, textAlign: "left" }}>ยา/วัคซีน · หมายเหตุ</th>
                     <th style={th}></th>
@@ -3665,7 +3681,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
               <th style={{ ...th, color: "#15803D" }}>คงเหลือ (ตัว)</th>
               <th style={th}>เบอร์อาหาร</th>
               <th style={th}>กินรวม (กก.)</th>
-              <th style={th}>กรัม/ตัว</th>
+              <th style={th}>กินเฉลี่ย (กรัม/ตัว)</th>
               <th style={th}>คงเหลือไซโล (กก.)</th>
               <th style={th}>น้ำ (ยูนิต)</th>
               <th style={{ ...th, textAlign: "left" }}>ยา/วัคซีน</th>
@@ -3732,6 +3748,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
       {editHouse && (
         <RearingEditModal key={editHouse.hid + editHouse.date} houseId={editHouse.hid} dateISO={editHouse.date} data={rearingByDate[editHouse.date]?.[editHouse.hid]}
           siloRemain={feedRemain(rearingByDate, editHouse.hid, shiftDayISO(editHouse.date, -1), flocks[editHouse.hid])}
+          birds={(() => { const f = flocks[editHouse.hid]; return f?.startCount ? f.startCount - rearingCum(rearingByDate, editHouse.hid, shiftDayISO(editHouse.date, -1), f).total : prodChickens(production, editHouse.hid, editHouse.date); })()}
           onSave={(hid, dISO, d) => { saveRearing(dISO, hid, d); setEditHouse(null); }}
           onClose={() => setEditHouse(null)} />
       )}
