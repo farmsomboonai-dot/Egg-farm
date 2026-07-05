@@ -1,0 +1,13 @@
+# ให้ git ตรวจ text/binary อัตโนมัติ
+* text=auto
+
+# PowerShell — คง CRLF (serve.ps1 ต้องเป็น UTF-8 with BOM ห้ามแก้ encoding)
+*.ps1 text eol=crlf working-tree-encoding=UTF-8
+
+# ไฟล์ไบนารี — อย่าแปลง
+*.docx binary
+*.zip  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.ico  binary

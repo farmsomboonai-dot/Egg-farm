@@ -1,0 +1,20 @@
+# ===== ไฟล์ที่ไม่ต้องขึ้น git =====
+
+# ไฟล์ zip ต้นฉบับ (ซ้ำกับโค้ดใน app/ แล้ว)
+files.zip
+
+# ความลับ — ห้าม commit เด็ดขาด (service_role key, ฯลฯ)
+.env
+.env.*
+**/secrets.*
+**/*.secret.*
+supabase/.env
+
+# ค่าตั้งเฉพาะเครื่อง Claude Code (คง launch.json ไว้ให้ preview)
+.claude/settings.local.json
+
+# ขยะระบบ
+Thumbs.db
+.DS_Store
+*.log
+node_modules/
