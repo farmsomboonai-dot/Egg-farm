@@ -3273,7 +3273,7 @@ function HouseEditModal({ house, defaultDate, onClose, onSave }) {
 ============================================================ */
 const nf = (v) => { const n = parseFloat(String(v ?? "").replace(/,/g, "")); return isNaN(n) ? 0 : n; };
 const shiftDayISO = (iso, delta) => { const [y, m, d] = iso.split("-").map(Number); const dt = new Date(y, m - 1, d + delta); return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`; };
-const emptyRearing = () => ({ loss: { cull: "", deadAm: "", deadPm: "", deadWt: "" }, feed: { no: "", s1recv: "", s1used: "", s2recv: "", s2used: "" }, water: { m1: "", m2: "", m3: "", m4: "", m5: "", m6: "" }, light: { hours: "", lux: "" }, meds: "", note: "" });   // deadWt = นน.ไก่ตายชั่งรวมทุกตัว (กก.)
+const emptyRearing = () => ({ loss: { cull: "", deadAm: "", deadPm: "", deadWt: "" }, feed: { no: "", s1open: "", s1recv: "", s1used: "", s2open: "", s2recv: "", s2used: "" }, water: { m1: "", m2: "", m3: "", m4: "", m5: "", m6: "" }, light: { hours: "", lux: "" }, meds: "", note: "" });   // deadWt = นน.ไก่ตายชั่งรวม (กก.) · sNopen = อาหารยกมาจากวันก่อน (กก. — เว้นว่าง = ใช้ยอดทดต่อจากระบบ)
 // อายุไก่ (สัปดาห์) ณ วันที่ระบุ = อายุรับเข้า + สัปดาห์ที่ผ่านไปนับจากวันเริ่มเลี้ยง
 function flockAgeWk(flock, dateISO) {
   if (!flock || !flock.startDate || flock.startAgeWk == null || flock.startAgeWk === "") return null;
@@ -3293,7 +3293,8 @@ function rearingCum(rearingByDate, houseId, uptoISO, flock) {
   });
   return { cull, dead, total: cull + dead };
 }
-// อาหารคงเหลือต่อไซโล (rolling: Σรับ − Σใช้ ภายในรุ่น) จนถึงวันที่ระบุ
+// อาหารคงเหลือต่อไซโล (rolling: ยกมา + Σรับ − Σใช้ ภายในรุ่น) จนถึงวันที่ระบุ
+// วันไหนกรอก "ยกมา" (sNopen) ไว้ = ตั้งยอดต้นวันใหม่ตามที่กรอก (ใช้วันแรก/วันเช็คสต็อกจริง) — ทับยอดทดจากระบบ
 function feedRemain(rearingByDate, houseId, uptoISO, flock) {
   let s1 = 0, s2 = 0;
   Object.keys(rearingByDate).sort().forEach((d) => {
@@ -3301,6 +3302,8 @@ function feedRemain(rearingByDate, houseId, uptoISO, flock) {
     if (flock?.startDate && d < flock.startDate) return;
     const f = rearingByDate[d]?.[houseId]?.feed;
     if (!f) return;
+    if (f.s1open !== "" && f.s1open != null) s1 = nf(f.s1open);
+    if (f.s2open !== "" && f.s2open != null) s2 = nf(f.s2open);
     s1 += nf(f.s1recv) - nf(f.s1used); s2 += nf(f.s2recv) - nf(f.s2used);
   });
   return { s1, s2 };
@@ -3422,15 +3425,18 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, feedMin =
           <div style={{ fontWeight: 800, color: "#B45309", fontSize: 13, marginBottom: 8 }}>🌾 อาหาร (กก.)</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9, marginBottom: 8 }}>
             {fw("fno", "เบอร์อาหาร", <input ref={(el) => { refs.current[6] = el; }} onKeyDown={onKey(6)} onFocus={(e) => e.target.select()} className="prodInput pfFeed" type="text" placeholder="เช่น 324" style={{ ...cell, textAlign: "left" }} value={feed.no} onChange={(e) => setFeed((p) => ({ ...p, no: e.target.value }))} />, "#B45309")}
-            {fw("s1r", "ไซโล 1 · รับเข้า", <input {...numProps(7, "pfFeed")} value={feed.s1recv} onChange={(e) => setFeed((p) => ({ ...p, s1recv: dec(e.target.value) }))} />, "#B45309")}
-            {fw("s1u", "ไซโล 1 · ใช้ไป", <input {...numProps(8, "pfFeed")} value={feed.s1used} onChange={(e) => setFeed((p) => ({ ...p, s1used: dec(e.target.value) }))} />, "#B45309")}
-            <div />
-            {fw("s2r", "ไซโล 2 · รับเข้า", <input {...numProps(9, "pfFeed")} value={feed.s2recv} onChange={(e) => setFeed((p) => ({ ...p, s2recv: dec(e.target.value) }))} />, "#B45309")}
-            {fw("s2u", "ไซโล 2 · ใช้ไป", <input {...numProps(10, "pfFeed")} value={feed.s2used} onChange={(e) => setFeed((p) => ({ ...p, s2used: dec(e.target.value) }))} />, "#B45309")}
+            <div /><div />
+            {fw("s1o", "ไซโล 1 · ยกมาจากวันก่อน", <input {...numProps(7, "pfFeed")} placeholder={fmt1(siloRemain.s1)} title="เว้นว่าง = ใช้ยอดทดต่อจากระบบ (คงเหลือเมื่อวาน) · กรอก = ตั้งยอดตามที่เช็คจริง" value={feed.s1open} onChange={(e) => setFeed((p) => ({ ...p, s1open: dec(e.target.value) }))} />, "#B45309")}
+            {fw("s1r", "ไซโล 1 · รับเข้า", <input {...numProps(8, "pfFeed")} value={feed.s1recv} onChange={(e) => setFeed((p) => ({ ...p, s1recv: dec(e.target.value) }))} />, "#B45309")}
+            {fw("s1u", "ไซโล 1 · ใช้ไป", <input {...numProps(9, "pfFeed")} value={feed.s1used} onChange={(e) => setFeed((p) => ({ ...p, s1used: dec(e.target.value) }))} />, "#B45309")}
+            {fw("s2o", "ไซโล 2 · ยกมาจากวันก่อน", <input {...numProps(10, "pfFeed")} placeholder={fmt1(siloRemain.s2)} title="เว้นว่าง = ใช้ยอดทดต่อจากระบบ (คงเหลือเมื่อวาน) · กรอก = ตั้งยอดตามที่เช็คจริง" value={feed.s2open} onChange={(e) => setFeed((p) => ({ ...p, s2open: dec(e.target.value) }))} />, "#B45309")}
+            {fw("s2r", "ไซโล 2 · รับเข้า", <input {...numProps(11, "pfFeed")} value={feed.s2recv} onChange={(e) => setFeed((p) => ({ ...p, s2recv: dec(e.target.value) }))} />, "#B45309")}
+            {fw("s2u", "ไซโล 2 · ใช้ไป", <input {...numProps(12, "pfFeed")} value={feed.s2used} onChange={(e) => setFeed((p) => ({ ...p, s2used: dec(e.target.value) }))} />, "#B45309")}
           </div>
+          <div style={{ fontSize: 11.5, color: "#B45309", margin: "0 2px 6px" }}>ยกมา: เว้นว่าง = ระบบทดยอดคงเหลือของเมื่อวานให้อัตโนมัติ (เลขจาง ๆ ในช่อง) · กรอกเมื่อเช็คของจริงหน้าไซโล/วันแรกที่เริ่มใช้</div>
           <div style={{ fontSize: 12, color: "#92400E", margin: "0 2px 4px", display: "flex", justifyContent: "space-between" }}>
             <span>
-              {(() => { const r1 = siloRemain.s1 + nf(feed.s1recv) - nf(feed.s1used), r2 = siloRemain.s2 + nf(feed.s2recv) - nf(feed.s2used); return (<>
+              {(() => { const o1 = feed.s1open !== "" ? nf(feed.s1open) : siloRemain.s1, o2 = feed.s2open !== "" ? nf(feed.s2open) : siloRemain.s2, r1 = o1 + nf(feed.s1recv) - nf(feed.s1used), r2 = o2 + nf(feed.s2recv) - nf(feed.s2used); return (<>
                 คงเหลือ <span style={r1 < feedMin ? { color: "#B91C1C", fontWeight: 800 } : {}}>ไซโล1 {fmt1(r1)}{r1 < feedMin ? " ⚠️" : ""}</span> · <span style={r2 < feedMin ? { color: "#B91C1C", fontWeight: 800 } : {}}>ไซโล2 {fmt1(r2)}{r2 < feedMin ? " ⚠️" : ""}</span> กก.
               </>); })()}
             </span>
@@ -3441,7 +3447,7 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, feedMin =
         <div style={section("#EFF8FF", "#BAE0FD", "#0284C7")}>
           <div style={{ fontWeight: 800, color: "#0369A1", fontSize: 13, marginBottom: 8 }}>💧 มิเตอร์น้ำ (จดเลขมิเตอร์ 6 ตัว) · ระบบคิดผลต่างจากวันก่อนให้เอง</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9 }}>
-            {["m1", "m2", "m3", "m4", "m5", "m6"].map((k, i) => fw(k, `มิเตอร์ ${i + 1}`, <input {...numProps(11 + i, "pfWater")} value={water[k]} onChange={(e) => setWater((p) => ({ ...p, [k]: dec(e.target.value) }))} />, "#0369A1"))}
+            {["m1", "m2", "m3", "m4", "m5", "m6"].map((k, i) => fw(k, `มิเตอร์ ${i + 1}`, <input {...numProps(13 + i, "pfWater")} value={water[k]} onChange={(e) => setWater((p) => ({ ...p, [k]: dec(e.target.value) }))} />, "#0369A1"))}
           </div>
         </div>
 
@@ -3539,6 +3545,8 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
     const feedUsed = nf(r?.feed?.s1used) + nf(r?.feed?.s2used);
     return {
       d, r, cum, remain, silo, deadToday, deadWt, feedUsed,
+      // อาหารยกมาต้นวัน ต่อไซโล = ที่กรอกไว้ (sNopen) หรือยอดทดจากวันก่อน
+      feedOpen: (() => { const prev = feedRemain(rearingByDate, selHouse, shiftDayISO(d, -1), fl); return { s1: r?.feed?.s1open !== "" && r?.feed?.s1open != null ? nf(r.feed.s1open) : prev.s1, s2: r?.feed?.s2open !== "" && r?.feed?.s2open != null ? nf(r.feed.s2open) : prev.s2 }; })(),
       feedRecv: nf(r?.feed?.s1recv) + nf(r?.feed?.s2recv),
       water: waterUsage(rearingByDate, selHouse, d),
       ageWk: flockAgeWk(fl, d),
@@ -3657,6 +3665,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                     <th style={th}>%ตายสะสม</th>
                     <th style={{ ...th, color: "#15803D" }}>คงเหลือ (ตัว)</th>
                     <th style={th}>เบอร์อาหาร</th>
+                    <th style={th}>อาหารยกมา (กก.)</th>
                     <th style={th}>รับอาหาร (กก.)</th>
                     <th style={th}>ใช้ไป (กก.)</th>
                     <th style={th}>คงเหลือไซโล</th>
@@ -3680,6 +3689,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                       <td style={td} /><td style={td} />
                       <td style={{ ...td, color: "#15803D" }}>{b.items[b.items.length - 1].remain != null ? fmt(b.items[b.items.length - 1].remain) : ""}</td>
                       <td style={td} />
+                      <td style={td} />
                       <td style={td}>{fmt1(gsum(b.items, (x) => x.feedRecv))}</td>
                       <td style={td}>{fmt1(gsum(b.items, (x) => x.feedUsed))}</td>
                       <td style={td} /><td style={td} />
@@ -3702,6 +3712,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                       <td style={td}>{b.pctDead != null ? b.pctDead.toFixed(2) + "%" : "—"}</td>
                       <td style={{ ...td, fontWeight: 800, color: "#15803D" }}>{b.remain != null ? fmt(b.remain) : "—"}</td>
                       <td style={td}>{b.r?.feed?.no || "—"}</td>
+                      <td style={td}>{fmt1(b.feedOpen.s1)} · {fmt1(b.feedOpen.s2)}</td>
                       <td style={td}>{fmt1(b.feedRecv)}</td>
                       <td style={td}>{fmt1(b.feedUsed)}</td>
                       <td style={td}>
