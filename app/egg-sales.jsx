@@ -737,6 +737,12 @@ export default function App() {
     });
   };
 
+  // เสมียนบันทึกรับอาหารเข้า (ช่องทางที่ 2 — รีเช็คกับบันทึกของสัตวบาล) [{id,date,houseId,silo,kg,by,ts}]
+  const [feedDeliveries, setFeedDeliveries] = useState(() => { try { return JSON.parse(localStorage.getItem("eggFeedDeliveries") || "[]"); } catch { return []; } });
+  useEffect(() => { try { localStorage.setItem("eggFeedDeliveries", JSON.stringify(feedDeliveries)); } catch {} }, [feedDeliveries]);
+  const addFeedDelivery = (x) => setFeedDeliveries((prev) => [...prev, x]);
+  const deleteFeedDelivery = (id) => setFeedDeliveries((prev) => prev.filter((x) => x.id !== id));
+
   const [trayStock, setTrayStock] = useState({ ใหญ่: 1240, เล็ก: 860 });
   // รายการรับแผงคืนภายหลัง (RT) — ยกขึ้นมาไว้ส่วนกลาง เพื่อให้หน้าออกบิลเห็นยอดค้างแผงของลูกค้าด้วย
   const [trayRecords, setTrayRecords] = useState(TRAY_SEED);
@@ -859,7 +865,7 @@ export default function App() {
       {view === "dash" && <DashboardView bills={bills} payments={payments} />}
       {view === "stock" && <StockView salesByDay={salesByDay} productionByDate={productionByDate} defaultDay={stockDay} stockCounts={stockCounts} closeMeta={closeMeta} refPrices={refPrices} onCloseDay={closeDay} onReopenDay={reopenDay} />}
       {view === "prod" && <ProductionView houses={houses} setHouses={setHouses} prodDate={prodDate} setProdDate={setProdDate} production={productionByDate} />}
-      {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={saveRearing} flocks={flocks} saveFlock={saveFlock} production={productionByDate} />}
+      {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={saveRearing} flocks={flocks} saveFlock={saveFlock} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} />}
       {view === "tray" && <PanelTrayView trayStock={trayStock} setTrayStock={setTrayStock} bills={bills} trayRecords={trayRecords} setTrayRecords={setTrayRecords} />}
     </div>
   );
@@ -3273,7 +3279,16 @@ function HouseEditModal({ house, defaultDate, onClose, onSave }) {
 ============================================================ */
 const nf = (v) => { const n = parseFloat(String(v ?? "").replace(/,/g, "")); return isNaN(n) ? 0 : n; };
 const shiftDayISO = (iso, delta) => { const [y, m, d] = iso.split("-").map(Number); const dt = new Date(y, m - 1, d + delta); return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`; };
-const emptyRearing = () => ({ loss: { cull: "", deadAm: "", deadPm: "", deadWt: "" }, feed: { no: "", s1open: "", s1recv: "", s1used: "", s2open: "", s2recv: "", s2used: "" }, water: { m1: "", m2: "", m3: "", m4: "", m5: "", m6: "" }, light: { hours: "", lux: "" }, meds: "", note: "" });   // deadWt = นน.ไก่ตายชั่งรวม (กก.) · sNopen = อาหารยกมาจากวันก่อน (กก. — เว้นว่าง = ใช้ยอดทดต่อจากระบบ)
+const emptyRearing = () => ({ loss: { cull: "", deadAm: "", deadPm: "", deadWt: "" }, feed: { no: "", s1open: "", s1recv: "", s1used: "", s2open: "", s2recv: "", s2used: "" }, water: { m1: "", m2: "", m3: "", m4: "", m5: "", m6: "" }, light: { hours: "", lux: "" }, meds: "", medsList: [], note: "" });   // deadWt = นน.ไก่ตายชั่งรวม (กก.) · sNopen = อาหารยกมาจากวันก่อน · medsList = ยา/สารเสริมหลายรายการ [{name,period,qty,water,time}]
+// สรุปยา/สารเสริมสั้น ๆ สำหรับตาราง เช่น "Enro 13 ขวด · Calcium 2 ขวด" (ข้อมูลเก่าใช้ข้อความ meds เดิม)
+const medsSummary = (r) => {
+  if (r?.medsList?.length) return r.medsList.filter((m) => m.name).map((m) => `${m.name}${m.qty ? " " + m.qty + " ขวด" : ""}`).join(" · ");
+  return r?.meds || "";
+};
+const medsDetail = (r) => {
+  if (r?.medsList?.length) return r.medsList.filter((m) => m.name).map((m) => [m.period, m.name, m.qty ? m.qty + " ขวด" : "", m.water ? "ผสมน้ำ " + m.water + " ล." : "", m.time ? "เวลา " + m.time : ""].filter(Boolean).join(" ")).join("  |  ");
+  return r?.meds || "";
+};
 // อายุไก่ (สัปดาห์) ณ วันที่ระบุ = อายุรับเข้า + สัปดาห์ที่ผ่านไปนับจากวันเริ่มเลี้ยง
 function flockAgeWk(flock, dateISO) {
   if (!flock || !flock.startDate || flock.startAgeWk == null || flock.startAgeWk === "") return null;
@@ -3376,7 +3391,14 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, feedMin =
   const [feed, setFeed] = useState({ ...emptyRearing().feed, ...(d0.feed || {}) });
   const [water, setWater] = useState({ ...emptyRearing().water, ...(d0.water || {}) });
   const [light, setLight] = useState({ ...emptyRearing().light, ...(d0.light || {}) });
-  const [meds, setMeds] = useState(d0.meds || "");
+  // ยา/สารเสริม หลายรายการต่อวัน — ข้อมูลเก่า (ข้อความ meds) แปลงเป็นรายการแรกให้อัตโนมัติ
+  const [medsList, setMedsList] = useState(() => {
+    const l = Array.isArray(d0.medsList) ? d0.medsList.map((x) => ({ period: "เช้า", ...x })) : [];
+    if (!l.length && d0.meds) l.push({ name: d0.meds, period: "เช้า", qty: "", water: "", time: "" });
+    return l;
+  });
+  const upMed = (i, k, v) => setMedsList((p) => p.map((m, j) => j === i ? { ...m, [k]: v } : m));
+  const rmMed = (i) => setMedsList((p) => p.filter((_, j) => j !== i));
   const [note, setNote] = useState(d0.note || "");
   const refs = React.useRef([]); const saveRef = React.useRef(null);
   const onKey = (i) => (e) => { if (e.key !== "Enter") return; e.preventDefault(); const n = refs.current[i + 1]; if (n) n.focus(); else if (saveRef.current) saveRef.current.focus(); };
@@ -3452,20 +3474,100 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, feedMin =
         </div>
 
         <div style={section("#F0FDFA", "#99F6E4", "#0D9488")}>
-          <div style={{ fontWeight: 800, color: "#0F766E", fontSize: 13, marginBottom: 8 }}>💊 ยา / สารเสริม / วัคซีน · หมายเหตุ</div>
-          <input className="prodInput pfInsp" type="text" placeholder="เช่น วัคซีน ND-IB · วิตามินละลายน้ำ" value={meds} onChange={(e) => setMeds(e.target.value)}
-            style={{ ...cell, textAlign: "left", marginBottom: 8 }} />
+          <div style={{ fontWeight: 800, color: "#0F766E", fontSize: 13, marginBottom: 8 }}>💊 ยา / สารเสริม / วัคซีน · บันทึกได้หลายรายการต่อวัน</div>
+          {medsList.map((m, i) => (
+            <div key={i} style={{ background: "#fff", border: "1px solid #99F6E4", borderRadius: 10, padding: "8px 8px 4px", marginBottom: 7 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1.9fr 0.9fr auto", gap: 6, marginBottom: 6 }}>
+                <div><label style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: "#0F766E", marginBottom: 2 }}>ชื่อยา/สารเสริม</label>
+                  <input className="prodInput pfInsp" type="text" placeholder="เช่น Enro / Calcium-D3" value={m.name} onChange={(e) => upMed(i, "name", e.target.value)} style={{ ...cell, textAlign: "left", padding: "6px 8px", fontSize: 13 }} /></div>
+                <div><label style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: "#0F766E", marginBottom: 2 }}>ช่วง</label>
+                  <select value={m.period || "เช้า"} onChange={(e) => upMed(i, "period", e.target.value)} style={{ ...cell, textAlign: "left", padding: "6px 6px", fontSize: 13 }}>
+                    <option>เช้า</option><option>บ่าย</option><option>เย็น</option><option>ทั้งวัน</option>
+                  </select></div>
+                <button onClick={() => rmMed(i)} title="ลบรายการนี้" style={{ alignSelf: "end", border: "1px solid #FCA5A5", background: "#FEF2F2", color: "#B91C1C", borderRadius: 8, padding: "6px 9px", cursor: "pointer", fontWeight: 800 }}>✕</button>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.4fr", gap: 6, marginBottom: 4 }}>
+                <div><label style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: "#0F766E", marginBottom: 2 }}>จำนวน (ขวด)</label>
+                  <input className="prodInput pfInsp" type="text" inputMode="decimal" placeholder="0" value={m.qty} onChange={(e) => upMed(i, "qty", e.target.value.replace(/[^0-9.]/g, ""))} style={{ ...cell, padding: "6px 8px", fontSize: 13 }} /></div>
+                <div><label style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: "#0F766E", marginBottom: 2 }}>ผสมน้ำ (ลิตร)</label>
+                  <input className="prodInput pfInsp" type="text" inputMode="decimal" placeholder="0" value={m.water} onChange={(e) => upMed(i, "water", e.target.value.replace(/[^0-9.]/g, ""))} style={{ ...cell, padding: "6px 8px", fontSize: 13 }} /></div>
+                <div><label style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: "#0F766E", marginBottom: 2 }}>เวลาให้ (จาก - ถึง)</label>
+                  <input className="prodInput pfInsp" type="text" placeholder="เช่น 06.00 - 10.40" value={m.time} onChange={(e) => upMed(i, "time", e.target.value)} style={{ ...cell, textAlign: "left", padding: "6px 8px", fontSize: 13 }} /></div>
+              </div>
+            </div>
+          ))}
+          <button onClick={() => setMedsList((p) => [...p, { name: "", period: "เช้า", qty: "", water: "", time: "" }])}
+            style={{ border: "1.5px dashed #0D9488", background: "#fff", color: "#0F766E", borderRadius: 9, padding: "7px 14px", cursor: "pointer", fontSize: 12.5, fontWeight: 800, fontFamily: "inherit", marginBottom: 8 }}>＋ เพิ่มยา/สารเสริม</button>
+          {medsList.filter((m) => m.name).length > 0 && (
+            <div style={{ fontSize: 12, color: "#0F766E", fontWeight: 700, marginBottom: 8 }}>💊 รวมวันนี้: {medsList.filter((m) => m.name).map((m) => `${m.name}${m.qty ? " " + m.qty + " ขวด" : ""}`).join(" · ")}</div>
+          )}
           <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="หมายเหตุอื่น ๆ"
             style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #99F6E4", borderRadius: 9, fontSize: 13.5, fontFamily: "inherit", outline: "none", resize: "vertical" }} />
         </div>
 
-        <button ref={saveRef} style={S.primaryBtn} onClick={() => onSave(houseId, dateISO, { loss, feed, water, light, meds: meds.trim(), note: note.trim() })}>บันทึกการเลี้ยง {houseId}</button>
+        <button ref={saveRef} style={S.primaryBtn} onClick={() => onSave(houseId, dateISO, { loss, feed, water, light, meds: "", medsList: medsList.filter((m) => (m.name || "").trim()), note: note.trim() })}>บันทึกการเลี้ยง {houseId}</button>
       </div>
     </div>
   );
 }
 
-function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, production = {} }) {
+/* เสมียนบันทึก "รับอาหารเข้า" (ช่องทางที่ 2) — เสมียนรับรถส่งอาหารเป็นคนแรก
+   ระบบเอาตัวเลขนี้ไปรีเช็คกับ "รับเข้า" ที่สัตวบาลลงในบันทึกการเลี้ยงของวันเดียวกัน */
+function FeedDeliveryModal({ houseIds, defaultDate, deliveries, onAdd, onDelete, onClose }) {
+  const [date, setDate] = useState(defaultDate);
+  const [hid, setHid] = useState(houseIds[0] || "H2");
+  const [silo, setSilo] = useState("1");
+  const [kg, setKg] = useState("");
+  const [by, setBy] = useState("");
+  const inp = { width: "100%", padding: "9px 10px", border: "1.5px solid #e3ddd0", borderRadius: 9, fontSize: 14.5, fontFamily: "inherit", outline: "none" };
+  const lbl = { display: "block", fontSize: 12, fontWeight: 700, color: INK, marginBottom: 3 };
+  const dayList = (deliveries || []).filter((x) => x.date === date);
+  const save = () => {
+    if (!(parseFloat(kg) > 0)) return;
+    onAdd({ id: "fd" + Date.now(), date, houseId: hid, silo, kg: parseFloat(kg), by: by.trim(), ts: Date.now() });
+    setKg("");
+  };
+  return (
+    <div style={S.modalOverlay} onClick={onClose}>
+      <div style={{ ...S.modal, maxWidth: 470, maxHeight: "88vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <div style={S.modalHead}>
+          <div><div style={S.modalTitle}>🚚 รับอาหารเข้า (เสมียน)</div><div style={S.modalSub}>เสมียนกรอกตอนรับรถส่งอาหาร — ใช้รีเช็คกับบันทึกของสัตวบาลในเล้า</div></div>
+          <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
+        </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+          <div style={{ flex: 1.5 }}><label style={lbl}>วันที่รับ</label><ThaiDateField value={date} onChange={setDate} style={inp} /></div>
+          <div style={{ flex: 0.8 }}><label style={lbl}>โรงเรือน</label>
+            <select value={hid} onChange={(e) => setHid(e.target.value)} style={inp}>{houseIds.map((h) => <option key={h}>{h}</option>)}</select></div>
+          <div style={{ flex: 0.8 }}><label style={lbl}>ไซโล</label>
+            <select value={silo} onChange={(e) => setSilo(e.target.value)} style={inp}><option value="1">ไซโล 1</option><option value="2">ไซโล 2</option></select></div>
+        </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <div style={{ flex: 1 }}><label style={lbl}>น้ำหนักอาหาร (กก.)</label>
+            <input style={{ ...inp, textAlign: "right", fontWeight: 700 }} inputMode="decimal" placeholder="0" autoFocus value={kg}
+              onChange={(e) => setKg(e.target.value.replace(/[^0-9.]/g, "").replace(/(\..*)\./g, "$1"))}
+              onKeyDown={(e) => { if (e.key === "Enter") save(); }} /></div>
+          <div style={{ flex: 1 }}><label style={lbl}>ผู้บันทึก (เสมียน)</label>
+            <input style={inp} placeholder="ชื่อผู้รับของ" value={by} onChange={(e) => setBy(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") save(); }} /></div>
+        </div>
+        <button style={{ ...S.primaryBtn, marginBottom: 14, opacity: parseFloat(kg) > 0 ? 1 : 0.5 }} disabled={!(parseFloat(kg) > 0)} onClick={save}>＋ บันทึกรับอาหาร {hid} · ไซโล {silo}{parseFloat(kg) > 0 ? ` · ${fmt1(parseFloat(kg))} กก.` : ""}</button>
+        <div style={{ fontSize: 12.5, fontWeight: 800, color: "#7a6f5c", marginBottom: 6 }}>รายการรับของ {toThaiDate(date, false)} · {dayList.length} รายการ</div>
+        {dayList.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: "#9b8e78", padding: "8px 0 2px" }}>ยังไม่มีรายการรับอาหารของวันนี้</div>
+        ) : dayList.map((x) => (
+          <div key={x.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "#FDFAF3", border: "1px solid #eee3cd", borderRadius: 9, padding: "7px 10px", marginBottom: 6, fontSize: 13 }}>
+            <span style={{ fontWeight: 800 }}>{x.houseId}</span>
+            <span>ไซโล {x.silo}</span>
+            <span style={{ fontWeight: 800, color: "#B45309" }}>{fmt1(x.kg)} กก.</span>
+            {x.by ? <span style={{ color: "#9b8e78" }}>โดย {x.by}</span> : null}
+            <button onClick={() => onDelete(x.id)} title="ลบรายการ" style={{ marginLeft: "auto", border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 7, padding: "2px 8px", cursor: "pointer", fontWeight: 800 }}>✕</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, production = {}, feedDeliveries = [], addFeedDelivery, deleteFeedDelivery }) {
   const prodDates = Object.keys(production).sort();
   const houseIds = (production[prodDates[prodDates.length - 1]] || []).map((h) => h.id);
   const rearDates = Object.keys(rearingByDate).sort();
@@ -3503,6 +3605,21 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
     return out;
   }, [rearingByDate, flocks, feedMin, siloAct, houseIds.join(",")]);
   const anyFeedActivity = houseIds.some((h) => siloAct[h]?.s1 || siloAct[h]?.s2);
+  // รีเช็ครับอาหาร: เทียบยอดเสมียน (feedDeliveries) กับ "รับเข้า" ที่สัตวบาลลงไว้ ต่อ วัน/หลัง/ไซโล
+  const [showDelivery, setShowDelivery] = useState(false);
+  const feedRecheck = useMemo(() => {
+    const byKey = {};
+    (feedDeliveries || []).forEach((x) => { const k = x.date + "|" + x.houseId + "|" + x.silo; byKey[k] = (byKey[k] || 0) + (parseFloat(x.kg) || 0); });
+    return Object.keys(byKey).sort().reverse().map((k) => {
+      const [date, hid, silo] = k.split("|");
+      const f = rearingByDate[date]?.[hid]?.feed;
+      const keeper = f ? nf(silo === "1" ? f.s1recv : f.s2recv) : null;
+      return { date, hid, silo, clerk: byKey[k], keeper, diff: keeper == null ? null : byKey[k] - keeper };
+    });
+  }, [feedDeliveries, rearingByDate]);
+  const recheckMismatch = feedRecheck.filter((x) => x.diff != null && Math.abs(x.diff) > 0.001);
+  const recheckPending = feedRecheck.filter((x) => x.keeper == null);
+  const recheckMatched = feedRecheck.filter((x) => x.diff != null && Math.abs(x.diff) <= 0.001).length;
   const dayTH = toThaiDate(day);
   const dayData = rearingByDate[day] || {};
   // แนะนำจำนวนเริ่มเลี้ยงจากยอดไก่ในหน้าผลผลิต (วันแรกสุดที่มีข้อมูลของหลังนั้น)
@@ -3581,6 +3698,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <button style={chip(mode === "house")} onClick={() => setMode("house")}>📒 สมุดรายหลัง</button>
           <button style={chip(mode === "day")} onClick={() => setMode("day")}>ทุกหลัง · รายวัน</button>
+          <button style={{ ...chip(false), borderColor: "#B45309", color: "#B45309" }} onClick={() => setShowDelivery(true)}>🚚 รับอาหาร (เสมียน)</button>
           {mode === "day" && <>
             <button onClick={() => setDay(shiftDayISO(day, -1))} title="วันก่อนหน้า" style={{ padding: "6px 11px", border: `1px solid ${ACCENT}`, background: "#fff", color: ACCENT_DK, borderRadius: 8, fontSize: 15, fontWeight: 800, cursor: "pointer" }}>‹</button>
             <ThaiDateField value={day} onChange={setDay} style={{ padding: "7px 11px", border: `1px solid ${ACCENT}`, borderRadius: 8, fontSize: 13.5, background: "#fff", color: INK, fontWeight: 700 }} />
@@ -3617,6 +3735,27 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
           <span style={{ fontWeight: 600 }}>กก./ไซโล</span>
         </div>
       ))}
+
+      {/* รีเช็ครับอาหาร: เสมียน ↔ สัตวบาล (ต่อ วัน/หลัง/ไซโล) */}
+      {feedRecheck.length > 0 && (
+        <div style={{ background: recheckMismatch.length ? "#FFFBEB" : "#FDFAF3", border: `1px solid ${recheckMismatch.length ? "#FDE68A" : "#eee3cd"}`, borderRadius: 12, padding: "10px 14px", marginBottom: 12 }}>
+          <div style={{ fontWeight: 800, color: recheckMismatch.length ? "#92400E" : "#7a6f5c", fontSize: 13, marginBottom: recheckMismatch.length + recheckPending.length > 0 ? 8 : 0 }}>
+            🚚 รีเช็ครับอาหาร (เสมียน ↔ สัตวบาล){recheckMatched > 0 ? <span style={{ color: "#15803D", fontWeight: 700 }}> · ตรงกัน {recheckMatched} รายการ ✓</span> : null}
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {recheckMismatch.map((x, i) => (
+              <span key={"m" + i} style={{ border: "1px solid #FCD34D", background: "#fff", color: "#92400E", borderRadius: 999, padding: "4px 12px", fontSize: 12.5, fontWeight: 700 }}>
+                ⚠️ {toThaiDate(x.date, false)} · {x.hid} ไซโล {x.silo} — เสมียน {fmt1(x.clerk)} ≠ สัตวบาล {fmt1(x.keeper)} (ต่าง {x.diff > 0 ? "+" : ""}{fmt1(x.diff)} กก.)
+              </span>
+            ))}
+            {recheckPending.map((x, i) => (
+              <span key={"p" + i} style={{ border: "1px dashed #d8cdb6", background: "#fff", color: "#9b8e78", borderRadius: 999, padding: "4px 12px", fontSize: 12.5, fontWeight: 700 }}>
+                ⏳ {toThaiDate(x.date, false)} · {x.hid} ไซโล {x.silo} — เสมียนรับ {fmt1(x.clerk)} กก. · รอสัตวบาลลงบันทึก
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {mode === "house" && (
         <div>
@@ -3722,7 +3861,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                       </td>
                       <td style={td}>{b.gPerBird != null ? fmt1(b.gPerBird) : "—"}</td>
                       <td style={td}>{b.water != null ? fmt1(b.water) : "—"}</td>
-                      <td style={{ ...td, textAlign: "left", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }} title={(b.r?.meds || "") + (b.r?.note ? " · " + b.r.note : "")}>{b.r?.meds || (b.r?.note ? "📝" : "—")}</td>
+                      <td style={{ ...td, textAlign: "left", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }} title={medsDetail(b.r) + (b.r?.note ? " · " + b.r.note : "")}>{medsSummary(b.r) || (b.r?.note ? "📝" : "—")}</td>
                       <td style={td}><button onClick={() => setEditHouse({ hid: selHouse, date: b.d })} title="แก้ไขวันนี้" style={{ border: "1px solid #E8943A55", background: "#FFF7EC", color: ACCENT_DK, borderRadius: 7, padding: "2px 7px", cursor: "pointer" }}><Pencil size={12} /></button></td>
                     </tr>
                   ))}
@@ -3793,7 +3932,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                   <span style={siloAct[x.hid]?.s2 && x.silo.s2 < feedMin ? { color: "#B91C1C", fontWeight: 800 } : {}}>{fmt1(x.silo.s2)}</span>
                 </td>
                 <td style={td}>{x.water != null ? fmt1(x.water) : "—"}</td>
-                <td style={{ ...td, textAlign: "left", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }} title={(x.r?.meds || "") + (x.r?.note ? " · " + x.r.note : "")}>{x.r?.meds || (x.r?.note ? "📝" : "—")}</td>
+                <td style={{ ...td, textAlign: "left", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }} title={medsDetail(x.r) + (x.r?.note ? " · " + x.r.note : "")}>{medsSummary(x.r) || (x.r?.note ? "📝" : "—")}</td>
               </tr>
             ))}
             <tr style={{ background: "#F6F1E7", fontWeight: 800 }}>
@@ -3832,6 +3971,10 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
           feedMin={feedMin}
           onSave={(hid, dISO, d) => { saveRearing(dISO, hid, d); setEditHouse(null); }}
           onClose={() => setEditHouse(null)} />
+      )}
+      {showDelivery && (
+        <FeedDeliveryModal houseIds={houseIds} defaultDate={mode === "day" ? day : (rearDates[rearDates.length - 1] || isoFromTs(Date.now()))}
+          deliveries={feedDeliveries} onAdd={addFeedDelivery} onDelete={deleteFeedDelivery} onClose={() => setShowDelivery(false)} />
       )}
       {flockHouse && (
         <FlockModal key={flockHouse} houseId={flockHouse} flock={flocks[flockHouse]} suggestStart={suggestStart(flockHouse)}
