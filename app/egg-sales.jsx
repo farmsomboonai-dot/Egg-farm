@@ -3441,8 +3441,10 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
   const prodDates = Object.keys(production).sort();
   const houseIds = (production[prodDates[prodDates.length - 1]] || []).map((h) => h.id);
   const rearDates = Object.keys(rearingByDate).sort();
+  const [mode, setMode] = useState("house");          // "house" = สมุดรายหลัง (หลังละ 1 หน้า เหมือนฟอร์มกระดาษ) | "day" = รายวันทุกหลัง
+  const [selHouse, setSelHouse] = useState(houseIds[0] || "H2");
   const [day, setDay] = useState(() => rearDates[rearDates.length - 1] || prodDates[prodDates.length - 1] || isoFromTs(Date.now()));
-  const [editHouse, setEditHouse] = useState(null);   // houseId ที่กำลังกรอก
+  const [editHouse, setEditHouse] = useState(null);   // {hid, date} ที่กำลังกรอก
   const [flockHouse, setFlockHouse] = useState(null); // houseId ที่กำลังตั้งค่ารุ่น
   const dayTH = toThaiDate(day);
   const dayData = rearingByDate[day] || {};
@@ -3467,17 +3469,166 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
     };
   });
   const sum = (f) => rows.reduce((s, x) => s + (f(x) || 0), 0);
+  const chip = (active) => ({ padding: "6px 13px", borderRadius: 999, border: `1.5px solid ${active ? ACCENT_DK : "#e0d7c3"}`, background: active ? ACCENT_DK : "#fff", color: active ? "#fff" : "#7a6f5c", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" });
+
+  /* ---------- โหมด "สมุดรายหลัง" (หลังละ 1 หน้า เหมือนฟอร์มกระดาษ) ---------- */
+  const fl = flocks[selHouse];
+  const hDays = rearDates.filter((d) => rearingByDate[d]?.[selHouse]);
+  const lastRecDay = hDays[hDays.length - 1];
+  const newDay = lastRecDay ? shiftDayISO(lastRecDay, 1) : (prodDates[prodDates.length - 1] || isoFromTs(Date.now()));
+  const calcDay = (d) => {
+    const r = rearingByDate[d]?.[selHouse];
+    const cum = rearingCum(rearingByDate, selHouse, d, fl);
+    const remain = fl?.startCount ? fl.startCount - cum.total : null;
+    const silo = feedRemain(rearingByDate, selHouse, d, fl);
+    const deadToday = nf(r?.loss?.deadAm) + nf(r?.loss?.deadPm);
+    const feedUsed = nf(r?.feed?.s1used) + nf(r?.feed?.s2used);
+    return {
+      d, r, cum, remain, silo, deadToday, feedUsed,
+      feedRecv: nf(r?.feed?.s1recv) + nf(r?.feed?.s2recv),
+      water: waterUsage(rearingByDate, selHouse, d),
+      ageWk: flockAgeWk(fl, d),
+      pctDead: fl?.startCount ? (cum.dead / fl.startCount) * 100 : null,
+      gPerBird: remain ? (feedUsed * 1000) / remain : null,
+    };
+  };
+  // จัดกลุ่มเป็นสัปดาห์ (ตามอายุไก่ ถ้าตั้งรุ่นแล้ว; ไม่งั้นตามเดือนปฏิทิน) → แทรกแถว "ผลรวม" แบบฟอร์มกระดาษ
+  const weekKey = (d) => { const w = flockAgeWk(fl, d); return w != null ? "สัปดาห์อายุ " + w : "เดือน " + toThaiDate(d).split(" ").slice(1).join(" "); };
+  const bookRows = [];
+  {
+    let grp = [], key = null;
+    const flush = () => { if (grp.length) bookRows.push({ type: "sum", key, items: grp }); grp = []; };
+    hDays.forEach((d) => { const k = weekKey(d); if (key !== null && k !== key) flush(); key = k; const c = calcDay(d); bookRows.push({ type: "day", ...c }); grp.push(c); });
+    flush();
+  }
+  const gsum = (items, f) => items.reduce((s, x) => s + (f(x) || 0), 0);
+  const cumAll = rearingCum(rearingByDate, selHouse, "9999-12-31", fl);
+  const remainNow = fl?.startCount ? fl.startCount - cumAll.total : null;
+  const statCard = (label, value, color) => (
+    <div style={{ flex: 1, minWidth: 130, background: "#fff", border: "1px solid #eee3cd", borderRadius: 12, padding: "10px 14px" }}>
+      <div style={{ fontSize: 11.5, fontWeight: 700, color: "#9b8e78" }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 800, color: color || INK }}>{value}</div>
+    </div>
+  );
+
   return (
     <div style={{ padding: "18px 22px 40px" }}>
       <div style={S.subBar}>
-        <span style={S.subBarTitle}>การเลี้ยงไก่ไข่ · {dayTH}{rearDates.length > 0 ? <span style={{ fontSize: 12.5, fontWeight: 600, color: "#9b8e78" }}> · บันทึกแล้ว {rearDates.length} วัน</span> : null}</span>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button onClick={() => setDay(shiftDayISO(day, -1))} title="วันก่อนหน้า" style={{ padding: "6px 11px", border: `1px solid ${ACCENT}`, background: "#fff", color: ACCENT_DK, borderRadius: 8, fontSize: 15, fontWeight: 800, cursor: "pointer" }}>‹</button>
-          <ThaiDateField value={day} onChange={setDay} style={{ padding: "7px 11px", border: `1px solid ${ACCENT}`, borderRadius: 8, fontSize: 13.5, background: "#fff", color: INK, fontWeight: 700 }} />
-          <button onClick={() => setDay(shiftDayISO(day, 1))} title="วันถัดไป" style={{ padding: "6px 11px", border: `1px solid ${ACCENT}`, background: "#fff", color: ACCENT_DK, borderRadius: 8, fontSize: 15, fontWeight: 800, cursor: "pointer" }}>›</button>
+        <span style={S.subBarTitle}>การเลี้ยงไก่ไข่{mode === "house" ? <span style={{ fontSize: 30, verticalAlign: "middle", color: ACCENT_DK }}> · โรงเรือน {selHouse}</span> : ` · ${dayTH}`}{rearDates.length > 0 ? <span style={{ fontSize: 12.5, fontWeight: 600, color: "#9b8e78" }}> · บันทึกแล้ว {rearDates.length} วัน</span> : null}</span>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <button style={chip(mode === "house")} onClick={() => setMode("house")}>📒 สมุดรายหลัง</button>
+          <button style={chip(mode === "day")} onClick={() => setMode("day")}>ทุกหลัง · รายวัน</button>
+          {mode === "day" && <>
+            <button onClick={() => setDay(shiftDayISO(day, -1))} title="วันก่อนหน้า" style={{ padding: "6px 11px", border: `1px solid ${ACCENT}`, background: "#fff", color: ACCENT_DK, borderRadius: 8, fontSize: 15, fontWeight: 800, cursor: "pointer" }}>‹</button>
+            <ThaiDateField value={day} onChange={setDay} style={{ padding: "7px 11px", border: `1px solid ${ACCENT}`, borderRadius: 8, fontSize: 13.5, background: "#fff", color: INK, fontWeight: 700 }} />
+            <button onClick={() => setDay(shiftDayISO(day, 1))} title="วันถัดไป" style={{ padding: "6px 11px", border: `1px solid ${ACCENT}`, background: "#fff", color: ACCENT_DK, borderRadius: 8, fontSize: 15, fontWeight: 800, cursor: "pointer" }}>›</button>
+          </>}
         </div>
       </div>
 
+      {mode === "house" && (
+        <div>
+          {/* เลือกโรงเรือน — หลังละ 1 หน้า */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+            {houseIds.map((h) => <button key={h} style={chip(selHouse === h)} onClick={() => setSelHouse(h)}>{h}</button>)}
+          </div>
+          {/* หัวสมุด: ข้อมูลรุ่นการเลี้ยงของหลังนี้ */}
+          <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap", alignItems: "stretch" }}>
+            {statCard("รุ่นที่ / ฝูงที่", fl?.gen ? `${fl.gen}${fl.flock ? " / " + fl.flock : ""}` : "—")}
+            {statCard("จำนวนเริ่มเลี้ยง", fl?.startCount ? fmt(fl.startCount) + " ตัว" : "—")}
+            {statCard("วันที่เริ่มเลี้ยง · อายุรับเข้า", fl?.startDate ? `${toThaiDate(fl.startDate, false)} · ${fl.startAgeWk ?? "—"} สป.` : "—")}
+            {statCard("อายุวันนี้", (() => { const a = flockAgeWk(fl, isoFromTs(Date.now())); return a != null ? a + " สัปดาห์" : "—"; })())}
+            {statCard("ตายสะสม", fmt(cumAll.dead) + (fl?.startCount ? ` (${((cumAll.dead / fl.startCount) * 100).toFixed(2)}%)` : ""), cumAll.dead > 0 ? "#B91C1C" : undefined)}
+            {statCard("ไก่คงเหลือ", remainNow != null ? fmt(remainNow) + " ตัว" : "ตั้งรุ่นก่อน", "#15803D")}
+            <button onClick={() => setFlockHouse(selHouse)} style={{ alignSelf: "center", border: "1px solid #d8cdb6", background: "#fff", color: "#7a6f5c", borderRadius: 10, padding: "10px 14px", cursor: "pointer", fontSize: 13, fontWeight: 800, fontFamily: "inherit" }}>✎ ตั้งค่ารุ่น</button>
+          </div>
+          {/* ปุ่มกรอกวันถัดไป */}
+          <div style={{ marginBottom: 12 }}>
+            <button onClick={() => setEditHouse({ hid: selHouse, date: newDay })} style={{ ...S.primaryBtn, width: "auto", padding: "10px 18px", fontSize: 14.5 }}>＋ กรอกวันถัดไป · {toThaiDate(newDay, false)}</button>
+          </div>
+
+          {hDays.length === 0 ? (
+            <div style={{ background: "#fff", border: "1px dashed #d8cdb6", borderRadius: 14, padding: "34px 20px", textAlign: "center", color: "#9b8e78", fontWeight: 600 }}>
+              ยังไม่มีบันทึกการเลี้ยงของโรงเรือน {selHouse} — กด "＋ กรอกวันถัดไป" เพื่อเริ่มหน้าแรกของสมุด
+            </div>
+          ) : (
+            <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflow: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1150 }}>
+                <thead>
+                  <tr>
+                    <th style={{ ...th, textAlign: "left" }}>วันที่</th>
+                    <th style={th}>อายุ (สป.)</th>
+                    <th style={th}>ไฟ (ชม.)</th>
+                    <th style={th}>แสง Lux</th>
+                    <th style={th}>ไก่คัด</th>
+                    <th style={th}>ตายเช้า</th>
+                    <th style={th}>ตายบ่าย</th>
+                    <th style={th}>ตายรวม</th>
+                    <th style={th}>สะสม</th>
+                    <th style={th}>%ตายสะสม</th>
+                    <th style={{ ...th, color: "#15803D" }}>คงเหลือ (ตัว)</th>
+                    <th style={th}>เบอร์อาหาร</th>
+                    <th style={th}>รับอาหาร (กก.)</th>
+                    <th style={th}>ใช้ไป (กก.)</th>
+                    <th style={th}>คงเหลือไซโล</th>
+                    <th style={th}>กรัม/ตัว</th>
+                    <th style={th}>น้ำ (ยูนิต)</th>
+                    <th style={{ ...th, textAlign: "left" }}>ยา/วัคซีน · หมายเหตุ</th>
+                    <th style={th}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bookRows.map((b, i) => b.type === "sum" ? (
+                    <tr key={"s" + i} style={{ background: "#F6F1E7", fontWeight: 800 }}>
+                      <td style={{ ...td, textAlign: "left", color: "#7a6f5c" }}>ผลรวม · {b.key}</td>
+                      <td style={td} /><td style={td} /><td style={td} />
+                      <td style={td}>{fmt(gsum(b.items, (x) => nf(x.r?.loss?.cull)))}</td>
+                      <td style={td}>{fmt(gsum(b.items, (x) => nf(x.r?.loss?.deadAm)))}</td>
+                      <td style={td}>{fmt(gsum(b.items, (x) => nf(x.r?.loss?.deadPm)))}</td>
+                      <td style={{ ...td, color: "#B91C1C" }}>{fmt(gsum(b.items, (x) => x.deadToday))}</td>
+                      <td style={td} /><td style={td} />
+                      <td style={{ ...td, color: "#15803D" }}>{b.items[b.items.length - 1].remain != null ? fmt(b.items[b.items.length - 1].remain) : ""}</td>
+                      <td style={td} />
+                      <td style={td}>{fmt1(gsum(b.items, (x) => x.feedRecv))}</td>
+                      <td style={td}>{fmt1(gsum(b.items, (x) => x.feedUsed))}</td>
+                      <td style={td} /><td style={td} />
+                      <td style={td}>{fmt1(gsum(b.items, (x) => x.water))}</td>
+                      <td style={td} /><td style={td} />
+                    </tr>
+                  ) : (
+                    <tr key={b.d}>
+                      <td style={{ ...td, textAlign: "left", fontWeight: 700 }}>{toThaiDate(b.d, false)}</td>
+                      <td style={td}>{b.ageWk != null ? b.ageWk : "—"}</td>
+                      <td style={td}>{b.r?.light?.hours || "—"}</td>
+                      <td style={td}>{b.r?.light?.lux || "—"}</td>
+                      <td style={td}>{fmt(nf(b.r?.loss?.cull))}</td>
+                      <td style={td}>{fmt(nf(b.r?.loss?.deadAm))}</td>
+                      <td style={td}>{fmt(nf(b.r?.loss?.deadPm))}</td>
+                      <td style={{ ...td, fontWeight: 700, color: b.deadToday > 0 ? "#B91C1C" : undefined }}>{fmt(b.deadToday)}</td>
+                      <td style={td}>{fmt(b.cum.dead)}</td>
+                      <td style={td}>{b.pctDead != null ? b.pctDead.toFixed(2) + "%" : "—"}</td>
+                      <td style={{ ...td, fontWeight: 800, color: "#15803D" }}>{b.remain != null ? fmt(b.remain) : "—"}</td>
+                      <td style={td}>{b.r?.feed?.no || "—"}</td>
+                      <td style={td}>{fmt1(b.feedRecv)}</td>
+                      <td style={td}>{fmt1(b.feedUsed)}</td>
+                      <td style={td}>{fmt1(b.silo.s1)} · {fmt1(b.silo.s2)}</td>
+                      <td style={td}>{b.gPerBird != null ? fmt1(b.gPerBird) : "—"}</td>
+                      <td style={td}>{b.water != null ? fmt1(b.water) : "—"}</td>
+                      <td style={{ ...td, textAlign: "left", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }} title={(b.r?.meds || "") + (b.r?.note ? " · " + b.r.note : "")}>{b.r?.meds || (b.r?.note ? "📝" : "—")}</td>
+                      <td style={td}><button onClick={() => setEditHouse({ hid: selHouse, date: b.d })} title="แก้ไขวันนี้" style={{ border: "1px solid #E8943A55", background: "#FFF7EC", color: ACCENT_DK, borderRadius: 7, padding: "2px 7px", cursor: "pointer" }}><Pencil size={12} /></button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div style={{ fontSize: 12, color: "#9b8e78", marginTop: 10, lineHeight: 1.8 }}>
+            สมุดประจำโรงเรือน {selHouse} — 1 หลัง 1 หน้า เหมือนฟอร์มกระดาษ · แถว "ผลรวม" สรุปให้อัตโนมัติทุกสัปดาห์อายุไก่ · กด ✎ ท้ายแถวเพื่อแก้วันนั้น · <b>ไก่คงเหลือ = เริ่มเลี้ยง − คัดสะสม − ตายสะสม</b> และอัปเดตยอดไก่หน้าผลผลิตอัตโนมัติ
+          </div>
+        </div>
+      )}
+
+      {mode === "day" && (<>
       <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflow: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1080 }}>
           <thead>
@@ -3506,7 +3657,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
               <tr key={x.hid} style={{ background: x.r ? "#fff" : "#FDFAF3" }}>
                 <td style={{ ...td, textAlign: "left", fontWeight: 800 }}>
                   {x.hid}
-                  <button onClick={() => setEditHouse(x.hid)} title="กรอก/แก้ไขการเลี้ยงวันนี้" style={{ marginLeft: 6, border: "1px solid #E8943A55", background: "#FFF7EC", color: ACCENT_DK, borderRadius: 7, padding: "2px 7px", cursor: "pointer" }}><Pencil size={12} /></button>
+                  <button onClick={() => setEditHouse({ hid: x.hid, date: day })} title="กรอก/แก้ไขการเลี้ยงวันนี้" style={{ marginLeft: 6, border: "1px solid #E8943A55", background: "#FFF7EC", color: ACCENT_DK, borderRadius: 7, padding: "2px 7px", cursor: "pointer" }}><Pencil size={12} /></button>
                   <button onClick={() => setFlockHouse(x.hid)} title="ตั้งค่ารุ่นการเลี้ยง" style={{ marginLeft: 4, border: "1px solid #d8cdb6", background: "#fff", color: "#7a6f5c", borderRadius: 7, padding: "2px 7px", cursor: "pointer", fontSize: 11.5, fontWeight: 700 }}>รุ่น</button>
                 </td>
                 <td style={td}>{x.fl?.gen ? `${x.fl.gen}${x.fl.flock ? "/" + x.fl.flock : ""}` : <span style={{ color: "#c9c0ad" }}>—</span>}</td>
@@ -3552,10 +3703,11 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
         · <b>ไก่คงเหลือ = จำนวนเริ่มเลี้ยง − คัดสะสม − ตายสะสม</b> และจะอัปเดตยอดไก่ในหน้าผลผลิตของวันเดียวกันให้อัตโนมัติ
         · น้ำ = ผลต่างเลขมิเตอร์จากวันก่อนหน้าที่จดไว้ (รวม 6 ตัว) · คงเหลือไซโล = สะสม รับเข้า − ใช้ไป
       </div>
+      </>)}
 
       {editHouse && (
-        <RearingEditModal key={editHouse + day} houseId={editHouse} dateISO={day} data={dayData[editHouse]}
-          siloRemain={(() => { const s = feedRemain(rearingByDate, editHouse, shiftDayISO(day, -1), flocks[editHouse]); return s; })()}
+        <RearingEditModal key={editHouse.hid + editHouse.date} houseId={editHouse.hid} dateISO={editHouse.date} data={rearingByDate[editHouse.date]?.[editHouse.hid]}
+          siloRemain={feedRemain(rearingByDate, editHouse.hid, shiftDayISO(editHouse.date, -1), flocks[editHouse.hid])}
           onSave={(hid, dISO, d) => { saveRearing(dISO, hid, d); setEditHouse(null); }}
           onClose={() => setEditHouse(null)} />
       )}
