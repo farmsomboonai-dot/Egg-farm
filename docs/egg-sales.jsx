@@ -831,6 +831,32 @@ export default function App() {
     });
     return m;
   }, [medStock, rearingByDate]);
+  // 🌾 อาหารที่กินจริง ต่อเดือน/ต่อหลัง (กก. จากบันทึกการเลี้ยง ไซโล1+2) — × ราคาอาหาร = ค่าอาหารอัตโนมัติ
+  const [feedPrice, setFeedPrice] = useState(() => { const v = parseFloat(localStorage.getItem("eggFeedPrice")); return isNaN(v) ? 0 : v; });
+  useEffect(() => { try { localStorage.setItem("eggFeedPrice", String(feedPrice)); } catch {} }, [feedPrice]);
+  const feedUseByMonth = useMemo(() => {
+    const m = {};
+    Object.keys(rearingByDate).forEach((d) => {
+      const ym = d.slice(0, 7);
+      Object.entries(rearingByDate[d] || {}).forEach(([hid, r]) => {
+        const kg = (parseFloat(r?.feed?.s1used) || 0) + (parseFloat(r?.feed?.s2used) || 0);
+        if (!kg) return;
+        m[ym] = m[ym] || { kg: 0, byHouse: {} };
+        m[ym].kg += kg;
+        m[ym].byHouse[hid] = (m[ym].byHouse[hid] || 0) + kg;
+      });
+    });
+    return m;
+  }, [rearingByDate]);
+  const feedCostByMonth = useMemo(() => {
+    if (!feedPrice) return {};
+    const m = {};
+    Object.entries(feedUseByMonth).forEach(([ym, v]) => {
+      m[ym] = { total: v.kg * feedPrice, kg: v.kg, byHouse: {} };
+      Object.entries(v.byHouse).forEach(([hid, kg]) => { m[ym].byHouse[hid] = kg * feedPrice; });
+    });
+    return m;
+  }, [feedUseByMonth, feedPrice]);
 
   const [trayStock, setTrayStock] = useState({ ใหญ่: 1240, เล็ก: 860 });
   // รายการรับแผงคืนภายหลัง (RT) — ยกขึ้นมาไว้ส่วนกลาง เพื่อให้หน้าออกบิลเห็นยอดค้างแผงของลูกค้าด้วย
@@ -958,9 +984,9 @@ export default function App() {
         stockProps={{ salesByDay, productionByDate, defaultDay: stockDay, stockCounts, closeMeta, refPrices, onCloseDay: closeDay, onReopenDay: reopenDay }}
         prodProps={{ houses, setHouses, prodDate, setProdDate, production: productionByDate }} />}
       {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={saveRearing} flocks={flocks} saveFlock={saveFlock} production={productionByDate} medTrials={medTrials} medStock={medStock} medInfo={medInfo} />}
-      {view === "feed" && <FeedView rearingByDate={rearingByDate} flocks={flocks} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} />}
+      {view === "feed" && <FeedView rearingByDate={rearingByDate} flocks={flocks} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} feedPrice={feedPrice} setFeedPrice={setFeedPrice} feedUseByMonth={feedUseByMonth} />}
       {view === "med" && <MedView medTrials={medTrials} addMedTrial={addMedTrial} deleteMedTrial={deleteMedTrial} rearingByDate={rearingByDate} production={productionByDate} medStock={medStock} medInfo={medInfo} medReceipts={medReceipts} addMedItem={addMedItem} updateMedItem={updateMedItem} addMedReceipt={addMedReceipt} medCostByMonth={medCostByMonth} />}
-      {view === "cost" && <CostView expenses={expenses} addExpense={addExpense} deleteExpense={deleteExpense} production={productionByDate} medCostByMonth={medCostByMonth} bills={bills} />}
+      {view === "cost" && <CostView expenses={expenses} addExpense={addExpense} deleteExpense={deleteExpense} production={productionByDate} medCostByMonth={medCostByMonth} feedCostByMonth={feedCostByMonth} feedPrice={feedPrice} bills={bills} />}
       {view === "tray" && <PanelTrayView trayStock={trayStock} setTrayStock={setTrayStock} bills={bills} trayRecords={trayRecords} setTrayRecords={setTrayRecords} />}
     </div>
   );
@@ -3949,7 +3975,7 @@ function StockProdView({ stockProps, prodProps }) {
    หน้าจอ: อาหารไก่ — คงเหลือไซโล + เตือนใกล้หมด + รับอาหาร(เสมียน) + รีเช็ค 2 ฝั่ง
    (การกรอก "รับ/ใช้" รายวันยังอยู่ในแท็บ เก็บสถิติการเลี้ยง — หน้านี้คือมุมบริหารอาหาร)
 ============================================================ */
-function FeedView({ rearingByDate = {}, flocks = {}, production = {}, feedDeliveries = [], addFeedDelivery, deleteFeedDelivery }) {
+function FeedView({ rearingByDate = {}, flocks = {}, production = {}, feedDeliveries = [], addFeedDelivery, deleteFeedDelivery, feedPrice = 0, setFeedPrice, feedUseByMonth = {} }) {
   const prodDates = Object.keys(production).sort();
   const houseIds = (production[prodDates[prodDates.length - 1]] || []).map((h) => h.id);
   const rearDates = Object.keys(rearingByDate).sort();
@@ -4009,7 +4035,15 @@ function FeedView({ rearingByDate = {}, flocks = {}, production = {}, feedDelive
     <div style={{ padding: "18px 22px 40px" }}>
       <div style={S.subBar}>
         <span style={S.subBarTitle}>อาหารไก่ 🌾{anyAct ? <span style={{ fontSize: 12.5, fontWeight: 600, color: "#9b8e78" }}> · คงเหลือทดจากบันทึกการเลี้ยง</span> : null}</span>
-        <button onClick={() => setShowDelivery(true)} style={{ padding: "8px 16px", borderRadius: 999, border: "1.5px solid #B45309", background: "#B45309", color: "#fff", fontSize: 13.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>🚚 รับอาหารเข้า (เสมียน)</button>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ display: "inline-flex", gap: 6, alignItems: "center", fontSize: 12.5, fontWeight: 700, color: "#7a6f5c", background: "#fff", border: "1px solid #eee3cd", borderRadius: 999, padding: "6px 12px" }}>
+            ราคาอาหาร
+            <input inputMode="decimal" value={feedPrice || ""} placeholder="0" onChange={(e) => setFeedPrice && setFeedPrice(parseFloat(e.target.value.replace(/[^0-9.]/g, "")) || 0)}
+              style={{ width: 58, padding: "3px 7px", border: `1.5px solid ${feedPrice ? "#86C99A" : "#F5A9A9"}`, borderRadius: 7, fontSize: 13, textAlign: "right", fontFamily: "inherit", fontWeight: 800, outline: "none" }} />
+            บ./กก. {feedPrice ? "✓" : <span style={{ color: "#B91C1C" }}>← ตั้งเพื่อคิดค่าอาหารอัตโนมัติ</span>}
+          </span>
+          <button onClick={() => setShowDelivery(true)} style={{ padding: "8px 16px", borderRadius: 999, border: "1.5px solid #B45309", background: "#B45309", color: "#fff", fontSize: 13.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>🚚 รับอาหารเข้า (เสมียน)</button>
+        </div>
       </div>
 
       {anyAct && (feedAlerts.length > 0 ? (
@@ -4064,6 +4098,35 @@ function FeedView({ rearingByDate = {}, flocks = {}, production = {}, feedDelive
           </tbody>
         </table>
       </div>
+
+      {/* 📅 สรุปการกินอาหาร + ค่าอาหาร รายเดือน (จากบันทึกการเลี้ยง × ราคาอาหาร) */}
+      {Object.keys(feedUseByMonth).length > 0 && (
+        <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflow: "auto", marginBottom: 12 }}>
+          <div style={{ fontWeight: 800, fontSize: 13.5, color: "#7a6f5c", padding: "12px 14px 4px" }}>📅 สรุปการกินอาหารรายเดือน</div>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 620 }}>
+            <thead><tr>
+              <th style={{ ...th, textAlign: "left" }}>เดือน</th>
+              {houseIds.map((h) => <th key={h} style={th}>{h} (กก.)</th>)}
+              <th style={{ ...th, background: "#F5E6CE" }}>รวม (กก.)</th>
+              <th style={{ ...th, background: "#FDF0E0" }}>ค่าอาหาร (บ.)</th>
+            </tr></thead>
+            <tbody>
+              {Object.keys(feedUseByMonth).sort().reverse().map((ym) => {
+                const v = feedUseByMonth[ym];
+                return (
+                  <tr key={ym}>
+                    <td style={{ ...td, textAlign: "left", fontWeight: 800 }}>{toThaiDate(ym + "-01").split(" ").slice(1).join(" ")}</td>
+                    {houseIds.map((h) => <td key={h} style={td}>{v.byHouse[h] ? fmt1(v.byHouse[h]) : <span style={{ color: "#d6cdbb" }}>·</span>}</td>)}
+                    <td style={{ ...td, fontWeight: 800, background: "#FDF8EE" }}>{fmt1(v.kg)}</td>
+                    <td style={{ ...td, fontWeight: 800, background: "#FEF8F0", color: feedPrice ? "#B45309" : "#c9c0ad" }}>{feedPrice ? fmt(Math.round(v.kg * feedPrice)) : "ตั้งราคาก่อน"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div style={{ fontSize: 11.5, color: "#9b8e78", padding: "6px 14px 12px" }}>ค่าอาหาร = กก.ที่ใช้ (ไซโล 1+2 จากบันทึกการเลี้ยง) × ราคาอาหาร — เข้าบัญชีต้นทุนหมวด "ค่าอาหาร" อัตโนมัติ (🌾)</div>
+        </div>
+      )}
 
       {/* รีเช็ครับอาหาร: เสมียน ↔ สัตวบาล */}
       {feedRecheck.length > 0 && (
@@ -4233,6 +4296,33 @@ function MedView({ medTrials = [], addMedTrial, deleteMedTrial, rearingByDate = 
       </div>
       <div style={{ fontSize: 12, color: "#9b8e78", margin: "-6px 2px 14px" }}>เบิกใช้ = ระบบรวมจากบันทึกให้ยารายวันของสัตวบาล (แท็บ เก็บสถิติการเลี้ยง — พิมพ์ชื่อตรงกับสต๊อก) ตั้งแต่ 7 ก.ค. 69 · คงเหลือ = ยกมา + รับเข้า − เบิกใช้ · ค่ายาเข้าบัญชีต้นทุนหมวด "ค่ายา+วัสดุสิ้นเปลือง" อัตโนมัติ</div>
 
+      {/* 📅 สรุปค่ายารายเดือน (จากบันทึกให้ยา × ราคาสต๊อก) แยกต่อหลัง */}
+      {Object.keys(medCostByMonth).length > 0 && (
+        <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflow: "auto", marginBottom: 14 }}>
+          <div style={{ fontWeight: 800, fontSize: 13.5, color: "#7a6f5c", padding: "12px 14px 4px" }}>📅 สรุปค่ายารายเดือน</div>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 620 }}>
+            <thead><tr>
+              <th style={{ padding: "8px 10px", fontSize: 12, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", textAlign: "left" }}>เดือน</th>
+              {houseIds.map((h) => <th key={h} style={{ padding: "8px 10px", fontSize: 12, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", textAlign: "right" }}>{h} (บ.)</th>)}
+              <th style={{ padding: "8px 10px", fontSize: 12, fontWeight: 800, color: "#7A4F16", background: "#F5E6CE", borderBottom: "2px solid #e6ddca", textAlign: "right" }}>รวม (บ.)</th>
+            </tr></thead>
+            <tbody>
+              {Object.keys(medCostByMonth).sort().reverse().map((ym) => {
+                const v = medCostByMonth[ym];
+                const tdm = { padding: "8px 10px", fontSize: 13.5, textAlign: "right", borderBottom: "1px solid #eee7d8" };
+                return (
+                  <tr key={ym}>
+                    <td style={{ ...tdm, textAlign: "left", fontWeight: 800 }}>{toThaiDate(ym + "-01").split(" ").slice(1).join(" ")}</td>
+                    {houseIds.map((h) => <td key={h} style={tdm}>{v.byHouse[h] ? fmt(Math.round(v.byHouse[h])) : <span style={{ color: "#d6cdbb" }}>·</span>}</td>)}
+                    <td style={{ ...tdm, fontWeight: 800, background: "#FDF8EE" }}>{fmt(Math.round(v.total))}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {detected.length > 0 && (
         <div style={{ background: "#F0FDFA", border: "1px solid #99F6E4", borderRadius: 12, padding: "10px 12px", marginBottom: 12 }}>
           <div style={{ fontWeight: 800, color: "#0F766E", fontSize: 13, marginBottom: 7 }}>💊 ตรวจพบจากบันทึกยารายวัน — กดเพื่อดูผลได้ทันที ไม่ต้องกรอกซ้ำ</div>
@@ -4378,7 +4468,7 @@ function AddMedModal({ onSave, onClose }) {
 /* ============================================================
    หน้าจอ: บัญชีต้นทุน — ค่าใช้จ่าย 6 หมวด ระบุหลังได้ + สรุปรายเดือนต่อหมวด
 ============================================================ */
-function CostView({ expenses = [], addExpense, deleteExpense, production = {}, medCostByMonth = {}, bills = [] }) {
+function CostView({ expenses = [], addExpense, deleteExpense, production = {}, medCostByMonth = {}, feedCostByMonth = {}, feedPrice = 0, bills = [] }) {
   const prodDates = Object.keys(production).sort();
   const houseIds = (production[prodDates[prodDates.length - 1]] || []).map((h) => h.id);
   const [date, setDate] = useState(isoFromTs(Date.now()));
@@ -4396,24 +4486,32 @@ function CostView({ expenses = [], addExpense, deleteExpense, production = {}, m
   const monthKey = (d) => (d || "").slice(0, 7);                       // "2026-07"
   const monthTH = (mk) => { const [y, m] = mk.split("-").map(Number); return toThaiDate(`${mk}-01`).split(" ").slice(1).join(" "); };
   const thisMonth = monthKey(isoFromTs(Date.now()));
-  // สรุปรายเดือน × หมวด — รวม "ค่ายาอัตโนมัติ" จากบันทึกให้ยารายวัน (จำนวน × ราคาในสต๊อกยา) เข้าหมวดค่ายา
+  // สรุปรายเดือน × หมวด — รวมอัตโนมัติ: ค่ายา (บันทึกให้ยา × ราคาสต๊อก) + ค่าอาหาร (กก.ที่กิน × ราคา/กก.)
   const byMonth = useMemo(() => {
     const m = {};
+    const ensure = (mk) => (m[mk] = m[mk] || { total: 0, cats: {}, autoMed: 0, autoFeed: 0, autoFeedKg: 0 });
     expenses.forEach((x) => {
       const mk = monthKey(x.date); if (!mk) return;
-      m[mk] = m[mk] || { total: 0, cats: {}, autoMed: 0 };
-      m[mk].total += x.amount || 0;
-      m[mk].cats[x.cat] = (m[mk].cats[x.cat] || 0) + (x.amount || 0);
+      const b = ensure(mk);
+      b.total += x.amount || 0;
+      b.cats[x.cat] = (b.cats[x.cat] || 0) + (x.amount || 0);
     });
     Object.entries(medCostByMonth).forEach(([mk, v]) => {
       if (!v.total) return;
-      m[mk] = m[mk] || { total: 0, cats: {}, autoMed: 0 };
-      m[mk].total += v.total;
-      m[mk].cats["ค่ายา+วัสดุสิ้นเปลือง"] = (m[mk].cats["ค่ายา+วัสดุสิ้นเปลือง"] || 0) + v.total;
-      m[mk].autoMed = v.total;
+      const b = ensure(mk);
+      b.total += v.total;
+      b.cats["ค่ายา+วัสดุสิ้นเปลือง"] = (b.cats["ค่ายา+วัสดุสิ้นเปลือง"] || 0) + v.total;
+      b.autoMed = v.total;
+    });
+    Object.entries(feedCostByMonth).forEach(([mk, v]) => {
+      if (!v.total) return;
+      const b = ensure(mk);
+      b.total += v.total;
+      b.cats["ค่าอาหาร"] = (b.cats["ค่าอาหาร"] || 0) + v.total;
+      b.autoFeed = v.total; b.autoFeedKg = v.kg || 0;
     });
     return m;
-  }, [expenses, medCostByMonth]);
+  }, [expenses, medCostByMonth, feedCostByMonth]);
 
   // ---------- รายงานต้นทุนไข่รายเดือน (ตามวิธีบัญชีปัจจุบัน: ต้นทุน/ฟอง = รวมค่าใช้จ่าย ÷ ฟองรับเข้า) ----------
   // อัตราคิดต่อฟอง (แก้ได้): ค่าสายพันธุ์ 0.5 บ./ฟอง · ค่าเสื่อมโรงเรือน 0.30 บ./ฟอง — คิดจากฟองรับเข้าอัตโนมัติ
@@ -4449,6 +4547,7 @@ function CostView({ expenses = [], addExpense, deleteExpense, production = {}, m
       if (c === "ค่าสายพันธุ์") { amt += breedAuto; note = `อัตโนมัติ ${rates.breed} บ./ฟอง × ${fmt(eggs)} ฟอง`; }
       if (c === "ค่าเสื่อมโรงเรือน") { amt += depreAuto; note = `อัตโนมัติ ${rates.depre} บ./ฟอง × ${fmt(eggs)} ฟอง`; }
       if (c === "ค่ายา+วัสดุสิ้นเปลือง" && bm.autoMed) note = `รวมค่ายาจากบันทึกรายวัน ${fmt(Math.round(bm.autoMed))} บ.`;
+      if (c === "ค่าอาหาร" && bm.autoFeed) note = `รวมอัตโนมัติ ${fmt1(bm.autoFeedKg)} กก. × ${feedPrice} บ./กก. = ${fmt(Math.round(bm.autoFeed))} บ.`;
       return { cat: c, amt, note };
     });
     const total = lines.reduce((s, l) => s + l.amt, 0);
@@ -4572,10 +4671,12 @@ function CostView({ expenses = [], addExpense, deleteExpense, production = {}, m
                 <tr key={mk} style={mk === thisMonth ? { background: "#FFFBF2" } : undefined}>
                   <td style={{ ...td, textAlign: "left", fontWeight: 800 }}>{monthTH(mk)}{mk === thisMonth ? " ←" : ""}</td>
                   {EXPENSE_CATS.map((c) => {
-                    const isMedCat = c === "ค่ายา+วัสดุสิ้นเปลือง";
-                    const auto = isMedCat ? (byMonth[mk].autoMed || 0) : 0;
-                    return <td key={c} style={td} title={auto ? `รวมค่ายาอัตโนมัติจากบันทึกการให้ยา ${fmt(Math.round(auto))} บ.` : undefined}>
-                      {byMonth[mk].cats[c] ? <>{fmt(Math.round(byMonth[mk].cats[c]))}{auto ? <span style={{ fontSize: 10 }}> 💊</span> : null}</> : <span style={{ color: "#d6cdbb" }}>·</span>}
+                    const autoMed = c === "ค่ายา+วัสดุสิ้นเปลือง" ? (byMonth[mk].autoMed || 0) : 0;
+                    const autoFeed = c === "ค่าอาหาร" ? (byMonth[mk].autoFeed || 0) : 0;
+                    const tip = autoMed ? `รวมค่ายาอัตโนมัติจากบันทึกการให้ยา ${fmt(Math.round(autoMed))} บ.`
+                      : autoFeed ? `รวมค่าอาหารอัตโนมัติ ${fmt1(byMonth[mk].autoFeedKg)} กก. × ${feedPrice} บ./กก. = ${fmt(Math.round(autoFeed))} บ.` : undefined;
+                    return <td key={c} style={td} title={tip}>
+                      {byMonth[mk].cats[c] ? <>{fmt(Math.round(byMonth[mk].cats[c]))}{autoMed ? <span style={{ fontSize: 10 }}> 💊</span> : null}{autoFeed ? <span style={{ fontSize: 10 }}> 🌾</span> : null}</> : <span style={{ color: "#d6cdbb" }}>·</span>}
                     </td>;
                   })}
                   <td style={{ ...td, fontWeight: 800, background: "#FDF8EE" }}>{fmt(Math.round(byMonth[mk].total))}</td>
@@ -4602,7 +4703,7 @@ function CostView({ expenses = [], addExpense, deleteExpense, production = {}, m
           </div>
         ))}
       </div>
-      <div style={S.hint}>6 หมวดตามแผนต้นทุน: ค่าไฟ · ค่าแรง · ค่าอาหาร · ค่ายา+วัสดุสิ้นเปลือง · ค่าสายพันธุ์ · ค่าเสื่อมโรงเรือน — ระบุโรงเรือนได้เพื่อคิดต้นทุนต่อหลังต่อรุ่นในเฟสถัดไป (เทียบกับรายได้จากบิลขาย) · <b>💊 = รวมค่ายาที่คำนวณอัตโนมัติ</b>จากบันทึกให้ยารายวันของสัตวบาล × ราคาในสต๊อกยา (แท็บ ยาและวิตามิน) — ไม่ต้องกรอกซ้ำ</div>
+      <div style={S.hint}>6 หมวดตามแผนต้นทุน: ค่าไฟ · ค่าแรง · ค่าอาหาร · ค่ายา+วัสดุสิ้นเปลือง · ค่าสายพันธุ์ · ค่าเสื่อมโรงเรือน — <b>อัตโนมัติ 4 หมวด:</b> 💊 ค่ายา (บันทึกให้ยา × ราคาสต๊อก) · 🌾 ค่าอาหาร (กก.ที่กินจากบันทึกการเลี้ยง × ราคาอาหาร — ตั้งราคาในแท็บ อาหารไก่{feedPrice ? ` · ตอนนี้ ${feedPrice} บ./กก.` : " · ยังไม่ตั้งราคา"}) · ค่าสายพันธุ์+ค่าเสื่อม (อัตรา × ฟองรับเข้า) — <b>กรอกเองแค่ ค่าไฟ กับ ค่าแรง เดือนละครั้ง</b></div>
     </div>
   );
 }
