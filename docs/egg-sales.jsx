@@ -5160,6 +5160,8 @@ const CSS = `
   .pfLight:focus { border-color: #A21CAF !important; box-shadow: 0 0 0 3px rgba(162,28,175,.16); }
   ::-webkit-scrollbar { width: 8px; height: 8px; }
   ::-webkit-scrollbar-thumb { background: #e3ddd0; border-radius: 4px; }
+  /* บิลปัจจุบัน: panel เป็น flex + maxHeight — ห้าม flexbox บีบความสูงลูก ไม่งั้นกล่องยอดรับไข่วาดทับช่องราคา (ให้ panel เลื่อนแทน) */
+  #cart-panel > * { flex-shrink: 0; }
   @media (max-width: 900px) {
     [style*="grid-template-columns: 1fr 390px"] { grid-template-columns: 1fr !important; padding-bottom: 92px !important; }
     [style*="repeat(4, 1fr)"] { grid-template-columns: 1fr 1fr !important; }
