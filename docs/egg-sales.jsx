@@ -5408,8 +5408,7 @@ function TrayCustReportModal({ row, onClose }) {
     ...(row.brokenPending > 0 ? [`📦 แผงชำรุดที่ฟาร์มเก็บไว้รอส่งคืน ${fmt(row.brokenPending)} แผง`] : []),
     ...(row.carriedOwed > 0 ? [`⏳ แผงค้างคืน (ยกยอด) ${fmt(row.carriedOwed)} แผง`] : []),
     ...(row.chargedHeld > 0 ? [`🔵 แผงที่ยืมไป (จ่ายมัดจำแล้ว) ${fmt(row.chargedHeld)} แผง`] : []), ``,
-    `🔄 รบกวนนำแผงดีมาทดแทน ${fmt(row.owed)} แผง ในรอบส่งไข่ถัดไป`,
-    `แผงชำรุดทางฟาร์มจะส่งคืนพร้อมเที่ยวส่งไข่ค่ะ ขอบคุณค่ะ 🙏`,
+    `🔄 รบกวนนำแผงดี ${fmt(row.owed)} แผง มาแลกคืนแผงชำรุดในรอบรับไข่ถัดไปค่ะ 🙏`,
   ].join("\n");
   const copy = () => { if (navigator.clipboard) navigator.clipboard.writeText(lineText); setCopied(true); setTimeout(() => setCopied(false), 1800); };
   const saveImage = async () => {
@@ -5464,7 +5463,7 @@ function TrayCustReportModal({ row, onClose }) {
             </div>
           )}
           <div style={{ marginTop: 12, background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 9, padding: "8px 11px", fontSize: 12.5, color: "#7A4F16", fontWeight: 700 }}>
-            🔄 รบกวนนำแผงดีมาทดแทน {fmt(row.owed)} แผง ในรอบส่งไข่ถัดไป — แผงชำรุดทางฟาร์มจะส่งคืนพร้อมเที่ยวส่งไข่ค่ะ ขอบคุณค่ะ 🙏
+            🔄 รบกวนนำแผงดี {fmt(row.owed)} แผง มาแลกคืนแผงชำรุดในรอบรับไข่ถัดไปค่ะ 🙏
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
