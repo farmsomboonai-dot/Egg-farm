@@ -610,11 +610,13 @@ const TRAY_SEED = [];
 const TRAY_KINDS = ["ใหญ่", "เล็ก"];
 const sumTray = (o) => (o ? (o.ใหญ่ || 0) + (o.เล็ก || 0) : 0);
 
-// บัญชีแผงต่อลูกค้า: รวมยอดจากบิล (รับไป/คืนตอนซื้อ) + RT (คืนภายหลัง/คัดชำรุด)
-// กติกาคืนเกิน: ถ้าคืนมากกว่าที่ถืออยู่ (surplus) จะเอาไปหักยอด "ค้างทดแทน" (แผงชำรุด) ก่อน เหลือเท่าไรจึงเป็น "คืนเกิน" จริง
+// บัญชีแผงต่อลูกค้า: รวมยอดจากบิล (รับไป/คืนตอนซื้อ) + RT (คืนภายหลัง/คัดชำรุด) + สมุดเหตุการณ์ (events)
+// กติกาใหม่ 2026-07-06 (ตามหน้างานจริง): แผงชำรุดจากการคัด "สะสม" เป็นค้างทดแทนของลูกค้า
+//   - ไม่หักกับแผงดีที่คืนเกินอัตโนมัติ (ลูกค้าเอามาเผื่อ = แค่คืนแผง ไม่ใช่ทดแทน)
+//   - ตัดยอดเมื่อบันทึกเหตุการณ์ "replace" (รับแผงดีทดแทน) เท่านั้น · แผงชำรุดตัวจริงรอส่งคืนลูกค้า → เหตุการณ์ "brokenBack"
 // excludeBillNo: ใช้ตอนออกบิล เพื่อไม่นับบิลที่กำลังทำอยู่ (ยังไม่บันทึก)
-function trayAccountOf(customerId, bills, trayRecords, excludeBillNo) {
-  let billSent = 0, billReturned = 0, rtReturned = 0, brokenOwed = 0;
+function trayAccountOf(customerId, bills, trayRecords, excludeBillNo, trayEvents) {
+  let billSent = 0, billReturned = 0, rtReturned = 0, brokenOwed = 0, brokenAtFarm = 0;
   let blackSent = 0, blackReturned = 0, orangeSent = 0, orangeReturned = 0;  // แยกชนิด เพื่อคิดมูลค่ามัดจำ
   let chargedShort = 0, carriedShort = 0, chargedDeposit = 0;                // คืนขาด: คิดเงิน vs ยกค้างคืน
   (bills || []).forEach((b) => {
@@ -631,13 +633,25 @@ function trayAccountOf(customerId, bills, trayRecords, excludeBillNo) {
   (trayRecords || []).forEach((t) => {
     if (t.customerId !== customerId) return;
     if (!t.fromBill) rtReturned += sumTray(t.received);   // ใบจากบิลนับยอดคืนใน billReturned แล้ว → ไม่นับซ้ำ
-    if (t.sorted && t.status !== "ปิดรายการ") brokenOwed += sumTray(t.sorted.broken) - sumTray(t.replacedGood);
+    if (t.sorted) {
+      brokenOwed += Math.max(0, sumTray(t.sorted.broken) - sumTray(t.replacedGood));   // ชำรุดสะสม (หัก legacy ทดแทนต่อใบสมัยเก่า)
+      if (t.status !== "ส่งคืนแล้ว") brokenAtFarm += sumTray(t.sorted.broken);          // ชำรุดตัวจริงที่ยังอยู่ที่ฟาร์ม
+    }
+  });
+  // สมุดเหตุการณ์ระดับลูกค้า: รับแผงดีทดแทน (ตัดค้าง) / คืนแผงชำรุดให้ลูกค้า (ตัดกองที่ฟาร์ม)
+  let evReplace = 0, evBrokenBack = 0;
+  (trayEvents || []).forEach((e) => {
+    if (e.customerId !== customerId) return;
+    const q = (e.ใหญ่ || 0) + (e.เล็ก || 0);
+    if (e.type === "replace") evReplace += q;
+    else if (e.type === "brokenBack") evBrokenBack += q;
   });
   const balance = billSent - billReturned - rtReturned; // >0 = ยืมไป/ถืออยู่, <0 = คืนเกินกว่าที่ถือ
-  const surplus = Math.max(0, -balance);                // แผงที่คืนเกินกว่าที่ถืออยู่
-  const rawOwed = Math.max(0, brokenOwed);              // ค้างทดแทน (ก่อนหักคืนเกิน)
-  const owed = Math.max(0, rawOwed - surplus);          // ค้างทดแทน หลังหักคืนเกิน (item B)
-  const credit = Math.max(0, surplus - rawOwed);        // คืนเกินจริง (หลังชดเชยแผงชำรุดแล้ว)
+  const surplus = Math.max(0, -balance);                // แผงที่คืนเกินกว่าที่ถืออยู่ (ข้อมูลอ้างอิง — ไม่หักค้างทดแทน)
+  const rawOwed = Math.max(0, brokenOwed);              // ชำรุดสะสมทั้งหมด
+  const owed = Math.max(0, rawOwed - evReplace);        // ค้างทดแทน = ชำรุดสะสม − รับทดแทนแล้ว (เท่านั้น)
+  const brokenPending = Math.max(0, brokenAtFarm - evBrokenBack);   // ชำรุดที่ฟาร์มถือรอส่งคืนลูกค้า
+  const credit = surplus;                               // คืนเกิน (แสดงข้อมูล ไม่เอาไปหักอะไร)
   const owedBack = Math.max(0, balance);                // แผงที่ลูกค้ายืม/ถืออยู่ (จำนวน)
   // แยกชนิดแผงที่ยังถืออยู่ → คิดมูลค่ามัดจำที่จ่ายมาแล้ว (แผงคืนขาดถูกคิดเงินไปแล้ว = ไม่ใช่หนี้ แต่บันทึกไว้ว่ารอจ่ายคืน)
   let heldBlack = Math.max(0, blackSent - blackReturned);
@@ -654,7 +668,7 @@ function trayAccountOf(customerId, bills, trayRecords, excludeBillNo) {
   const carriedOwed = carriedShort - carriedCleared;   // ค้างคืน (ยกยอด ไม่คิดเงิน) ที่ยังเหลือ
   const chargedHeld = Math.max(0, chargedShort - Math.max(0, paidOff - carriedCleared)); // ยืมไป/จ่ายมัดจำ ที่ยังเหลือ
   const depositHeld = chargedShort > 0 ? Math.round(chargedDeposit * chargedHeld / chargedShort) : 0; // มัดจำของแผงที่ยังถืออยู่ (บาท)
-  return { billSent, billReturned, rtReturned, balance, surplus, rawOwed, owed, credit, owedBack, heldBlack, heldOrange, heldCount, carriedOwed, chargedHeld, depositHeld };
+  return { billSent, billReturned, rtReturned, balance, surplus, rawOwed, owed, credit, owedBack, heldBlack, heldOrange, heldCount, carriedOwed, chargedHeld, depositHeld, brokenPending, evReplace, evBrokenBack };
 }
 // ข้อความแยกแผงส้ม/ดำที่ยืมไป — เน้นแผงส้มก่อน (แผงส้มมีแค่ที่ฟาร์มเรา ลูกค้าเวียนที่อื่นไม่ได้)
 function heldBreakdown(acc) {
@@ -858,9 +872,17 @@ export default function App() {
     return m;
   }, [feedUseByMonth, feedPrice]);
 
-  const [trayStock, setTrayStock] = useState({ ใหญ่: 1240, เล็ก: 860 });
-  // รายการรับแผงคืนภายหลัง (RT) — ยกขึ้นมาไว้ส่วนกลาง เพื่อให้หน้าออกบิลเห็นยอดค้างแผงของลูกค้าด้วย
-  const [trayRecords, setTrayRecords] = useState(TRAY_SEED);
+  // สต็อกแผงดีในฟาร์ม + ใบรับแผงคืน (RT) — เก็บถาวร (เดิมอยู่แค่ในหน่วยความจำ รีเฟรชแล้วหาย)
+  const [trayStock, setTrayStock] = useState(() => { try { return { ใหญ่: 1240, เล็ก: 860, ...JSON.parse(localStorage.getItem("eggTrayStock") || "{}") }; } catch { return { ใหญ่: 1240, เล็ก: 860 }; } });
+  useEffect(() => { try { localStorage.setItem("eggTrayStock", JSON.stringify(trayStock)); } catch {} }, [trayStock]);
+  const [trayRecords, setTrayRecords] = useState(() => { try { const st = JSON.parse(localStorage.getItem("eggTrayRecords") || "[]"); return st.length ? st : TRAY_SEED; } catch { return TRAY_SEED; } });
+  useEffect(() => { try { localStorage.setItem("eggTrayRecords", JSON.stringify(trayRecords)); } catch {} }, [trayRecords]);
+  // สมุดเหตุการณ์แผงต่อลูกค้า (กติกาใหม่ 2026-07-06): ชำรุดสะสมจนกว่าจะบันทึก 2 เหตุการณ์นี้แยกกันคนละจังหวะ
+  // [{id, type: "replace"(รับแผงดีทดแทน — ตัดยอดค้าง) | "brokenBack"(คืนแผงชำรุดให้ลูกค้า), customerId, date(ISO), ใหญ่, เล็ก, by, ts}]
+  const [trayEvents, setTrayEvents] = useState(() => { try { return JSON.parse(localStorage.getItem("eggTrayEvents") || "[]"); } catch { return []; } });
+  useEffect(() => { try { localStorage.setItem("eggTrayEvents", JSON.stringify(trayEvents)); } catch {} }, [trayEvents]);
+  const addTrayEvent = (e) => setTrayEvents((prev) => [e, ...prev]);
+  const deleteTrayEvent = (id) => setTrayEvents((prev) => prev.filter((x) => x.id !== id));
 
   // ประวัติบิลทั้งหมด (ใช้ในประวัติบิล / บัญชี / แดชบอร์ด) — เก็บลง localStorage เพื่อเรียกดู/Export บิลเก่าย้อนหลังได้
   const [bills, setBills] = useState(() => { try { return JSON.parse(localStorage.getItem("eggBills") || "[]"); } catch { return []; } });
@@ -976,7 +998,7 @@ export default function App() {
         </nav>
       </header>
 
-      {view === "sales" && <SalesView stock={stock} addBill={addBill} bills={bills} payments={payments} trayStock={trayStock} setTrayStock={setTrayStock} trayRecords={trayRecords} drafts={drafts} setDrafts={setDrafts} />}
+      {view === "sales" && <SalesView stock={stock} addBill={addBill} bills={bills} payments={payments} trayStock={trayStock} setTrayStock={setTrayStock} trayRecords={trayRecords} trayEvents={trayEvents} drafts={drafts} setDrafts={setDrafts} />}
       {view === "bills" && <BillHistoryView bills={bills} payments={payments} />}
       {view === "account" && <AccountView bills={bills} payments={payments} recordPayment={recordPayment} />}
       {view === "dash" && <DashboardView bills={bills} payments={payments} />}
@@ -987,7 +1009,7 @@ export default function App() {
       {view === "feed" && <FeedView rearingByDate={rearingByDate} flocks={flocks} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} feedPrice={feedPrice} setFeedPrice={setFeedPrice} feedUseByMonth={feedUseByMonth} />}
       {view === "med" && <MedView medTrials={medTrials} addMedTrial={addMedTrial} deleteMedTrial={deleteMedTrial} rearingByDate={rearingByDate} production={productionByDate} medStock={medStock} medInfo={medInfo} medReceipts={medReceipts} addMedItem={addMedItem} updateMedItem={updateMedItem} addMedReceipt={addMedReceipt} medCostByMonth={medCostByMonth} />}
       {view === "cost" && <CostView expenses={expenses} addExpense={addExpense} deleteExpense={deleteExpense} production={productionByDate} medCostByMonth={medCostByMonth} feedCostByMonth={feedCostByMonth} feedPrice={feedPrice} bills={bills} />}
-      {view === "tray" && <PanelTrayView trayStock={trayStock} setTrayStock={setTrayStock} bills={bills} trayRecords={trayRecords} setTrayRecords={setTrayRecords} />}
+      {view === "tray" && <PanelTrayView trayStock={trayStock} setTrayStock={setTrayStock} bills={bills} trayRecords={trayRecords} setTrayRecords={setTrayRecords} trayEvents={trayEvents} addTrayEvent={addTrayEvent} deleteTrayEvent={deleteTrayEvent} />}
     </div>
   );
 }
@@ -1045,7 +1067,7 @@ async function printReceiptImage(elId = "delivery-note") {
 /* ============================================================
    หน้าจอ: ขายไข่  (ตรงตามฟอร์มบิลจริง)
 ============================================================ */
-function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, trayRecords = [], drafts = [], setDrafts }) {
+function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, trayRecords = [], trayEvents = [], drafts = [], setDrafts }) {
   const [customerId, setCustomerId] = useState(null);
   const [editingDraftId, setEditingDraftId] = useState(null);  // กำลังแก้บิลร่างใบไหนอยู่
   const [custSearch, setCustSearch] = useState("");
@@ -1166,7 +1188,7 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
   const orangeExcess = Math.max(0, orangeReturn - orangePanels);
   const trayExcess = blackExcess + orangeExcess;
   // บัญชีแผงเดิมของลูกค้า (ยอดค้างก่อนบิลนี้) — เพื่อให้พนักงานรู้ว่าควรเก็บคืนเพิ่มเท่าไร
-  const trayAccount = customerId ? trayAccountOf(customerId, bills, trayRecords) : null;
+  const trayAccount = customerId ? trayAccountOf(customerId, bills, trayRecords, null, trayEvents) : null;
 
   // รายการมัดจำสำหรับใบเสร็จ — เฉพาะโหมด "คิดเงิน" ; โหมด "ยกค้างคืน" ไม่คิดเงินจึงไม่มีบรรทัดมัดจำ
   const depositLines = shortMode === "carry" ? [] : [
@@ -5079,15 +5101,22 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
 /* ============================================================
    หน้าจอ: ระบบแผงดำ
 ============================================================ */
-function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], setTrayRecords }) {
+function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], setTrayRecords, trayEvents = [], addTrayEvent, deleteTrayEvent }) {
   const trays = trayRecords, setTrays = setTrayRecords;  // ใช้ state กลางจาก App (ยกขึ้นมาเพื่อแชร์กับหน้าออกบิล)
   const [sortModal, setSortModal] = useState(null);
   const [lineModal, setLineModal] = useState(null);
   const [replaceModal, setReplaceModal] = useState(null);
+  const [custAction, setCustAction] = useState(null);       // {mode: "replace"|"brokenBack", customerId} — บันทึกเหตุการณ์ระดับลูกค้า
   const [newReturn, setNewReturn] = useState(false);
   const [newReturnCust, setNewReturnCust] = useState("");   // ลูกค้าที่ preselect ตอนกด "รับคืนอีก" (ต่อกลุ่ม)
   const [tab, setTab] = useState("byCustomer"); // byCustomer | list
   const custName = (id) => CUSTOMERS.find((c) => c.id === id)?.name || "—";
+  // บันทึกเหตุการณ์ระดับลูกค้า: รับแผงดีทดแทน (แผงดีเข้าฟาร์ม + ตัดค้าง) / คืนแผงชำรุดให้ลูกค้า (ตัดกองชำรุดที่ฟาร์ม)
+  const applyCustAction = (mode, customerId, qty, dateISO, by) => {
+    addTrayEvent && addTrayEvent({ id: "TE" + Date.now(), type: mode, customerId, date: dateISO, ใหญ่: qty.ใหญ่ || 0, เล็ก: qty.เล็ก || 0, by: (by || "").trim(), ts: Date.now() });
+    if (mode === "replace") setTrayStock((prev) => ({ ใหญ่: prev.ใหญ่ + (qty.ใหญ่ || 0), เล็ก: prev.เล็ก + (qty.เล็ก || 0) }));
+    setCustAction(null);
+  };
 
   const summary = useMemo(() => {
     let waitingSort = 0, brokenToReturn = 0, replaceOwed = 0;
@@ -5103,7 +5132,7 @@ function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], 
   const byCustomer = useMemo(() => {
     const map = {};
     const ensure = (id) => {
-      if (!map[id]) map[id] = { customerId: id, name: custName(id), good: 0, broken: 0, trays: [] };
+      if (!map[id]) map[id] = { customerId: id, name: custName(id), good: 0, broken: 0, trays: [], events: [] };
       return map[id];
     };
     // ลงทะเบียนลูกค้าที่มีแผงจากบิล
@@ -5120,13 +5149,16 @@ function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], 
       if (t.sorted) { m.good += sumTray(t.sorted.good); m.broken += sumTray(t.sorted.broken); }
       m.trays.push(t);
     });
-    // ตัวเลขบัญชี (ค้างคืน/ค้างทดแทน/คืนเกิน) มาจาก helper กลางตัวเดียว
+    // เหตุการณ์ระดับลูกค้า (รับทดแทน/คืนชำรุด)
+    (trayEvents || []).forEach((e) => { ensure(e.customerId).events.push(e); });
+    // ตัวเลขบัญชี (ค้างคืน/ค้างทดแทน/ชำรุดรอส่งคืน) มาจาก helper กลางตัวเดียว
     return Object.values(map)
-      .map((m) => { const acc = trayAccountOf(m.customerId, bills, trays); return { ...m, ...acc, returnedTotal: acc.billReturned + acc.rtReturned }; })
-      .sort((a, b) => b.balance - a.balance);
-  }, [trays, bills]);
+      .map((m) => { const acc = trayAccountOf(m.customerId, bills, trays, null, trayEvents); return { ...m, ...acc, returnedTotal: acc.billReturned + acc.rtReturned }; })
+      .sort((a, b) => (b.owed + b.brokenPending) - (a.owed + a.brokenPending) || b.balance - a.balance);
+  }, [trays, bills, trayEvents]);
   const totalOwedBack = byCustomer.reduce((s, r) => s + r.owedBack, 0);
   const totalReplaceOwed = byCustomer.reduce((s, r) => s + r.owed, 0);
+  const totalBrokenPending = byCustomer.reduce((s, r) => s + (r.brokenPending || 0), 0);   // ชำรุดที่ฟาร์มรอส่งคืนลูกค้า
   const totalDepositHeld = byCustomer.reduce((s, r) => s + (r.depositHeld || 0), 0);  // มัดจำที่ลูกค้าจ่ายแล้ว (รอจ่ายคืน) รวม
   const totalOrangeHeld = byCustomer.reduce((s, r) => s + (r.heldOrange || 0), 0);    // แผงส้มที่ลูกค้ายืมไป (สำคัญสุด — มีแค่ฟาร์มเรา)
   const totalBlackHeld = byCustomer.reduce((s, r) => s + (r.heldBlack || 0), 0);
@@ -5168,7 +5200,7 @@ function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], 
         <div style={S.summaryGrid}>
           <SummaryCard icon={<RotateCcw size={18} />} label="แผงลูกค้าถืออยู่" value={totalOwedBack} tone={totalCarriedOwed > 0 ? "red" : "blue"} sub={`${totalCarriedOwed > 0 ? `ค้างคืน ${fmt(totalCarriedOwed)} · ` : ""}จ่ายมัดจำ ${fmt(totalDepositHeld)} บ. · 🟠 ${fmt(totalOrangeHeld)}`} />
           <SummaryCard icon={<Clock size={18} />} label="รอคัดแยก" value={summary.waitingSort} tone="amber" sub="＋ กดเพื่อรับแผงคืน" onClick={() => { setNewReturnCust(""); setNewReturn(true); }} />
-          <SummaryCard icon={<AlertCircle size={18} />} label="ค้างทดแทน" value={totalReplaceOwed} tone="red" />
+          <SummaryCard icon={<AlertCircle size={18} />} label="ค้างทดแทน (ชำรุดสะสม)" value={totalReplaceOwed} tone="red" sub={`ชำรุดรอส่งคืนลูกค้า ${fmt(totalBrokenPending)} แผง`} />
           <SummaryCard icon={<Package size={18} />} label="แผงดีในฟาร์ม" value={sumTray(trayStock)} tone="green" sub={`ใหญ่ ${fmt(trayStock.ใหญ่)} · เล็ก ${fmt(trayStock.เล็ก)}`} />
         </div>
 
@@ -5210,91 +5242,144 @@ function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], 
         ) : tab === "report" ? (
           <TraySortReport trays={trays} custName={custName} waitingSort={summary.waitingSort} />
         ) : (
-          <TrayByCustomer rows={byCustomer} />
+          <TrayByCustomer rows={byCustomer}
+            onReceive={(cid) => { setNewReturnCust(cid); setNewReturn(true); }}
+            onSort={(t) => setSortModal(t)}
+            onReplace={(cid) => setCustAction({ mode: "replace", customerId: cid })}
+            onBrokenBack={(cid) => setCustAction({ mode: "brokenBack", customerId: cid })}
+            onDeleteEvent={deleteTrayEvent} />
         )}
       </div>
       {sortModal && <SortModal tray={sortModal} custName={custName(sortModal.customerId)} onClose={() => setSortModal(null)} onApply={applySort} />}
       {replaceModal && <ReplaceModal tray={replaceModal} custName={custName(replaceModal.customerId)} onClose={() => setReplaceModal(null)} onApply={addReplacement} />}
       {lineModal && <LineModal tray={lineModal} custName={custName(lineModal.customerId)} onClose={() => setLineModal(null)} />}
-      {newReturn && <NewReturnModal initialCustomerId={newReturnCust} onClose={() => { setNewReturn(false); setNewReturnCust(""); }} onAdd={addReceive} bills={bills} trays={trays} />}
+      {custAction && <TrayCustActionModal mode={custAction.mode} custName={custName(custAction.customerId)}
+        acc={trayAccountOf(custAction.customerId, bills, trays, null, trayEvents)}
+        onClose={() => setCustAction(null)}
+        onApply={(qty, dateISO, by) => applyCustAction(custAction.mode, custAction.customerId, qty, dateISO, by)} />}
+      {newReturn && <NewReturnModal initialCustomerId={newReturnCust} onClose={() => { setNewReturn(false); setNewReturnCust(""); }} onAdd={addReceive} bills={bills} trays={trays} trayEvents={trayEvents} />}
     </>
   );
 }
 
-function TrayByCustomer({ rows }) {
+// วันที่ไทยสั้น "6/7/2569" → ISO เพื่อเรียงไทม์ไลน์ (ถ้าเป็น ISO อยู่แล้วคืนเดิม)
+function thShortToISO(s) {
+  if (!s) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s;
+  const m = String(s).match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (!m) return "";
+  return `${parseInt(m[3]) - 543}-${String(m[2]).padStart(2, "0")}-${String(m[1]).padStart(2, "0")}`;
+}
+
+/* สมุดแผงต่อลูกค้า — กติกาหน้างานจริง: ชำรุดสะสมจนกว่าจะ (1) รับแผงดีทดแทน (2) คืนแผงชำรุดให้ลูกค้า (2 จังหวะแยกกัน) */
+function TrayByCustomer({ rows, onReceive, onSort, onReplace, onBrokenBack, onDeleteEvent }) {
   const [expanded, setExpanded] = useState(null);
   if (rows.length === 0) return <div style={S.emptyState}><RotateCcw size={36} color="#d1d5db" /><div>ยังไม่มีข้อมูลแผง — ออกบิลที่มีแผง หรือกด “รับแผงคืน”</div></div>;
-
-  // ป้ายสถานะหลัก: ค้างคืน (ยกยอด หนี้จริง) > ยืมไป (จ่ายมัดจำแล้ว) > คืนเกิน > คืนครบ
-  const statusOf = (r) =>
-    r.carriedOwed > 0 ? { label: `ค้างคืน ${fmt(r.carriedOwed)} แผง`, c: "#B91C1C" }
-    : r.chargedHeld > 0 ? { label: `ยืมไป ${fmt(r.chargedHeld)} แผง`, c: "#1D4ED8" }
-    : r.credit > 0 ? { label: `คืนเกิน ${fmt(r.credit)} แผง`, c: "#1D4ED8" }
-    : { label: "คืนครบ", c: "#15803D" };
+  const actBtn = (color, bg) => ({ border: `1.5px solid ${color}`, background: bg, color, borderRadius: 9, padding: "7px 13px", cursor: "pointer", fontWeight: 800, fontSize: 12.5, fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 5 });
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {rows.map((r) => {
-        const open = expanded === r.customerId;
-        const bt = statusOf(r);
+        const open = expanded === r.customerId || rows.length === 1;
+        // ไทม์ไลน์: ใบรับคืน (RT) + เหตุการณ์ทดแทน/คืนชำรุด เรียงใหม่→เก่า
+        const timeline = [
+          ...r.trays.map((t) => ({ kind: "rt", iso: thShortToISO(t.date), t })),
+          ...(r.events || []).map((e) => ({ kind: e.type, iso: e.date || "", e })),
+        ].sort((a, b) => (b.iso || "").localeCompare(a.iso || "") || (b.e?.ts || 0) - (a.e?.ts || 0));
         return (
           <div key={r.customerId} style={S.byCustCard}>
-            <button style={S.byCustHead} onClick={() => setExpanded(open ? null : r.customerId)}>
+            <button style={S.byCustHead} onClick={() => setExpanded(open && rows.length > 1 ? null : r.customerId)}>
               <div style={S.byCustIcon}><User size={18} /></div>
               <div style={{ flex: 1, textAlign: "left" }}>
                 <div style={S.byCustName}>{r.name}</div>
-                <div style={S.byCustMeta}>รับไป {fmt(r.billSent)} · คืนแล้ว {fmt(r.returnedTotal)} · คัดดี {fmt(r.good)} แผง</div>
+                <div style={S.byCustMeta}>รับไป {fmt(r.billSent)} · คืนแล้ว {fmt(r.returnedTotal)} · คัดดี {fmt(r.good)} / ชำรุดสะสม {fmt(r.broken)} แผง</div>
               </div>
               <div style={{ textAlign: "right" }}>
-                {r.carriedOwed > 0 && <div style={{ fontWeight: 800, color: "#B91C1C" }}>ค้างคืน {fmt(r.carriedOwed)} แผง</div>}
-                {r.chargedHeld > 0 && <div style={{ fontWeight: 800, color: "#1D4ED8" }}>ยืมไป {fmt(r.chargedHeld)} แผง{r.depositHeld > 0 ? <span style={{ fontSize: 11.5, fontWeight: 600, color: "#6b6358" }}> · มัดจำ {fmt(r.depositHeld)}฿</span> : ""}</div>}
-                {r.carriedOwed === 0 && r.chargedHeld === 0 && <div style={{ fontWeight: 800, color: r.credit > 0 ? "#1D4ED8" : "#15803D" }}>{r.credit > 0 ? `คืนเกิน ${fmt(r.credit)} แผง` : "คืนครบ"}</div>}
-                {(r.heldOrange > 0 || r.heldBlack > 0) && (
-                  <div style={{ fontSize: 12 }}>
-                    {r.heldOrange > 0 && <b style={{ color: "#C2410C" }}>🟠 ส้ม {fmt(r.heldOrange)}</b>}
-                    {r.heldOrange > 0 && r.heldBlack > 0 && <span style={{ color: "#9b8e78" }}> · </span>}
-                    {r.heldBlack > 0 && <span style={{ color: "#6b6358" }}>⚫ ดำ {fmt(r.heldBlack)}</span>}
-                  </div>
-                )}
-                {r.owed > 0 && <div style={S.byCustOwed}>ค้างทดแทน {fmt(r.owed)}</div>}
+                {r.owed > 0
+                  ? <div style={{ fontWeight: 800, color: "#B91C1C", fontSize: 15 }}>ค้างทดแทน {fmt(r.owed)} แผง</div>
+                  : <div style={{ fontWeight: 800, color: "#15803D" }}>ไม่มีค้างทดแทน ✓</div>}
+                {r.brokenPending > 0 && <div style={{ fontSize: 12.5, fontWeight: 700, color: "#B45309" }}>ชำรุดรอส่งคืนลูกค้า {fmt(r.brokenPending)} แผง</div>}
+                {r.carriedOwed > 0 && <div style={{ fontSize: 12, color: "#B91C1C" }}>ค้างคืนแผง {fmt(r.carriedOwed)}</div>}
+                {r.chargedHeld > 0 && <div style={{ fontSize: 12, color: "#1D4ED8" }}>ยืมไป {fmt(r.chargedHeld)}{r.depositHeld > 0 ? ` · มัดจำ ${fmt(r.depositHeld)}฿` : ""}</div>}
               </div>
               <ChevronRight size={18} color="#9ca3af" style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform .2s" }} />
             </button>
             {open && (
               <div style={S.byCustDetail}>
-                <div style={{ fontSize: 12.5, color: "#6b6358", padding: "4px 2px 8px", borderBottom: "1px solid #f3f0e9", marginBottom: 6 }}>
-                  รับไปจากบิล {fmt(r.billSent)} · คืนตอนซื้อ {fmt(r.billReturned)} · คืนภายหลัง {fmt(r.rtReturned)}
-                  {(r.heldOrange > 0 || r.heldBlack > 0) && <span style={{ color: "#6b6358" }}> · ถืออยู่ {heldBreakdown(r)}</span>}
-                  {r.carriedOwed > 0 && <span style={{ color: "#B91C1C", fontWeight: 700 }}> · ค้างคืน {fmt(r.carriedOwed)} แผง (ยกยอด ไม่คิดเงิน = หนี้แผง)</span>}
-                  {r.chargedHeld > 0 && r.depositHeld > 0 && <span style={{ color: "#1D4ED8" }}> · จ่ายค่าแผง(มัดจำ)มาแล้ว {fmt(r.depositHeld)} บ. — รอจ่ายคืนถ้าเอาแผงมาคืน</span>}
-                  {r.rawOwed > r.owed && <span style={{ color: "#1D4ED8" }}> · คืนเกินไปหักค้างทดแทน {fmt(r.rawOwed - r.owed)} แผง</span>}
-                  {r.owed > 0 && <span style={{ color: "#B91C1C" }}> · ค้างทดแทน {fmt(r.owed)} แผง</span>}
+                {/* ปุ่มบันทึก 3 จังหวะของหน้างานจริง */}
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", padding: "6px 2px 10px", borderBottom: "1px solid #f3f0e9", marginBottom: 8 }}>
+                  <button style={actBtn("#B45309", "#FFF7EC")} onClick={(ev) => { ev.stopPropagation(); onReceive && onReceive(r.customerId); }}>📥 รับแผงคืน (เข้าคิวคัด)</button>
+                  <button style={actBtn("#15803D", "#F0FDF4")} onClick={(ev) => { ev.stopPropagation(); onReplace && onReplace(r.customerId); }}>🔁 รับแผงดีทดแทน{r.owed > 0 ? ` (ค้าง ${fmt(r.owed)})` : ""}</button>
+                  <button style={actBtn("#B91C1C", "#FEF2F2")} onClick={(ev) => { ev.stopPropagation(); onBrokenBack && onBrokenBack(r.customerId); }}>↩ คืนแผงชำรุดให้ลูกค้า{r.brokenPending > 0 ? ` (มี ${fmt(r.brokenPending)})` : ""}</button>
                 </div>
-                {r.trays.length === 0 && <div style={{ fontSize: 12.5, color: "#9b9384", padding: "2px 2px 4px" }}>ยังไม่มีรายการรับแผงคืนภายหลัง</div>}
-                {r.trays.map((t) => {
-                  const st = STATUS_STYLE[t.status];
-                  return (
-                    <div key={t.id} style={S.byCustTrayRow}>
-                      <div style={{ flex: 1 }}>
-                        <span style={S.byCustTrayNo}>{t.id}</span>
-                        <span style={{ ...S.statusPill, background: st.bg, color: st.c, marginLeft: 8 }}>{t.status}</span>
-                      </div>
-                      <div style={S.byCustTrayInfo}>
-                        <span>รับคืน {t.date}: {fmt(sumTray(t.received))} แผง</span>
-                        {t.sorted && <span> · ดี {fmt(sumTray(t.sorted.good))} / ชำรุด {fmt(sumTray(t.sorted.broken))}</span>}
-                        {t.sorted && (sumTray(t.received) - sumTray(t.sorted.good) - sumTray(t.sorted.broken)) > 0 && <span style={{ color: "#B45309" }}> · หาย {fmt(sumTray(t.received) - sumTray(t.sorted.good) - sumTray(t.sorted.broken))}</span>}
-                        {t.sortedDate && <span> · คัดแยก {t.sortedDate}</span>}
-                        {(t.replacements || []).map((r, i) => <span key={i} style={{ color: "#15803D" }}> · แลกแผงดี {fmt(sumTray(r))} ({r.date})</span>)}
-                        {t.sorted && t.status !== "ปิดรายการ" && (sumTray(t.sorted.broken) - sumTray(t.replacedGood)) > 0 && <span style={{ color: "#B91C1C" }}> · ค้างทดแทน {fmt(sumTray(t.sorted.broken) - sumTray(t.replacedGood))}</span>}
-                      </div>
+                {timeline.length === 0 && <div style={{ fontSize: 12.5, color: "#9b9384", padding: "2px 2px 4px" }}>ยังไม่มีรายการ — กด "รับแผงคืน" เมื่อลูกค้าเอาแผงมาคืน</div>}
+                {timeline.map((x, i) => x.kind === "rt" ? (
+                  <div key={"rt" + x.t.id} style={S.byCustTrayRow}>
+                    <div style={{ flex: 1 }}>
+                      <span style={S.byCustTrayNo}>{x.t.id}</span>
+                      <span style={{ ...S.statusPill, background: (STATUS_STYLE[x.t.status] || {}).bg, color: (STATUS_STYLE[x.t.status] || {}).c, marginLeft: 8 }}>{x.t.status}</span>
                     </div>
-                  );
-                })}
+                    <div style={{ ...S.byCustTrayInfo, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      <span>📥 {x.t.date} คืน {fmt(sumTray(x.t.received))} แผง</span>
+                      {x.t.sorted
+                        ? <span> → ✅ ดี {fmt(sumTray(x.t.sorted.good))} · <b style={{ color: "#B91C1C" }}>ชำรุด {fmt(sumTray(x.t.sorted.broken))}</b>{(sumTray(x.t.received) - sumTray(x.t.sorted.good) - sumTray(x.t.sorted.broken)) > 0 ? <span style={{ color: "#B45309" }}> · หาย {fmt(sumTray(x.t.received) - sumTray(x.t.sorted.good) - sumTray(x.t.sorted.broken))}</span> : null}{x.t.sorter ? <span style={{ color: "#9b8e78" }}> · คัดโดย {x.t.sorter}</span> : null}</span>
+                        : <button style={{ ...actBtn("#B45309", "#FFF7EC"), padding: "4px 11px", fontSize: 12 }} onClick={() => onSort && onSort(x.t)}>✂️ คัดแยกใบนี้</button>}
+                    </div>
+                  </div>
+                ) : (
+                  <div key={"ev" + x.e.id} style={{ ...S.byCustTrayRow, background: x.kind === "replace" ? "#F0FDF4" : "#FEF7F2", borderRadius: 8 }}>
+                    <div style={{ flex: 1, fontSize: 12.5, fontWeight: 700, color: x.kind === "replace" ? "#15803D" : "#B45309" }}>
+                      {x.kind === "replace" ? "🔁 รับแผงดีทดแทน" : "↩ คืนแผงชำรุดให้ลูกค้า"}
+                    </div>
+                    <div style={{ ...S.byCustTrayInfo, display: "flex", alignItems: "center", gap: 8 }}>
+                      <span>{toThaiDate(x.e.date, false)} · <b>{fmt((x.e.ใหญ่ || 0) + (x.e.เล็ก || 0))} แผง</b> (ใหญ่ {fmt(x.e.ใหญ่ || 0)} · เล็ก {fmt(x.e.เล็ก || 0)}){x.e.by ? ` · โดย ${x.e.by}` : ""}</span>
+                      <button title="ลบรายการนี้ (กรอกผิด)" onClick={() => { if (window.confirm("ลบรายการนี้? (ยอดจะคำนวณใหม่)")) onDeleteEvent && onDeleteEvent(x.e.id); }}
+                        style={{ border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 7, padding: "1px 7px", cursor: "pointer", fontWeight: 800, fontSize: 11 }}>✕</button>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/* โมดัลบันทึกเหตุการณ์ระดับลูกค้า: รับแผงดีทดแทน / คืนแผงชำรุดให้ลูกค้า */
+function TrayCustActionModal({ mode, custName, acc, onClose, onApply }) {
+  const isReplace = mode === "replace";
+  const [big, setBig] = useState("");
+  const [small, setSmall] = useState("");
+  const [date, setDate] = useState(isoFromTs(Date.now()));
+  const [by, setBy] = useState("");
+  const total = (parseInt(big) || 0) + (parseInt(small) || 0);
+  const refMax = isReplace ? acc?.owed : acc?.brokenPending;
+  const over = refMax != null && total > refMax;
+  const inp = { width: "100%", padding: "9px 10px", border: "1.5px solid #e3ddd0", borderRadius: 9, fontSize: 15, fontFamily: "inherit", outline: "none", textAlign: "right", boxSizing: "border-box" };
+  const lbl = { display: "block", fontSize: 12, fontWeight: 700, color: INK, marginBottom: 3 };
+  return (
+    <div style={S.modalOverlay} onClick={onClose}>
+      <div style={{ ...S.modal, maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+        <div style={S.modalHead}>
+          <div>
+            <div style={S.modalTitle}>{isReplace ? "🔁 รับแผงดีทดแทน" : "↩ คืนแผงชำรุดให้ลูกค้า"}</div>
+            <div style={S.modalSub}>{custName} · {isReplace ? `ค้างทดแทน ${fmt(acc?.owed || 0)} แผง` : `ชำรุดรอส่งคืน ${fmt(acc?.brokenPending || 0)} แผง`}</div>
+          </div>
+          <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
+        </div>
+        <div style={{ marginBottom: 10 }}><label style={lbl}>วันที่</label><ThaiDateField value={date} onChange={setDate} style={{ ...inp, textAlign: "left" }} /></div>
+        <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+          <div style={{ flex: 1 }}><label style={lbl}>แผงใหญ่</label><input style={inp} inputMode="numeric" placeholder="0" value={big} onChange={(e) => setBig(e.target.value.replace(/\D/g, ""))} autoFocus /></div>
+          <div style={{ flex: 1 }}><label style={lbl}>แผงเล็ก</label><input style={inp} inputMode="numeric" placeholder="0" value={small} onChange={(e) => setSmall(e.target.value.replace(/\D/g, ""))} /></div>
+        </div>
+        {isReplace && <div style={{ marginBottom: 10 }}><label style={lbl}>ผู้รับ (ชื่อ)</label><input style={{ ...inp, textAlign: "left" }} placeholder="เช่น อร" value={by} onChange={(e) => setBy(e.target.value)} /></div>}
+        {over && <div style={{ fontSize: 12.5, color: "#B45309", fontWeight: 700, marginBottom: 8 }}>⚠ เกินยอด{isReplace ? "ค้างทดแทน" : "ชำรุดที่รอส่งคืน"} ({fmt(refMax)} แผง) — บันทึกได้ ถ้าตัวเลขหน้างานเป็นแบบนี้จริง</div>}
+        <div style={{ fontSize: 12, color: "#9b8e78", marginBottom: 12 }}>{isReplace ? "แผงดีทดแทนจะเข้าคลังแผงฟาร์ม และตัดยอดค้างทดแทนของลูกค้า" : "ตัดยอดกองแผงชำรุดที่ฟาร์มถือรอส่งคืน — ไม่กระทบยอดค้างทดแทน"}</div>
+        <button disabled={total <= 0} onClick={() => onApply({ ใหญ่: parseInt(big) || 0, เล็ก: parseInt(small) || 0 }, date, by)}
+          style={{ ...S.primaryBtn, opacity: total > 0 ? 1 : 0.5 }}>{isReplace ? "บันทึกรับทดแทน" : "บันทึกคืนชำรุด"} {total > 0 ? `· ${fmt(total)} แผง` : ""}</button>
+      </div>
     </div>
   );
 }
@@ -5430,17 +5515,15 @@ function TrayCard({ tray, custName, onSort, onReturned, onAnnounce, onReplace })
         </div>
       )}
       <div style={S.trayActions}>
-        {tray.status === "รอคัด" && <button style={S.trayBtnPrimary} onClick={onSort}><ClipboardCheck size={15} /> คัดแยกแผง</button>}
-        {tray.status === "รอส่งคืน" && <>
-          <button style={S.trayBtnGhost} onClick={onAnnounce}><Send size={14} /> แจ้งลูกค้า (LINE)</button>
-          <button style={S.trayBtnPrimary} onClick={onReturned}><Truck size={15} /> ส่งแผงชำรุดคืนแล้ว</button></>}
-        {tray.status === "ส่งคืนแล้ว" && <>
-          <button style={S.trayBtnGhost} onClick={onAnnounce}><Copy size={14} /> ข้อความแจ้ง</button>
-          <button style={S.trayBtnPrimary} onClick={onReplace}><RotateCcw size={15} /> รับแผงดีทดแทน{owed > 0 ? ` (ค้าง ${fmt(owed)})` : ""}</button></>}
-        {tray.status === "ปิดรายการ" && (
-          <span style={S.trayClosed}>
-            <Check size={14} /> ปิดรายการแล้ว{tray.replacedDate ? ` · ทดแทนครบ ${tray.replacedDate}` : ""}
-          </span>
+        {tray.status === "รอคัด" ? (
+          <button style={S.trayBtnPrimary} onClick={onSort}><ClipboardCheck size={15} /> คัดแยกแผง</button>
+        ) : tray.status === "ปิดรายการ" ? (
+          <span style={S.trayClosed}><Check size={14} /> ปิดรายการแล้ว{tray.replacedDate ? ` · ทดแทนครบ ${tray.replacedDate}` : ""}</span>
+        ) : (
+          <>
+            <button style={S.trayBtnGhost} onClick={onAnnounce}><Send size={14} /> แจ้งลูกค้า (LINE)</button>
+            <span style={{ fontSize: 11.5, color: "#9b8e78", alignSelf: "center" }}>บันทึก รับทดแทน/คืนชำรุด ที่แท็บ "สรุปแยกลูกค้า"</span>
+          </>
         )}
       </div>
     </div>
@@ -5592,7 +5675,7 @@ function LineModal({ tray, custName, onClose }) {
 }
 
 // รับแผงคืน (ขั้นที่ 1) — บันทึกแผงที่ลูกค้าคืน แยกใหญ่/เล็ก → เข้าคิว "รอคัด" (คัดดี/ชำรุดในขั้นถัดไป)
-function NewReturnModal({ onClose, onAdd, bills = [], trays = [], initialCustomerId = "" }) {
+function NewReturnModal({ onClose, onAdd, bills = [], trays = [], trayEvents = [], initialCustomerId = "" }) {
   const [customerId, setCustomerId] = useState(initialCustomerId);
   const [received, setReceived] = useState({ ใหญ่: "", เล็ก: "" });
   const [recvDate, setRecvDate] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; });
@@ -5600,7 +5683,7 @@ function NewReturnModal({ onClose, onAdd, bills = [], trays = [], initialCustome
   const totalRecv = sumTray(rN);
   const recvDateTH = recvDate ? new Date(recvDate).toLocaleDateString("th-TH") : new Date().toLocaleDateString("th-TH");
   const valid = customerId && totalRecv > 0;
-  const acc = customerId ? trayAccountOf(customerId, bills, trays) : null;  // อ้างอิง: ลูกค้ายืมแผงไปเท่าไร (จากบิล)
+  const acc = customerId ? trayAccountOf(customerId, bills, trays, null, trayEvents) : null;  // อ้างอิง: ลูกค้ายืมแผงไปเท่าไร (จากบิล)
   const heldRef = acc ? acc.heldCount + acc.carriedOwed : 0;
   return (
     <div style={S.modalOverlay} onClick={onClose}>
