@@ -4,7 +4,7 @@ import {
   AlertCircle, ShoppingCart, RotateCcw, Copy, ClipboardCheck, Send, Truck, Clock,
   Warehouse, Egg, ArrowDownToLine, Image as ImageIcon,
   FileText, Wallet, LayoutDashboard, TrendingUp, Calendar, CheckCircle2, CircleDollarSign, QrCode, Pencil, Printer,
-  Bell, Settings,
+  Bell, Settings, Wheat, Pill, Calculator,
 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
@@ -549,6 +549,8 @@ const LAST_PRICES = {
 const REF_PRICE_FALLBACK = { n0: 130, n1: 120, n2: 110, n3: 100, n4: 90, n5: 85, s_white: 75, g_nuan: 60, g_sand: 55, g_pueanmak: 45, g_pueannoi: 50, g_bub: 70, g_jiw: 65, g_tok: 20, g_toklew: 20, g_tokdaeng: 25, s_jumbo: 140 };
 // สาเหตุส่วนต่างตอนปิดยอด (แท็กต่อรายการ)
 const DIFF_REASONS = ["แตก", "หาย", "แถม", "นับพลาด", "อื่นๆ"];
+// หมวดต้นทุน 6 หมวด (บัญชีต้นทุน — ตาม roadmap ต้นทุนต่อหลังต่อรุ่น)
+const EXPENSE_CATS = ["ค่าไฟ", "ค่าแรง", "ค่าอาหาร", "ค่ายา+วัสดุสิ้นเปลือง", "ค่าสายพันธุ์", "ค่าเสื่อมโรงเรือน"];
 
 // ---------- คลังรายวัน: ยกมา = คงเหลือเมื่อวาน (2/7/69) ----------
 const STOCK_OPENING = {
@@ -747,6 +749,11 @@ export default function App() {
   useEffect(() => { try { localStorage.setItem("eggMedTrials", JSON.stringify(medTrials)); } catch {} }, [medTrials]);
   const addMedTrial = (t) => setMedTrials((prev) => [...prev, t]);
   const deleteMedTrial = (id) => setMedTrials((prev) => prev.filter((x) => x.id !== id));
+  // 💰 บัญชีต้นทุน — ค่าใช้จ่าย 6 หมวด [{id, date, cat, houseId("" = ทั้งฟาร์ม), amount, note, ts}]
+  const [expenses, setExpenses] = useState(() => { try { return JSON.parse(localStorage.getItem("eggExpenses") || "[]"); } catch { return []; } });
+  useEffect(() => { try { localStorage.setItem("eggExpenses", JSON.stringify(expenses)); } catch {} }, [expenses]);
+  const addExpense = (x) => setExpenses((prev) => [x, ...prev]);
+  const deleteExpense = (id) => setExpenses((prev) => prev.filter((x) => x.id !== id));
 
   const [trayStock, setTrayStock] = useState({ ใหญ่: 1240, เล็ก: 860 });
   // รายการรับแผงคืนภายหลัง (RT) — ยกขึ้นมาไว้ส่วนกลาง เพื่อให้หน้าออกบิลเห็นยอดค้างแผงของลูกค้าด้วย
@@ -846,12 +853,14 @@ export default function App() {
           {[
             { id: "sales", icon: <ShoppingCart size={16} />, label: "ขายไข่" },
             { id: "bills", icon: <FileText size={16} />, label: "ประวัติบิล" },
-            { id: "account", icon: <Wallet size={16} />, label: "บัญชี/ลูกหนี้" },
+            { id: "account", icon: <Wallet size={16} />, label: "บัญชีลูกหนี้" },
             { id: "dash", icon: <LayoutDashboard size={16} />, label: "แดชบอร์ด" },
-            { id: "stock", icon: <Warehouse size={16} />, label: "คลังรายวัน" },
-            { id: "prod", icon: <Egg size={16} />, label: "ผลผลิต" },
-            { id: "rear", icon: <ClipboardCheck size={16} />, label: "การเลี้ยง" },
-            { id: "tray", icon: <RotateCcw size={16} />, label: "แผงไข่" },
+            { id: "stockprod", icon: <Warehouse size={16} />, label: "คลัง·ผลผลิต" },
+            { id: "tray", icon: <RotateCcw size={16} />, label: "บัญชีแผงไข่" },
+            { id: "rear", icon: <ClipboardCheck size={16} />, label: "เก็บสถิติการเลี้ยง" },
+            { id: "feed", icon: <Wheat size={16} />, label: "อาหารไก่" },
+            { id: "med", icon: <Pill size={16} />, label: "ยาและวิตามิน" },
+            { id: "cost", icon: <Calculator size={16} />, label: "บัญชีต้นทุน" },
           ].map((t) => (
             <button
               key={t.id}
@@ -868,9 +877,13 @@ export default function App() {
       {view === "bills" && <BillHistoryView bills={bills} payments={payments} />}
       {view === "account" && <AccountView bills={bills} payments={payments} recordPayment={recordPayment} />}
       {view === "dash" && <DashboardView bills={bills} payments={payments} />}
-      {view === "stock" && <StockView salesByDay={salesByDay} productionByDate={productionByDate} defaultDay={stockDay} stockCounts={stockCounts} closeMeta={closeMeta} refPrices={refPrices} onCloseDay={closeDay} onReopenDay={reopenDay} />}
-      {view === "prod" && <ProductionView houses={houses} setHouses={setHouses} prodDate={prodDate} setProdDate={setProdDate} production={productionByDate} />}
-      {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={saveRearing} flocks={flocks} saveFlock={saveFlock} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} medTrials={medTrials} addMedTrial={addMedTrial} deleteMedTrial={deleteMedTrial} />}
+      {view === "stockprod" && <StockProdView
+        stockProps={{ salesByDay, productionByDate, defaultDay: stockDay, stockCounts, closeMeta, refPrices, onCloseDay: closeDay, onReopenDay: reopenDay }}
+        prodProps={{ houses, setHouses, prodDate, setProdDate, production: productionByDate }} />}
+      {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={saveRearing} flocks={flocks} saveFlock={saveFlock} production={productionByDate} medTrials={medTrials} />}
+      {view === "feed" && <FeedView rearingByDate={rearingByDate} flocks={flocks} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} />}
+      {view === "med" && <MedView medTrials={medTrials} addMedTrial={addMedTrial} deleteMedTrial={deleteMedTrial} rearingByDate={rearingByDate} production={productionByDate} />}
+      {view === "cost" && <CostView expenses={expenses} addExpense={addExpense} deleteExpense={deleteExpense} production={productionByDate} />}
       {view === "tray" && <PanelTrayView trayStock={trayStock} setTrayStock={setTrayStock} bills={bills} trayRecords={trayRecords} setTrayRecords={setTrayRecords} />}
     </div>
   );
@@ -3796,20 +3809,36 @@ function FeedDeliveryModal({ houseIds, defaultDate, deliveries, onAdd, onDelete,
   );
 }
 
-function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, production = {}, feedDeliveries = [], addFeedDelivery, deleteFeedDelivery, medTrials = [], addMedTrial, deleteMedTrial }) {
+/* ============================================================
+   หน้าจอ: คลัง·ผลผลิต — ยุบ คลังรายวัน + ผลผลิต เป็นแท็บเดียว (สลับด้วยชิปย่อย)
+============================================================ */
+function StockProdView({ stockProps, prodProps }) {
+  const [sub, setSub] = useState("stock");
+  const chip = (a) => ({ padding: "8px 20px", borderRadius: 999, border: `1.5px solid ${a ? ACCENT_DK : "#e0d7c3"}`, background: a ? ACCENT_DK : "#fff", color: a ? "#fff" : "#7a6f5c", fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" });
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 10, justifyContent: "center", padding: "16px 22px 0" }}>
+        <button style={chip(sub === "stock")} onClick={() => setSub("stock")}>🏬 คลังรายวัน</button>
+        <button style={chip(sub === "prod")} onClick={() => setSub("prod")}>🥚 ผลผลิต</button>
+      </div>
+      {sub === "stock" ? <StockView {...stockProps} /> : <ProductionView {...prodProps} />}
+    </div>
+  );
+}
+
+/* ============================================================
+   หน้าจอ: อาหารไก่ — คงเหลือไซโล + เตือนใกล้หมด + รับอาหาร(เสมียน) + รีเช็ค 2 ฝั่ง
+   (การกรอก "รับ/ใช้" รายวันยังอยู่ในแท็บ เก็บสถิติการเลี้ยง — หน้านี้คือมุมบริหารอาหาร)
+============================================================ */
+function FeedView({ rearingByDate = {}, flocks = {}, production = {}, feedDeliveries = [], addFeedDelivery, deleteFeedDelivery }) {
   const prodDates = Object.keys(production).sort();
   const houseIds = (production[prodDates[prodDates.length - 1]] || []).map((h) => h.id);
   const rearDates = Object.keys(rearingByDate).sort();
-  const [mode, setMode] = useState("house");          // "house" = สมุดรายหลัง (หลังละ 1 หน้า เหมือนฟอร์มกระดาษ) | "day" = รายวันทุกหลัง
-  const [selHouse, setSelHouse] = useState(houseIds[0] || "H2");
-  const [day, setDay] = useState(() => rearDates[rearDates.length - 1] || prodDates[prodDates.length - 1] || isoFromTs(Date.now()));
-  const [editHouse, setEditHouse] = useState(null);   // {hid, date} ที่กำลังกรอก
-  const [flockHouse, setFlockHouse] = useState(null); // houseId ที่กำลังตั้งค่ารุ่น
-  const [afterFlock, setAfterFlock] = useState(null); // วันแรกของรุ่น: เซฟหน้ารุ่นเสร็จ → เปิดหน้ากรอกรายวันต่อทันที ({hid,date})
-  // เกณฑ์เตือนอาหารใกล้หมด (กก./ไซโล) — แก้ได้ในแถบเตือน, เก็บถาวร
+  const [showDelivery, setShowDelivery] = useState(false);
+  // เกณฑ์เตือนอาหารใกล้หมด (กก./ไซโล) — คีย์เดียวกับที่ฟอร์มการเลี้ยงใช้เตือนในหน้ากรอก
   const [feedMin, setFeedMin] = useState(() => { const v = parseFloat(localStorage.getItem("eggFeedAlertMin")); return isNaN(v) ? 4000 : v; });
   useEffect(() => { try { localStorage.setItem("eggFeedAlertMin", String(feedMin)); } catch {} }, [feedMin]);
-  // ไซโลไหน "ใช้งานจริง" (เคยบันทึก รับ/ใช้ อย่างน้อย 1 ครั้ง) — เตือนเฉพาะไซโลที่ใช้งาน
+  // ไซโลที่ "ใช้งานจริง" (เคยบันทึกรับ/ใช้) — โชว์/เตือนเฉพาะไซโลที่ใช้งาน
   const siloAct = useMemo(() => {
     const m = {};
     houseIds.forEach((hid) => { m[hid] = { s1: false, s2: false }; });
@@ -3822,23 +3851,428 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
     });
     return m;
   }, [rearingByDate, houseIds.join(",")]);
-  // แจ้งเตือน: ไซโลที่ใช้งานจริง และคงเหลือปัจจุบัน (สะสมทั้งหมด) < เกณฑ์
-  const feedAlerts = useMemo(() => {
-    const out = [];
-    houseIds.forEach((hid) => {
-      const a = siloAct[hid]; if (!a || (!a.s1 && !a.s2)) return;
-      const rem = feedRemain(rearingByDate, hid, "9999-12-31", flocks[hid]);
-      if (a.s1 && rem.s1 < feedMin) out.push({ hid, silo: 1, remain: rem.s1 });
-      if (a.s2 && rem.s2 < feedMin) out.push({ hid, silo: 2, remain: rem.s2 });
+  const rows = houseIds.map((hid) => {
+    const rem = feedRemain(rearingByDate, hid, "9999-12-31", flocks[hid]);
+    const a = siloAct[hid] || { s1: false, s2: false };
+    const low = (a.s1 && rem.s1 < feedMin) || (a.s2 && rem.s2 < feedMin);
+    // กินไปวันล่าสุดที่มีบันทึกของหลังนี้
+    let lastUsed = null, lastDay = null;
+    for (let i = rearDates.length - 1; i >= 0; i--) {
+      const f = rearingByDate[rearDates[i]]?.[hid]?.feed;
+      if (f && (nf(f.s1used) || nf(f.s2used))) { lastUsed = nf(f.s1used) + nf(f.s2used); lastDay = rearDates[i]; break; }
+    }
+    return { hid, rem, act: a, low, lastUsed, lastDay };
+  });
+  const feedAlerts = rows.flatMap((r) => [
+    ...(r.act.s1 && r.rem.s1 < feedMin ? [{ hid: r.hid, silo: 1, remain: r.rem.s1 }] : []),
+    ...(r.act.s2 && r.rem.s2 < feedMin ? [{ hid: r.hid, silo: 2, remain: r.rem.s2 }] : []),
+  ]);
+  const anyAct = rows.some((r) => r.act.s1 || r.act.s2);
+  // รีเช็ครับอาหาร: เสมียน (feedDeliveries) ↔ สัตวบาล (รับเข้าในบันทึกรายวัน) ต่อ วัน/หลัง/ไซโล
+  const feedRecheck = useMemo(() => {
+    const byKey = {};
+    (feedDeliveries || []).forEach((x) => { const k = x.date + "|" + x.houseId + "|" + x.silo; byKey[k] = (byKey[k] || 0) + (parseFloat(x.kg) || 0); });
+    return Object.keys(byKey).sort().reverse().map((k) => {
+      const [date, hid, silo] = k.split("|");
+      const f = rearingByDate[date]?.[hid]?.feed;
+      const keeper = f ? nf(silo === "1" ? f.s1recv : f.s2recv) : null;
+      return { date, hid, silo, clerk: byKey[k], keeper, diff: keeper == null ? null : byKey[k] - keeper };
     });
-    return out;
-  }, [rearingByDate, flocks, feedMin, siloAct, houseIds.join(",")]);
-  const anyFeedActivity = houseIds.some((h) => siloAct[h]?.s1 || siloAct[h]?.s2);
-  // รีเช็ครับอาหาร: เทียบยอดเสมียน (feedDeliveries) กับ "รับเข้า" ที่สัตวบาลลงไว้ ต่อ วัน/หลัง/ไซโล
-  const [showDelivery, setShowDelivery] = useState(false);
-  const [showTrials, setShowTrials] = useState(false);   // 🧪 รายการทดลองยา
-  const [viewTrial, setViewTrial] = useState(null);      // trial ที่กำลังดูผล
-  const trialOfDay = (hid, d) => medTrials.find((t) => t.houseId === hid && d >= t.startDate && d <= t.endDate);
+  }, [feedDeliveries, rearingByDate]);
+  const recheckMismatch = feedRecheck.filter((x) => x.diff != null && Math.abs(x.diff) > 0.001);
+  const recheckPending = feedRecheck.filter((x) => x.keeper == null);
+  const recheckMatched = feedRecheck.filter((x) => x.diff != null && Math.abs(x.diff) <= 0.001).length;
+  const recent = [...(feedDeliveries || [])].sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 10);
+  const th = { padding: "9px 10px", fontSize: 12.5, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", whiteSpace: "nowrap", textAlign: "right" };
+  const td = { padding: "9px 10px", fontSize: 13.5, textAlign: "right", borderBottom: "1px solid #eee7d8", whiteSpace: "nowrap" };
+  const remCell = (act, v) => act ? <span style={v < feedMin ? { color: "#B91C1C", fontWeight: 800 } : { fontWeight: 700 }}>{fmt1(v)}{v < feedMin ? " ⚠️" : ""}</span> : <span style={{ color: "#c9c0ad" }}>—</span>;
+  return (
+    <div style={{ padding: "18px 22px 40px" }}>
+      <div style={S.subBar}>
+        <span style={S.subBarTitle}>อาหารไก่ 🌾{anyAct ? <span style={{ fontSize: 12.5, fontWeight: 600, color: "#9b8e78" }}> · คงเหลือทดจากบันทึกการเลี้ยง</span> : null}</span>
+        <button onClick={() => setShowDelivery(true)} style={{ padding: "8px 16px", borderRadius: 999, border: "1.5px solid #B45309", background: "#B45309", color: "#fff", fontSize: 13.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>🚚 รับอาหารเข้า (เสมียน)</button>
+      </div>
+
+      {anyAct && (feedAlerts.length > 0 ? (
+        <div style={{ background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 12, padding: "10px 14px", marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 800, color: "#B91C1C", fontSize: 13.5 }}>🔔 อาหารใกล้หมด · {feedAlerts.length} ไซโล</span>
+            <span style={{ fontSize: 12, color: "#B91C1C", marginLeft: "auto" }}>เกณฑ์เตือน ต่ำกว่า</span>
+            <input type="text" inputMode="numeric" value={feedMin} onChange={(e) => setFeedMin(parseFloat(e.target.value.replace(/[^0-9.]/g, "")) || 0)}
+              style={{ width: 72, padding: "3px 7px", border: "1px solid #FECACA", borderRadius: 7, fontSize: 12.5, textAlign: "right", fontFamily: "inherit", color: "#B91C1C", fontWeight: 700, outline: "none" }} />
+            <span style={{ fontSize: 12, color: "#B91C1C" }}>กก./ไซโล</span>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+            {feedAlerts.map((a, i) => (
+              <span key={i} style={{ border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 999, padding: "4px 12px", fontSize: 12.5, fontWeight: 700 }}>
+                {a.hid} · ไซโล {a.silo} เหลือ {fmt1(a.remain)} กก. — สั่งอาหารเพิ่ม
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 12, padding: "8px 14px", marginBottom: 12, fontSize: 12.5, fontWeight: 700, color: "#15803D", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span>🌾 อาหารทุกไซโลเหลือเกินเกณฑ์</span>
+          <span style={{ marginLeft: "auto", fontWeight: 600 }}>เกณฑ์เตือน ต่ำกว่า</span>
+          <input type="text" inputMode="numeric" value={feedMin} onChange={(e) => setFeedMin(parseFloat(e.target.value.replace(/[^0-9.]/g, "")) || 0)}
+            style={{ width: 72, padding: "3px 7px", border: "1px solid #BBF7D0", borderRadius: 7, fontSize: 12.5, textAlign: "right", fontFamily: "inherit", color: "#15803D", fontWeight: 700, outline: "none" }} />
+          <span style={{ fontWeight: 600 }}>กก./ไซโล</span>
+        </div>
+      ))}
+
+      {/* ตารางคงเหลือต่อไซโล */}
+      <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflow: "auto", marginBottom: 12 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 560 }}>
+          <thead><tr>
+            <th style={{ ...th, textAlign: "left" }}>โรงเรือน</th>
+            <th style={th}>ไซโล 1 คงเหลือ (กก.)</th>
+            <th style={th}>ไซโล 2 คงเหลือ (กก.)</th>
+            <th style={th}>รวม (กก.)</th>
+            <th style={th}>กินไปวันล่าสุด (กก.)</th>
+            <th style={{ ...th, textAlign: "center" }}>สถานะ</th>
+          </tr></thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.hid}>
+                <td style={{ ...td, textAlign: "left", fontWeight: 800 }}>{r.hid}</td>
+                <td style={td}>{remCell(r.act.s1, r.rem.s1)}</td>
+                <td style={td}>{remCell(r.act.s2, r.rem.s2)}</td>
+                <td style={{ ...td, fontWeight: 800 }}>{(r.act.s1 || r.act.s2) ? fmt1((r.act.s1 ? r.rem.s1 : 0) + (r.act.s2 ? r.rem.s2 : 0)) : "—"}</td>
+                <td style={td}>{r.lastUsed != null ? `${fmt1(r.lastUsed)} (${toThaiDate(r.lastDay, false)})` : "—"}</td>
+                <td style={{ ...td, textAlign: "center", fontWeight: 800, color: !(r.act.s1 || r.act.s2) ? "#c9c0ad" : r.low ? "#B91C1C" : "#15803D" }}>{!(r.act.s1 || r.act.s2) ? "ยังไม่บันทึก" : r.low ? "⚠️ ใกล้หมด" : "✓ ปกติ"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* รีเช็ครับอาหาร: เสมียน ↔ สัตวบาล */}
+      {feedRecheck.length > 0 && (
+        <div style={{ background: recheckMismatch.length ? "#FFFBEB" : "#FDFAF3", border: `1px solid ${recheckMismatch.length ? "#FDE68A" : "#eee3cd"}`, borderRadius: 12, padding: "10px 14px", marginBottom: 12 }}>
+          <div style={{ fontWeight: 800, color: recheckMismatch.length ? "#92400E" : "#7a6f5c", fontSize: 13, marginBottom: recheckMismatch.length + recheckPending.length > 0 ? 8 : 0 }}>
+            🚚 รีเช็ครับอาหาร (เสมียน ↔ สัตวบาล){recheckMatched > 0 ? <span style={{ color: "#15803D", fontWeight: 700 }}> · ตรงกัน {recheckMatched} รายการ ✓</span> : null}
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {recheckMismatch.map((x, i) => (
+              <span key={"m" + i} style={{ border: "1px solid #FCD34D", background: "#fff", color: "#92400E", borderRadius: 999, padding: "4px 12px", fontSize: 12.5, fontWeight: 700 }}>
+                ⚠️ {toThaiDate(x.date, false)} · {x.hid} ไซโล {x.silo} — เสมียน {fmt1(x.clerk)} ≠ สัตวบาล {fmt1(x.keeper)} (ต่าง {x.diff > 0 ? "+" : ""}{fmt1(x.diff)} กก.)
+              </span>
+            ))}
+            {recheckPending.map((x, i) => (
+              <span key={"p" + i} style={{ border: "1px dashed #d8cdb6", background: "#fff", color: "#9b8e78", borderRadius: 999, padding: "4px 12px", fontSize: 12.5, fontWeight: 700 }}>
+                ⏳ {toThaiDate(x.date, false)} · {x.hid} ไซโล {x.silo} — เสมียนรับ {fmt1(x.clerk)} กก. · รอสัตวบาลลงบันทึก
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* รายการรับอาหารล่าสุด (เสมียน) */}
+      <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, padding: "12px 14px" }}>
+        <div style={{ fontWeight: 800, fontSize: 13.5, color: "#7a6f5c", marginBottom: 8 }}>🚚 รับอาหารเข้าล่าสุด · {feedDeliveries.length} รายการ</div>
+        {recent.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: "#9b8e78" }}>ยังไม่มีรายการ — กด "รับอาหารเข้า (เสมียน)" ตอนรถอาหารมาส่ง</div>
+        ) : recent.map((x) => (
+          <div key={x.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "#FDFAF3", border: "1px solid #eee3cd", borderRadius: 9, padding: "7px 10px", marginBottom: 6, fontSize: 13, flexWrap: "wrap" }}>
+            <span style={{ color: "#9b8e78" }}>{toThaiDate(x.date, false)}</span>
+            <span style={{ fontWeight: 800 }}>{x.houseId}</span>
+            <span>ไซโล {x.silo}</span>
+            <span style={{ fontWeight: 800, color: "#B45309" }}>{fmt1(x.kg)} กก.</span>
+            {x.by ? <span style={{ color: "#9b8e78" }}>โดย {x.by}</span> : null}
+            <button onClick={() => deleteFeedDelivery(x.id)} title="ลบรายการ" style={{ marginLeft: "auto", border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 7, padding: "2px 8px", cursor: "pointer", fontWeight: 800 }}>✕</button>
+          </div>
+        ))}
+      </div>
+      <div style={S.hint}>คงเหลือ = ยกมา + Σรับ − Σใช้ จากบันทึกรายวันในแท็บ "เก็บสถิติการเลี้ยง" · เตือนเฉพาะไซโลที่เคยบันทึกใช้งาน · รับอาหารเข้า (เสมียน) ใช้รีเช็คกับตัวเลขสัตวบาล 2 ฝั่ง</div>
+
+      {showDelivery && (
+        <FeedDeliveryModal houseIds={houseIds} defaultDate={rearDates[rearDates.length - 1] || prodDates[prodDates.length - 1] || isoFromTs(Date.now())}
+          deliveries={feedDeliveries} onAdd={addFeedDelivery} onDelete={deleteFeedDelivery} onClose={() => setShowDelivery(false)} />
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   หน้าจอ: ยาและวิตามิน — ทดลองยา/สารเสริม + ตรวจจับจากบันทึกรายวัน + ประวัติการให้ยา
+============================================================ */
+function MedView({ medTrials = [], addMedTrial, deleteMedTrial, rearingByDate = {}, production = {} }) {
+  const prodDates = Object.keys(production).sort();
+  const houseIds = (production[prodDates[prodDates.length - 1]] || []).map((h) => h.id);
+  const [viewTrial, setViewTrial] = useState(null);
+  // ยาที่ตรวจพบจากบันทึกรายวัน (ยังไม่ได้สร้างเป็นการทดลอง)
+  const detected = useMemo(() => {
+    const m = {};
+    Object.keys(rearingByDate).sort().forEach((d) => {
+      Object.keys(rearingByDate[d] || {}).forEach((hid) => {
+        (rearingByDate[d][hid]?.medsList || []).forEach((x) => {
+          const nm = (x.name || "").trim(); if (!nm) return;
+          const k = hid + "|" + nm; (m[k] = m[k] || []).push(d);
+        });
+      });
+    });
+    return Object.entries(m).map(([k, dates]) => {
+      const [hid, nm] = k.split("|");
+      const uniq = [...new Set(dates)].sort();
+      return { hid, name: nm, from: uniq[0], to: uniq[uniq.length - 1], days: uniq.length };
+    }).filter((s) => !medTrials.some((t) => t.houseId === s.hid && t.name === s.name));
+  }, [rearingByDate, medTrials]);
+  // ประวัติการให้ยา (จากบันทึกรายวัน) — ล่าสุดก่อน
+  const medLog = useMemo(() => {
+    const out = [];
+    Object.keys(rearingByDate).sort().reverse().forEach((d) => {
+      Object.keys(rearingByDate[d] || {}).sort().forEach((hid) => {
+        const r = rearingByDate[d][hid];
+        const txt = medsDetail(r);
+        if (txt) out.push({ date: d, hid, txt });
+      });
+    });
+    return out.slice(0, 15);
+  }, [rearingByDate]);
+  // ฟอร์มเริ่มการทดลองใหม่
+  const [name, setName] = useState("");
+  const [hid, setHid] = useState(houseIds[0] || "H2");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [note, setNote] = useState("");
+  const valid = name.trim() && from && to && to >= from;
+  const dayCount = (t) => Math.round((new Date(t.endDate) - new Date(t.startDate)) / 86400000) + 1;
+  const today = isoFromTs(Date.now());
+  const activeTrials = medTrials.filter((t) => today >= t.startDate && today <= t.endDate);
+  const inp = { width: "100%", padding: "9px 10px", border: "1.5px solid #e3ddd0", borderRadius: 9, fontSize: 14, fontFamily: "inherit", outline: "none", boxSizing: "border-box" };
+  const lbl = { display: "block", fontSize: 12, fontWeight: 700, color: INK, marginBottom: 3 };
+  const card = (label, value, color) => (
+    <div style={{ flex: 1, minWidth: 130, background: "#fff", border: "1px solid #eee3cd", borderRadius: 12, padding: "10px 14px" }}>
+      <div style={{ fontSize: 11.5, fontWeight: 700, color: "#9b8e78" }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 800, color: color || INK }}>{value}</div>
+    </div>
+  );
+  return (
+    <div style={{ padding: "18px 22px 40px" }}>
+      <div style={S.subBar}>
+        <span style={S.subBarTitle}>ยาและวิตามิน 💊</span>
+      </div>
+      <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+        {card("การทดลองทั้งหมด", medTrials.length + " รายการ")}
+        {card("กำลังให้อยู่วันนี้", activeTrials.length + " รายการ", activeTrials.length ? "#0F766E" : undefined)}
+        {card("ตรวจพบจากบันทึก (ยังไม่สร้างทดลอง)", detected.length + " ตัว", detected.length ? "#B45309" : undefined)}
+      </div>
+
+      {detected.length > 0 && (
+        <div style={{ background: "#F0FDFA", border: "1px solid #99F6E4", borderRadius: 12, padding: "10px 12px", marginBottom: 12 }}>
+          <div style={{ fontWeight: 800, color: "#0F766E", fontSize: 13, marginBottom: 7 }}>💊 ตรวจพบจากบันทึกยารายวัน — กดเพื่อดูผลได้ทันที ไม่ต้องกรอกซ้ำ</div>
+          <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+            {detected.map((s, i) => (
+              <button key={i} onClick={() => {
+                const t = { id: "tr" + Date.now() + i, name: s.name, houseId: s.hid, startDate: s.from, endDate: s.to, note: `จากบันทึกรายวัน · ให้ ${s.days} วัน` };
+                addMedTrial(t); setViewTrial(t);
+              }} style={{ border: "1.5px solid #0D9488", background: "#fff", color: "#0F766E", borderRadius: 999, padding: "6px 13px", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
+                📊 {s.name} · {s.hid} · {toThaiDate(s.from, false)}{s.to !== s.from ? " – " + toThaiDate(s.to, false) : ""} ({s.days} วัน)
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
+        {/* ฟอร์มเริ่มการทดลองใหม่ */}
+        <div style={{ flex: "1 1 300px", background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 12, padding: "12px 12px 10px" }}>
+          <div style={{ fontWeight: 800, color: ACCENT_DK, fontSize: 13, marginBottom: 8 }}>＋ เริ่มการทดลองใหม่</div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <div style={{ flex: 1.6 }}><label style={lbl}>ยา/สารเสริมที่ให้</label><input style={inp} placeholder="เช่น Calcium+D3" value={name} onChange={(e) => setName(e.target.value)} /></div>
+            <div style={{ flex: 0.7 }}><label style={lbl}>โรงเรือน</label><select style={inp} value={hid} onChange={(e) => setHid(e.target.value)}>{houseIds.map((h) => <option key={h}>{h}</option>)}</select></div>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <div style={{ flex: 1 }}><label style={lbl}>เริ่มให้วันที่</label><ThaiDateField value={from} onChange={setFrom} style={inp} /></div>
+            <div style={{ flex: 1 }}><label style={lbl}>ให้ถึงวันที่</label><ThaiDateField value={to} onChange={setTo} style={inp} /></div>
+          </div>
+          <div style={{ marginBottom: 10 }}><label style={lbl}>หมายเหตุ (เช่น กิน 5 วัน สัปดาห์ที่ 1)</label><input style={inp} value={note} onChange={(e) => setNote(e.target.value)} /></div>
+          <button disabled={!valid} onClick={() => { addMedTrial({ id: "tr" + Date.now(), name: name.trim(), houseId: hid, startDate: from, endDate: to, note: note.trim() }); setName(""); setFrom(""); setTo(""); setNote(""); }}
+            style={{ ...S.primaryBtn, opacity: valid ? 1 : 0.5 }}>บันทึกการทดลอง</button>
+        </div>
+        {/* รายการทดลองทั้งหมด */}
+        <div style={{ flex: "1.4 1 340px" }}>
+          <div style={{ fontSize: 12.5, fontWeight: 800, color: "#7a6f5c", marginBottom: 6 }}>🧪 การทดลองทั้งหมด · {medTrials.length} รายการ</div>
+          {medTrials.length === 0 ? <div style={{ fontSize: 12.5, color: "#9b8e78", background: "#fff", border: "1px dashed #d8cdb6", borderRadius: 12, padding: "18px 14px", textAlign: "center" }}>ยังไม่มีการทดลอง — กรอกฟอร์มซ้าย หรือกดจากรายการ "ตรวจพบ"</div> : medTrials.map((t) => (
+            <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "#FDFAF3", border: "1px solid #eee3cd", borderRadius: 10, padding: "9px 11px", marginBottom: 7, fontSize: 13, flexWrap: "wrap" }}>
+              <span style={{ fontWeight: 800 }}>🧪 {t.name}</span>
+              <span style={{ fontWeight: 700, color: ACCENT_DK }}>{t.houseId}</span>
+              <span style={{ color: "#9b8e78" }}>{toThaiDate(t.startDate, false)} – {toThaiDate(t.endDate, false)} ({dayCount(t)} วัน)</span>
+              {t.note ? <span style={{ color: "#9b8e78" }}>· {t.note}</span> : null}
+              <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+                <button onClick={() => setViewTrial(t)} style={{ border: `1px solid ${ACCENT_DK}`, background: ACCENT_DK, color: "#fff", borderRadius: 8, padding: "4px 12px", cursor: "pointer", fontWeight: 800, fontSize: 12.5, fontFamily: "inherit" }}>📊 ดูผล / วินิจฉัย</button>
+                <button onClick={() => { if (window.confirm(`ลบการทดลอง "${t.name}" ?`)) deleteMedTrial(t.id); }} style={{ border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 8, padding: "4px 9px", cursor: "pointer", fontWeight: 800 }}>✕</button>
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ประวัติการให้ยาจากบันทึกรายวัน */}
+      <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, padding: "12px 14px", marginTop: 12 }}>
+        <div style={{ fontWeight: 800, fontSize: 13.5, color: "#7a6f5c", marginBottom: 8 }}>💊 บันทึกการให้ยาล่าสุด (จากแท็บ เก็บสถิติการเลี้ยง)</div>
+        {medLog.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: "#9b8e78" }}>ยังไม่มีบันทึกยา — กรอกในหน้ากรอกรายวัน (ช่อง ยา/สารเสริม) แล้วจะโผล่ที่นี่</div>
+        ) : medLog.map((x, i) => (
+          <div key={i} style={{ display: "flex", gap: 10, alignItems: "baseline", padding: "6px 2px", borderBottom: i < medLog.length - 1 ? "1px solid #f3eee1" : "none", fontSize: 13, flexWrap: "wrap" }}>
+            <span style={{ color: "#9b8e78", whiteSpace: "nowrap" }}>{toThaiDate(x.date, false)}</span>
+            <span style={{ fontWeight: 800, color: ACCENT_DK }}>{x.hid}</span>
+            <span>{x.txt}</span>
+          </div>
+        ))}
+      </div>
+
+      {viewTrial && (
+        <TrialResultModal trial={viewTrial} production={production} rearingByDate={rearingByDate} onClose={() => setViewTrial(null)} />
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   หน้าจอ: บัญชีต้นทุน — ค่าใช้จ่าย 6 หมวด ระบุหลังได้ + สรุปรายเดือนต่อหมวด
+============================================================ */
+function CostView({ expenses = [], addExpense, deleteExpense, production = {} }) {
+  const prodDates = Object.keys(production).sort();
+  const houseIds = (production[prodDates[prodDates.length - 1]] || []).map((h) => h.id);
+  const [date, setDate] = useState(isoFromTs(Date.now()));
+  const [cat, setCat] = useState(EXPENSE_CATS[0]);
+  const [hid, setHid] = useState("");
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  const amt = parseFloat(String(amount).replace(/,/g, "")) || 0;
+  const valid = date && cat && amt > 0;
+  const save = () => {
+    if (!valid) return;
+    addExpense({ id: "ex" + Date.now(), date, cat, houseId: hid, amount: amt, note: note.trim(), ts: Date.now() });
+    setAmount(""); setNote("");
+  };
+  const monthKey = (d) => (d || "").slice(0, 7);                       // "2026-07"
+  const monthTH = (mk) => { const [y, m] = mk.split("-").map(Number); return toThaiDate(`${mk}-01`).split(" ").slice(1).join(" "); };
+  const thisMonth = monthKey(isoFromTs(Date.now()));
+  // สรุปรายเดือน × หมวด
+  const byMonth = useMemo(() => {
+    const m = {};
+    expenses.forEach((x) => {
+      const mk = monthKey(x.date); if (!mk) return;
+      m[mk] = m[mk] || { total: 0, cats: {} };
+      m[mk].total += x.amount || 0;
+      m[mk].cats[x.cat] = (m[mk].cats[x.cat] || 0) + (x.amount || 0);
+    });
+    return m;
+  }, [expenses]);
+  const months = Object.keys(byMonth).sort().reverse();
+  const curM = byMonth[thisMonth] || { total: 0, cats: {} };
+  const topCat = Object.entries(curM.cats).sort((a, b) => b[1] - a[1])[0];
+  const recent = expenses.slice(0, 20);
+  const inp = { width: "100%", padding: "9px 10px", border: "1.5px solid #e3ddd0", borderRadius: 9, fontSize: 14, fontFamily: "inherit", outline: "none", boxSizing: "border-box" };
+  const lbl = { display: "block", fontSize: 12, fontWeight: 700, color: INK, marginBottom: 3 };
+  const th = { padding: "9px 10px", fontSize: 12, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", whiteSpace: "nowrap", textAlign: "right" };
+  const td = { padding: "9px 10px", fontSize: 13.5, textAlign: "right", borderBottom: "1px solid #eee7d8", whiteSpace: "nowrap" };
+  const card = (label, value, color) => (
+    <div style={{ flex: 1, minWidth: 150, background: "#fff", border: "1px solid #eee3cd", borderRadius: 12, padding: "10px 14px" }}>
+      <div style={{ fontSize: 11.5, fontWeight: 700, color: "#9b8e78" }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 800, color: color || INK }}>{value}</div>
+    </div>
+  );
+  return (
+    <div style={{ padding: "18px 22px 40px" }}>
+      <div style={S.subBar}>
+        <span style={S.subBarTitle}>บัญชีต้นทุน 💰</span>
+      </div>
+      <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+        {card(`ต้นทุนเดือนนี้ (${monthTH(thisMonth)})`, fmt(Math.round(curM.total)) + " บ.", "#B91C1C")}
+        {card("หมวดสูงสุดเดือนนี้", topCat ? `${topCat[0]} · ${fmt(Math.round(topCat[1]))} บ.` : "—")}
+        {card("รายการทั้งหมด", fmt(expenses.length) + " รายการ")}
+      </div>
+
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-start", marginBottom: 12 }}>
+        {/* ฟอร์มกรอกค่าใช้จ่าย */}
+        <div style={{ flex: "1 1 300px", background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 12, padding: "12px 12px 10px" }}>
+          <div style={{ fontWeight: 800, color: ACCENT_DK, fontSize: 13, marginBottom: 8 }}>＋ บันทึกค่าใช้จ่าย</div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <div style={{ flex: 1.2 }}><label style={lbl}>วันที่</label><ThaiDateField value={date} onChange={setDate} style={inp} /></div>
+            <div style={{ flex: 1 }}><label style={lbl}>หมวด</label><select style={inp} value={cat} onChange={(e) => setCat(e.target.value)}>{EXPENSE_CATS.map((c) => <option key={c}>{c}</option>)}</select></div>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <div style={{ flex: 1 }}><label style={lbl}>โรงเรือน</label><select style={inp} value={hid} onChange={(e) => setHid(e.target.value)}><option value="">ทั้งฟาร์ม</option>{houseIds.map((h) => <option key={h} value={h}>{h}</option>)}</select></div>
+            <div style={{ flex: 1 }}><label style={lbl}>จำนวนเงิน (บาท)</label><input style={{ ...inp, textAlign: "right", fontWeight: 700 }} inputMode="decimal" placeholder="0"
+              value={amount} onChange={(e) => { const raw = e.target.value.replace(/[^0-9.]/g, ""); setAmount(raw ? Number(raw).toLocaleString("en-US", { maximumFractionDigits: 2 }) : ""); }} /></div>
+          </div>
+          <div style={{ marginBottom: 10 }}><label style={lbl}>หมายเหตุ (เช่น ค่าไฟเดือน มิ.ย. หลัง 2)</label><input style={inp} value={note} onChange={(e) => setNote(e.target.value)} /></div>
+          <button disabled={!valid} onClick={save} style={{ ...S.primaryBtn, opacity: valid ? 1 : 0.5 }}>บันทึก {cat}{amt > 0 ? ` · ${fmt(Math.round(amt))} บาท` : ""}</button>
+        </div>
+
+        {/* สรุปรายเดือน × หมวด */}
+        <div style={{ flex: "2 1 420px", background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflow: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
+            <thead><tr>
+              <th style={{ ...th, textAlign: "left" }}>เดือน</th>
+              {EXPENSE_CATS.map((c) => <th key={c} style={th}>{c.replace("ค่า", "")}</th>)}
+              <th style={{ ...th, background: "#F5E6CE" }}>รวม</th>
+            </tr></thead>
+            <tbody>
+              {months.length === 0 ? (
+                <tr><td colSpan={EXPENSE_CATS.length + 2} style={{ ...td, textAlign: "center", color: "#9b8e78", padding: 26 }}>ยังไม่มีค่าใช้จ่าย — เริ่มบันทึกจากฟอร์มซ้าย</td></tr>
+              ) : months.map((mk) => (
+                <tr key={mk} style={mk === thisMonth ? { background: "#FFFBF2" } : undefined}>
+                  <td style={{ ...td, textAlign: "left", fontWeight: 800 }}>{monthTH(mk)}{mk === thisMonth ? " ←" : ""}</td>
+                  {EXPENSE_CATS.map((c) => <td key={c} style={td}>{byMonth[mk].cats[c] ? fmt(Math.round(byMonth[mk].cats[c])) : <span style={{ color: "#d6cdbb" }}>·</span>}</td>)}
+                  <td style={{ ...td, fontWeight: 800, background: "#FDF8EE" }}>{fmt(Math.round(byMonth[mk].total))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* รายการล่าสุด */}
+      <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, padding: "12px 14px" }}>
+        <div style={{ fontWeight: 800, fontSize: 13.5, color: "#7a6f5c", marginBottom: 8 }}>รายการล่าสุด</div>
+        {recent.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: "#9b8e78" }}>ยังไม่มีรายการ</div>
+        ) : recent.map((x) => (
+          <div key={x.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "#FDFAF3", border: "1px solid #eee3cd", borderRadius: 9, padding: "7px 10px", marginBottom: 6, fontSize: 13, flexWrap: "wrap" }}>
+            <span style={{ color: "#9b8e78" }}>{toThaiDate(x.date, false)}</span>
+            <span style={{ fontWeight: 800 }}>{x.cat}</span>
+            <span style={{ fontWeight: 700, color: ACCENT_DK }}>{x.houseId || "ทั้งฟาร์ม"}</span>
+            <span style={{ fontWeight: 800, color: "#B91C1C" }}>{fmt(Math.round(x.amount))} บ.</span>
+            {x.note ? <span style={{ color: "#9b8e78" }}>· {x.note}</span> : null}
+            <button onClick={() => { if (window.confirm(`ลบรายการ "${x.cat} ${fmt(Math.round(x.amount))} บ." ?`)) deleteExpense(x.id); }} title="ลบรายการ" style={{ marginLeft: "auto", border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 7, padding: "2px 8px", cursor: "pointer", fontWeight: 800 }}>✕</button>
+          </div>
+        ))}
+      </div>
+      <div style={S.hint}>6 หมวดตามแผนต้นทุน: ค่าไฟ · ค่าแรง · ค่าอาหาร · ค่ายา+วัสดุสิ้นเปลือง · ค่าสายพันธุ์ · ค่าเสื่อมโรงเรือน — ระบุโรงเรือนได้เพื่อคิดต้นทุนต่อหลังต่อรุ่นในเฟสถัดไป (เทียบกับรายได้จากบิลขาย)</div>
+    </div>
+  );
+}
+
+function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, production = {}, medTrials = [] }) {
+  const prodDates = Object.keys(production).sort();
+  const houseIds = (production[prodDates[prodDates.length - 1]] || []).map((h) => h.id);
+  const rearDates = Object.keys(rearingByDate).sort();
+  const [mode, setMode] = useState("house");          // "house" = สมุดรายหลัง (หลังละ 1 หน้า เหมือนฟอร์มกระดาษ) | "day" = รายวันทุกหลัง
+  const [selHouse, setSelHouse] = useState(houseIds[0] || "H2");
+  const [day, setDay] = useState(() => rearDates[rearDates.length - 1] || prodDates[prodDates.length - 1] || isoFromTs(Date.now()));
+  const [editHouse, setEditHouse] = useState(null);   // {hid, date} ที่กำลังกรอก
+  const [flockHouse, setFlockHouse] = useState(null); // houseId ที่กำลังตั้งค่ารุ่น
+  const [afterFlock, setAfterFlock] = useState(null); // วันแรกของรุ่น: เซฟหน้ารุ่นเสร็จ → เปิดหน้ากรอกรายวันต่อทันที ({hid,date})
+  // เกณฑ์เตือนอาหารใกล้หมด (กก./ไซโล) — จัดการในแท็บ "อาหารไก่" ; ที่นี่ใช้ไฮไลต์ในตาราง + ส่งให้ฟอร์มกรอก
+  const [feedMin] = useState(() => { const v = parseFloat(localStorage.getItem("eggFeedAlertMin")); return isNaN(v) ? 4000 : v; });
+  // ไซโลที่ "ใช้งานจริง" (เคยบันทึกรับ/ใช้) — ใช้ไฮไลต์แดงเมื่อคงเหลือต่ำกว่าเกณฑ์ในตารางสมุด
+  const siloAct = useMemo(() => {
+    const m = {};
+    houseIds.forEach((hid) => { m[hid] = { s1: false, s2: false }; });
+    Object.keys(rearingByDate).forEach((d) => {
+      Object.keys(rearingByDate[d] || {}).forEach((hid) => {
+        const f = rearingByDate[d][hid]?.feed; if (!f || !m[hid]) return;
+        if (nf(f.s1recv) || nf(f.s1used)) m[hid].s1 = true;
+        if (nf(f.s2recv) || nf(f.s2used)) m[hid].s2 = true;
+      });
+    });
+    return m;
+  }, [rearingByDate, houseIds.join(",")]);
+  const trialOfDay = (hid, d) => medTrials.find((t) => t.houseId === hid && d >= t.startDate && d <= t.endDate);   // 🧪 มาร์กวันในตาราง (จัดการทดลองในแท็บ ยาและวิตามิน)
 
   // 📝 "กรอกรอบเดียวจบ": พากรอกทีละหลังต่อเนื่อง H2→H6 อัตโนมัติ (บันทึก/ข้าม แล้วเด้งหลังถัดไปเอง)
   const [round, setRound] = useState(null);   // {date, idx}
@@ -3857,19 +4291,6 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
       return { ...r, idx: nextIdx };
     });
   };
-  const feedRecheck = useMemo(() => {
-    const byKey = {};
-    (feedDeliveries || []).forEach((x) => { const k = x.date + "|" + x.houseId + "|" + x.silo; byKey[k] = (byKey[k] || 0) + (parseFloat(x.kg) || 0); });
-    return Object.keys(byKey).sort().reverse().map((k) => {
-      const [date, hid, silo] = k.split("|");
-      const f = rearingByDate[date]?.[hid]?.feed;
-      const keeper = f ? nf(silo === "1" ? f.s1recv : f.s2recv) : null;
-      return { date, hid, silo, clerk: byKey[k], keeper, diff: keeper == null ? null : byKey[k] - keeper };
-    });
-  }, [feedDeliveries, rearingByDate]);
-  const recheckMismatch = feedRecheck.filter((x) => x.diff != null && Math.abs(x.diff) > 0.001);
-  const recheckPending = feedRecheck.filter((x) => x.keeper == null);
-  const recheckMatched = feedRecheck.filter((x) => x.diff != null && Math.abs(x.diff) <= 0.001).length;
   const dayTH = toThaiDate(day);
   const dayData = rearingByDate[day] || {};
   // แนะนำจำนวนเริ่มเลี้ยงจากยอดไก่ในหน้าผลผลิต (วันแรกสุดที่มีข้อมูลของหลังนั้น)
@@ -3952,8 +4373,6 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
           </button>
           <button style={chip(mode === "house")} onClick={() => setMode("house")}>📒 สมุดรายหลัง</button>
           <button style={chip(mode === "day")} onClick={() => setMode("day")}>ทุกหลัง · รายวัน</button>
-          <button style={{ ...chip(false), borderColor: "#B45309", color: "#B45309" }} onClick={() => setShowDelivery(true)}>🚚 รับอาหาร (เสมียน)</button>
-          <button style={{ ...chip(false), borderColor: "#0D9488", color: "#0F766E" }} onClick={() => setShowTrials(true)}>🧪 ติดตามผลยา{medTrials.length ? ` · ${medTrials.length}` : ""}</button>
           {mode === "day" && <>
             <button onClick={() => setDay(shiftDayISO(day, -1))} title="วันก่อนหน้า" style={{ padding: "6px 11px", border: `1px solid ${ACCENT}`, background: "#fff", color: ACCENT_DK, borderRadius: 8, fontSize: 15, fontWeight: 800, cursor: "pointer" }}>‹</button>
             <ThaiDateField value={day} onChange={setDay} style={{ padding: "7px 11px", border: `1px solid ${ACCENT}`, borderRadius: 8, fontSize: 13.5, background: "#fff", color: INK, fontWeight: 700 }} />
@@ -3961,56 +4380,6 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
           </>}
         </div>
       </div>
-
-      {/* แจ้งเตือนอาหารในไซโลใกล้หมด (< เกณฑ์ กก./ไซโล) — เฉพาะไซโลที่มีการบันทึกใช้งานจริง */}
-      {anyFeedActivity && (feedAlerts.length > 0 ? (
-        <div style={{ background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 12, padding: "10px 14px", marginBottom: 12 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ fontWeight: 800, color: "#B91C1C", fontSize: 13.5 }}>🔔 อาหารใกล้หมด · {feedAlerts.length} ไซโล</span>
-            <span style={{ fontSize: 12, color: "#B91C1C", marginLeft: "auto" }}>เกณฑ์เตือน ต่ำกว่า</span>
-            <input type="text" inputMode="numeric" value={feedMin} onChange={(e) => setFeedMin(parseFloat(e.target.value.replace(/[^0-9.]/g, "")) || 0)}
-              style={{ width: 72, padding: "3px 7px", border: "1px solid #FECACA", borderRadius: 7, fontSize: 12.5, textAlign: "right", fontFamily: "inherit", color: "#B91C1C", fontWeight: 700, outline: "none" }} />
-            <span style={{ fontSize: 12, color: "#B91C1C" }}>กก./ไซโล</span>
-          </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-            {feedAlerts.map((a, i) => (
-              <button key={i} onClick={() => { setMode("house"); setSelHouse(a.hid); }} title={`ไปที่สมุดโรงเรือน ${a.hid}`}
-                style={{ border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 999, padding: "4px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
-                {a.hid} · ไซโล {a.silo} เหลือ {fmt1(a.remain)} กก. — สั่งอาหารเพิ่ม
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 12, padding: "8px 14px", marginBottom: 12, fontSize: 12.5, fontWeight: 700, color: "#15803D", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span>🌾 อาหารทุกไซโลเหลือเกินเกณฑ์</span>
-          <span style={{ marginLeft: "auto", fontWeight: 600 }}>เกณฑ์เตือน ต่ำกว่า</span>
-          <input type="text" inputMode="numeric" value={feedMin} onChange={(e) => setFeedMin(parseFloat(e.target.value.replace(/[^0-9.]/g, "")) || 0)}
-            style={{ width: 72, padding: "3px 7px", border: "1px solid #BBF7D0", borderRadius: 7, fontSize: 12.5, textAlign: "right", fontFamily: "inherit", color: "#15803D", fontWeight: 700, outline: "none" }} />
-          <span style={{ fontWeight: 600 }}>กก./ไซโล</span>
-        </div>
-      ))}
-
-      {/* รีเช็ครับอาหาร: เสมียน ↔ สัตวบาล (ต่อ วัน/หลัง/ไซโล) */}
-      {feedRecheck.length > 0 && (
-        <div style={{ background: recheckMismatch.length ? "#FFFBEB" : "#FDFAF3", border: `1px solid ${recheckMismatch.length ? "#FDE68A" : "#eee3cd"}`, borderRadius: 12, padding: "10px 14px", marginBottom: 12 }}>
-          <div style={{ fontWeight: 800, color: recheckMismatch.length ? "#92400E" : "#7a6f5c", fontSize: 13, marginBottom: recheckMismatch.length + recheckPending.length > 0 ? 8 : 0 }}>
-            🚚 รีเช็ครับอาหาร (เสมียน ↔ สัตวบาล){recheckMatched > 0 ? <span style={{ color: "#15803D", fontWeight: 700 }}> · ตรงกัน {recheckMatched} รายการ ✓</span> : null}
-          </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {recheckMismatch.map((x, i) => (
-              <span key={"m" + i} style={{ border: "1px solid #FCD34D", background: "#fff", color: "#92400E", borderRadius: 999, padding: "4px 12px", fontSize: 12.5, fontWeight: 700 }}>
-                ⚠️ {toThaiDate(x.date, false)} · {x.hid} ไซโล {x.silo} — เสมียน {fmt1(x.clerk)} ≠ สัตวบาล {fmt1(x.keeper)} (ต่าง {x.diff > 0 ? "+" : ""}{fmt1(x.diff)} กก.)
-              </span>
-            ))}
-            {recheckPending.map((x, i) => (
-              <span key={"p" + i} style={{ border: "1px dashed #d8cdb6", background: "#fff", color: "#9b8e78", borderRadius: 999, padding: "4px 12px", fontSize: 12.5, fontWeight: 700 }}>
-                ⏳ {toThaiDate(x.date, false)} · {x.hid} ไซโล {x.silo} — เสมียนรับ {fmt1(x.clerk)} กก. · รอสัตวบาลลงบันทึก
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
 
       {mode === "house" && (
         <div>
@@ -4230,18 +4599,6 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
           onSkip={round ? advanceRound : null}
           onSave={(hid, dISO, d) => { saveRearing(dISO, hid, d); if (round) advanceRound(); else setEditHouse(null); }}
           onClose={() => { setRound(null); setEditHouse(null); }} />
-      )}
-      {showDelivery && (
-        <FeedDeliveryModal houseIds={houseIds} defaultDate={mode === "day" ? day : (rearDates[rearDates.length - 1] || isoFromTs(Date.now()))}
-          deliveries={feedDeliveries} onAdd={addFeedDelivery} onDelete={deleteFeedDelivery} onClose={() => setShowDelivery(false)} />
-      )}
-      {showTrials && (
-        <TrialListModal trials={medTrials} houseIds={houseIds} defaultHouse={selHouse} rearingByDate={rearingByDate}
-          onAdd={addMedTrial} onDelete={deleteMedTrial} onView={(t) => { setShowTrials(false); setViewTrial(t); }} onClose={() => setShowTrials(false)} />
-      )}
-      {viewTrial && (
-        <TrialResultModal trial={viewTrial} production={production} rearingByDate={rearingByDate}
-          onBack={() => { setViewTrial(null); setShowTrials(true); }} onClose={() => setViewTrial(null)} />
       )}
       {flockHouse && (
         <FlockModal key={flockHouse} houseId={flockHouse} flock={flocks[flockHouse]} suggestStart={suggestStart(flockHouse)}
