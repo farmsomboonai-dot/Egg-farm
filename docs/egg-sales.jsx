@@ -630,12 +630,14 @@ function trayAccountOf(customerId, bills, trayRecords, excludeBillNo, trayEvents
     if (ts.shortMode === "carry") carriedShort += bn + on;             // ยกเป็นค้างคืน (ไม่คิดเงิน)
     else { chargedShort += bn + on; chargedDeposit += bn * TRAY_DEPOSIT + on * TRAY_DEPOSIT_ORANGE; }  // คิดเงิน (default)
   });
+  const sortedRounds = [];   // รอบคัดตามเวลา — ใช้คิดค้างทดแทนแบบหักแผงดีอัตโนมัติ
   (trayRecords || []).forEach((t) => {
     if (t.customerId !== customerId) return;
     if (!t.fromBill) rtReturned += sumTray(t.received);   // ใบจากบิลนับยอดคืนใน billReturned แล้ว → ไม่นับซ้ำ
     if (t.sorted) {
       brokenOwed += Math.max(0, sumTray(t.sorted.broken) - sumTray(t.replacedGood));   // ชำรุดสะสม (หัก legacy ทดแทนต่อใบสมัยเก่า)
       if (t.status !== "ส่งคืนแล้ว") brokenAtFarm += sumTray(t.sorted.broken);          // ชำรุดตัวจริงที่ยังอยู่ที่ฟาร์ม
+      sortedRounds.push({ iso: thShortToISO(t.date) || "", ts: 0, good: sumTray(t.sorted.good), broken: Math.max(0, sumTray(t.sorted.broken) - sumTray(t.replacedGood)) });
     }
   });
   // สมุดเหตุการณ์ระดับลูกค้า: รับแผงดีทดแทน (ตัดค้าง) / คืนแผงชำรุดให้ลูกค้า (ตัดกองที่ฟาร์ม)
@@ -643,14 +645,22 @@ function trayAccountOf(customerId, bills, trayRecords, excludeBillNo, trayEvents
   (trayEvents || []).forEach((e) => {
     if (e.customerId !== customerId) return;
     const q = (e.ใหญ่ || 0) + (e.เล็ก || 0);
-    if (e.type === "replace") evReplace += q;
+    if (e.type === "replace") { evReplace += q; sortedRounds.push({ iso: e.date || "", ts: e.ts || 1, rep: q }); }
     else if (e.type === "brokenBack") evBrokenBack += q;
   });
   const balance = billSent - billReturned - rtReturned; // >0 = ยืมไป/ถืออยู่, <0 = คืนเกินกว่าที่ถือ
-  const surplus = Math.max(0, -balance);                // แผงที่คืนเกินกว่าที่ถืออยู่ (ข้อมูลอ้างอิง — ไม่หักค้างทดแทน)
-  const rawOwed = Math.max(0, brokenOwed);              // ชำรุดสะสมทั้งหมด
-  const owed = Math.max(0, rawOwed - evReplace);        // ค้างทดแทน = ชำรุดสะสม − รับทดแทนแล้ว (เท่านั้น)
-  const brokenPending = Math.max(0, brokenAtFarm - evBrokenBack);   // ชำรุดที่ฟาร์มถือรอส่งคืนลูกค้า
+  const surplus = Math.max(0, -balance);                // แผงที่คืนเกินกว่าที่ถืออยู่ (ข้อมูลอ้างอิง)
+  const rawOwed = Math.max(0, brokenOwed);              // ชำรุดสะสมทั้งหมด (ก่อนหักแผงดี/ทดแทน)
+  // ค้างทดแทน — ไล่ตามเวลา (กติกา 2026-07-06): แต่ละรอบคัด "แผงดีที่คัดได้" หักล้างค้างเก่าก่อน แล้วชำรุดใหม่ของรอบนั้นค่อยบวกเข้า
+  // (ลูกค้าเอาแผงแลกปนมากับแผงคืน — ระบบหักให้เอง) · เหตุการณ์ "รับแผงดีทดแทน" ก็หักตามเวลาเช่นกัน
+  sortedRounds.sort((a, b) => (a.iso || "").localeCompare(b.iso || "") || a.ts - b.ts);
+  let owedBal = 0;
+  sortedRounds.forEach((v) => {
+    if (v.rep != null) owedBal = Math.max(0, owedBal - v.rep);
+    else owedBal = Math.max(0, owedBal - v.good) + v.broken;
+  });
+  const owed = owedBal;                                 // ค้างทดแทนคงเหลือ (รอลูกค้านำแผงดีมาคืน)
+  const brokenPending = Math.max(0, brokenAtFarm - evBrokenBack);   // ชำรุดหลังคัดที่ฟาร์มถือรอส่งคืนลูกค้า
   const credit = surplus;                               // คืนเกิน (แสดงข้อมูล ไม่เอาไปหักอะไร)
   const owedBack = Math.max(0, balance);                // แผงที่ลูกค้ายืม/ถืออยู่ (จำนวน)
   // แยกชนิดแผงที่ยังถืออยู่ → คิดมูลค่ามัดจำที่จ่ายมาแล้ว (แผงคืนขาดถูกคิดเงินไปแล้ว = ไม่ใช่หนี้ แต่บันทึกไว้ว่ารอจ่ายคืน)
@@ -5405,8 +5415,10 @@ function TrayCustReportModal({ row, onClose }) {
       if (x.kind === "rt") {
         if (!x.t.sorted) return { text: `${d} · ลูกค้าคืนแผง ${fmt(sumTray(x.t.received))} แผง (รอคัดแยก)` };
         const br = Math.max(0, sumTray(x.t.sorted.broken) - sumTray(x.t.replacedGood));
-        bal += br;
-        return { text: `${d} · คืนแผง ${fmt(sumTray(x.t.received))} → คัดดี ${fmt(sumTray(x.t.sorted.good))} · ชำรุด ${fmt(sumTray(x.t.sorted.broken))}`, bal, red: sumTray(x.t.sorted.broken) > 0 };
+        const good = sumTray(x.t.sorted.good);
+        const offset = Math.min(bal, good);                 // แผงดีที่คัดได้ หักล้างค้างเก่าอัตโนมัติ
+        bal = Math.max(0, bal - good) + br;
+        return { text: `${d} · คืนแผง ${fmt(sumTray(x.t.received))} → คัดดี ${fmt(good)} · ชำรุด ${fmt(sumTray(x.t.sorted.broken))}${offset > 0 ? ` · แผงดีหักค้างเดิม ${fmt(offset)}` : ""}`, bal, red: sumTray(x.t.sorted.broken) > 0 };
       }
       const q = (x.e.ใหญ่ || 0) + (x.e.เล็ก || 0);
       if (x.kind === "replace") { bal = Math.max(0, bal - q); return { text: `${d} · ลูกค้านำแผงดีมาแลก ${fmt(q)} แผง`, bal, green: true }; }
