@@ -5324,7 +5324,7 @@ function TrayByCustomer({ rows, onReceive, onSort, onReplace, onBrokenBack, onRe
                       <span style={{ ...S.statusPill, background: (STATUS_STYLE[x.t.status] || {}).bg, color: (STATUS_STYLE[x.t.status] || {}).c, marginLeft: 8 }}>{x.t.status}</span>
                     </div>
                     <div style={{ ...S.byCustTrayInfo, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                      <span>📥 {x.t.date} คืน {fmt(sumTray(x.t.received))} แผง</span>
+                      <span>📥 {toThaiDate(thShortToISO(x.t.date), false) || x.t.date} คืน {fmt(sumTray(x.t.received))} แผง</span>
                       {x.t.sorted
                         ? <span> → ✅ ดี {fmt(sumTray(x.t.sorted.good))} · <b style={{ color: "#B91C1C" }}>ชำรุด {fmt(sumTray(x.t.sorted.broken))}</b>{(sumTray(x.t.received) - sumTray(x.t.sorted.good) - sumTray(x.t.sorted.broken)) > 0 ? <span style={{ color: "#B45309" }}> · หาย {fmt(sumTray(x.t.received) - sumTray(x.t.sorted.good) - sumTray(x.t.sorted.broken))}</span> : null}{x.t.sorter ? <span style={{ color: "#9b8e78" }}> · คัดโดย {x.t.sorter}</span> : null}</span>
                         : <button style={{ ...actBtn("#B45309", "#FFF7EC"), padding: "4px 11px", fontSize: 12 }} onClick={() => onSort && onSort(x.t)}>✂️ คัดแยกใบนี้</button>}
@@ -5393,13 +5393,27 @@ function TrayCustReportModal({ row, onClose }) {
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
   const todayTH = toThaiDate(isoFromTs(Date.now()));
-  // ไทม์ไลน์ล่าสุด (สูงสุด 6 รายการ) — ใบคืน+คัด และเหตุการณ์ทดแทน/คืนชำรุด
-  const timeline = [
-    ...row.trays.map((t) => ({ iso: thShortToISO(t.date), text: t.sorted
-      ? `${t.date} คืนแผง ${fmt(sumTray(t.received))} → คัดดี ${fmt(sumTray(t.sorted.good))} · ชำรุด ${fmt(sumTray(t.sorted.broken))}`
-      : `${t.date} คืนแผง ${fmt(sumTray(t.received))} (รอคัดแยก)`, red: t.sorted && sumTray(t.sorted.broken) > 0 })),
-    ...(row.events || []).map((e) => ({ iso: e.date || "", ts: e.ts, text: `${toThaiDate(e.date, false)} ${e.type === "replace" ? "รับแผงดีทดแทน" : "ฟาร์มคืนแผงชำรุดให้"} ${fmt((e.ใหญ่ || 0) + (e.เล็ก || 0))} แผง`, green: e.type === "replace" })),
-  ].sort((a, b) => (b.iso || "").localeCompare(a.iso || "") || (b.ts || 0) - (a.ts || 0)).slice(0, 6);
+  // ไทม์ไลน์แบบสมุดบัญชี: เรียงเก่า→ใหม่ + ยอดค้างทดแทนสะสมต่อท้ายทุกบรรทัด (วันเดียวกัน: ใบคืน/คัดมาก่อนเหตุการณ์)
+  const timeline = (() => {
+    const items = [
+      ...row.trays.map((t) => ({ iso: thShortToISO(t.date), ts: 0, kind: "rt", t })),
+      ...(row.events || []).map((e) => ({ iso: e.date || "", ts: e.ts || 1, kind: e.type, e })),
+    ].sort((a, b) => (a.iso || "").localeCompare(b.iso || "") || a.ts - b.ts);
+    let bal = 0;
+    const out = items.map((x) => {
+      const d = toThaiDate(x.iso, false) || (x.kind === "rt" ? x.t.date : "");
+      if (x.kind === "rt") {
+        if (!x.t.sorted) return { text: `${d} · ลูกค้าคืนแผง ${fmt(sumTray(x.t.received))} แผง (รอคัดแยก)` };
+        const br = Math.max(0, sumTray(x.t.sorted.broken) - sumTray(x.t.replacedGood));
+        bal += br;
+        return { text: `${d} · คืนแผง ${fmt(sumTray(x.t.received))} → คัดดี ${fmt(sumTray(x.t.sorted.good))} · ชำรุด ${fmt(sumTray(x.t.sorted.broken))}`, bal, red: sumTray(x.t.sorted.broken) > 0 };
+      }
+      const q = (x.e.ใหญ่ || 0) + (x.e.เล็ก || 0);
+      if (x.kind === "replace") { bal = Math.max(0, bal - q); return { text: `${d} · ลูกค้านำแผงดีมาแลก ${fmt(q)} แผง`, bal, green: true }; }
+      return { text: `${d} · ฟาร์มส่งแผงชำรุดคืนให้ลูกค้า ${fmt(q)} แผง`, noBal: true };
+    });
+    return out.slice(-6);   // 6 รายการล่าสุด (แต่ยอดสะสมคิดจากทั้งหมด)
+  })();
 
   const lineText = [
     `📋 สรุปบัญชีแผงไข่ · ${COMPANY.name}`,
@@ -5458,7 +5472,9 @@ function TrayCustReportModal({ row, onClose }) {
             <div style={{ marginTop: 10 }}>
               <div style={{ fontSize: 12, fontWeight: 800, color: "#8a8170", marginBottom: 5 }}>รายการล่าสุด</div>
               {timeline.map((x, i) => (
-                <div key={i} style={{ fontSize: 12, color: x.green ? "#15803D" : x.red ? "#7a4f16" : "#5b5347", padding: "2px 0" }}>• {x.text}</div>
+                <div key={i} style={{ fontSize: 12, color: x.green ? "#15803D" : x.red ? "#7a4f16" : "#5b5347", padding: "2px 0" }}>
+                  • {x.text}{x.bal != null ? <b style={{ color: x.bal > 0 ? "#B91C1C" : "#15803D" }}> → ค้างทดแทน {fmt(x.bal)}</b> : null}
+                </div>
               ))}
             </div>
           )}
