@@ -960,7 +960,7 @@ export default function App() {
       {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={saveRearing} flocks={flocks} saveFlock={saveFlock} production={productionByDate} medTrials={medTrials} medStock={medStock} medInfo={medInfo} />}
       {view === "feed" && <FeedView rearingByDate={rearingByDate} flocks={flocks} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} />}
       {view === "med" && <MedView medTrials={medTrials} addMedTrial={addMedTrial} deleteMedTrial={deleteMedTrial} rearingByDate={rearingByDate} production={productionByDate} medStock={medStock} medInfo={medInfo} medReceipts={medReceipts} addMedItem={addMedItem} updateMedItem={updateMedItem} addMedReceipt={addMedReceipt} medCostByMonth={medCostByMonth} />}
-      {view === "cost" && <CostView expenses={expenses} addExpense={addExpense} deleteExpense={deleteExpense} production={productionByDate} medCostByMonth={medCostByMonth} />}
+      {view === "cost" && <CostView expenses={expenses} addExpense={addExpense} deleteExpense={deleteExpense} production={productionByDate} medCostByMonth={medCostByMonth} bills={bills} />}
       {view === "tray" && <PanelTrayView trayStock={trayStock} setTrayStock={setTrayStock} bills={bills} trayRecords={trayRecords} setTrayRecords={setTrayRecords} />}
     </div>
   );
@@ -2203,10 +2203,33 @@ function BillDetail({ bill, payment, onBack }) {
 /* ============================================================
    หน้าจอ: บัญชี / ลูกหนี้
 ============================================================ */
+// เดือนของบิล (จากวันทำงาน) — ใช้กรองย้อนดูรายเดือนทุกหน้าบัญชี
+const billYM = (b) => ((b.workDay || isoFromTs(b.ts || 0)) || "").slice(0, 7);
+const ymTH = (ym) => ym ? toThaiDate(ym + "-01").split(" ").slice(1).join(" ") : "";
+/* แถบเลือกเดือนย้อนหลัง: [ทั้งหมด] ‹ เดือน › — value = "" (ทุกเดือน) หรือ "2026-07" */
+function MonthBar({ months = [], value, onChange }) {
+  const idx = months.indexOf(value);
+  const btn = (dis) => ({ padding: "5px 11px", border: `1px solid ${ACCENT}`, background: dis ? "#f3efe6" : "#fff", color: dis ? "#c9c0ad" : ACCENT_DK, borderRadius: 8, fontSize: 14, fontWeight: 800, cursor: dis ? "default" : "pointer" });
+  const chip = (a) => ({ padding: "6px 14px", borderRadius: 999, border: `1.5px solid ${a ? ACCENT_DK : "#e0d7c3"}`, background: a ? ACCENT_DK : "#fff", color: a ? "#fff" : "#7a6f5c", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" });
+  return (
+    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+      <button style={chip(!value)} onClick={() => onChange("")}>ทั้งหมด</button>
+      <button disabled={!months.length || idx === 0} style={btn(!months.length || idx === 0)}
+        onClick={() => { if (!months.length || idx === 0) return; onChange(idx === -1 ? months[months.length - 1] : months[idx - 1]); }}>‹</button>
+      <span style={{ minWidth: 118, textAlign: "center", fontWeight: 800, fontSize: 13.5, color: value ? ACCENT_DK : "#9b8e78" }}>{value ? ymTH(value) : "ทุกเดือน"}</span>
+      <button disabled={idx < 0 || idx >= months.length - 1} style={btn(idx < 0 || idx >= months.length - 1)}
+        onClick={() => { if (idx >= 0 && idx < months.length - 1) onChange(months[idx + 1]); }}>›</button>
+    </div>
+  );
+}
+
 function AccountView({ bills, payments, recordPayment }) {
   const [payModal, setPayModal] = useState(null);
+  const [month, setMonth] = useState("");   // "" = ทุกเดือน
+  const months = useMemo(() => [...new Set((bills || []).map(billYM))].sort(), [bills]);
+  const viewBills = month ? bills.filter((b) => billYM(b) === month) : bills;
 
-  const rows = bills.map((b) => {
+  const rows = viewBills.map((b) => {
     const p = payments[b.no];
     const paid = p?.paid || 0;
     const owed = b.total - paid;
@@ -2228,13 +2251,16 @@ function AccountView({ bills, payments, recordPayment }) {
 
   return (
     <div style={S.wide}>
-      <div style={S.subBar}><span style={S.subBarTitle}>บัญชี / ลูกหนี้</span></div>
+      <div style={S.subBar}>
+        <span style={S.subBarTitle}>บัญชี / ลูกหนี้{month ? <span style={{ fontSize: 13, fontWeight: 700, color: ACCENT_DK }}> · {ymTH(month)}</span> : null}</span>
+        <MonthBar months={months} value={month} onChange={setMonth} />
+      </div>
       <div style={{ padding: "16px 0" }}>
         <div style={S.summaryGrid}>
           <SummaryCard icon={<CircleDollarSign size={18} />} label="ยอดขายรวม" value={totalSales} tone="amber" unit="บ." />
           <SummaryCard icon={<CheckCircle2 size={18} />} label="รับชำระแล้ว" value={totalPaid} tone="green" unit="บ." />
           <SummaryCard icon={<Wallet size={18} />} label="ค้างชำระรวม" value={totalOwed} tone="red" unit="บ." />
-          <SummaryCard icon={<FileText size={18} />} label="จำนวนบิล" value={bills.length} tone="amber" unit="ใบ" />
+          <SummaryCard icon={<FileText size={18} />} label="จำนวนบิล" value={viewBills.length} tone="amber" unit="ใบ" />
         </div>
 
         {Object.keys(byCustomer).length > 0 && (
@@ -2262,7 +2288,7 @@ function AccountView({ bills, payments, recordPayment }) {
             </tr></thead>
             <tbody>
               {rows.length === 0 ? (
-                <tr><td colSpan={8} style={{ ...S.td, padding: 32, color: "#9b9384" }}>ยังไม่มีบิล</td></tr>
+                <tr><td colSpan={8} style={{ ...S.td, padding: 32, color: "#9b9384" }}>{month ? `ยังไม่มีบิลในเดือน${ymTH(month)}` : "ยังไม่มีบิล"}</td></tr>
               ) : rows.map((r) => {
                 const stColor = r.status === "ชำระแล้ว" ? "#15803D" : r.status === "บางส่วน" ? "#B45309" : "#B91C1C";
                 return (
@@ -2416,33 +2442,40 @@ function PaymentModal({ bill, current, onClose, onPay }) {
    หน้าจอ: แดชบอร์ดภาพรวม
 ============================================================ */
 function DashboardView({ bills, payments }) {
-  const totalSales = bills.reduce((s, b) => s + b.total, 0);
-  const totalPaid = Object.values(payments).reduce((s, p) => s + (p.paid || 0), 0);
+  const [month, setMonth] = useState("");   // "" = ทุกเดือน
+  const months = useMemo(() => [...new Set((bills || []).map(billYM))].sort(), [bills]);
+  const viewBills = month ? bills.filter((b) => billYM(b) === month) : bills;
+
+  const totalSales = viewBills.reduce((s, b) => s + b.total, 0);
+  const totalPaid = viewBills.reduce((s, b) => s + (payments[b.no]?.paid || 0), 0);
   const totalOwed = totalSales - totalPaid;
-  const totalPrang = bills.reduce((s, b) => s + b.totalPrang, 0);
+  const totalPrang = viewBills.reduce((s, b) => s + b.totalPrang, 0);
 
   // ยอดขายรายวัน
   const byDate = {};
-  bills.forEach((b) => { byDate[b.date] = (byDate[b.date] || 0) + b.total; });
+  viewBills.forEach((b) => { byDate[b.date] = (byDate[b.date] || 0) + b.total; });
   const dateRows = Object.entries(byDate).sort((a, b) => a[0].localeCompare(b[0]));
   const maxDay = Math.max(1, ...dateRows.map((d) => d[1]));
 
   // ยอดขายรายสินค้า (แผง)
   const byProduct = {};
-  bills.forEach((b) => b.items.forEach((i) => { byProduct[i.name] = (byProduct[i.name] || 0) + i.qty; }));
+  viewBills.forEach((b) => b.items.forEach((i) => { byProduct[i.name] = (byProduct[i.name] || 0) + i.qty; }));
   const prodRows = Object.entries(byProduct).sort((a, b) => b[1] - a[1]).slice(0, 8);
   const maxProd = Math.max(1, ...prodRows.map((p) => p[1]));
 
   // ลูกค้าที่ซื้อมากสุด
   const byCust = {};
-  bills.forEach((b) => { byCust[b.customer.name] = (byCust[b.customer.name] || 0) + b.total; });
+  viewBills.forEach((b) => { byCust[b.customer.name] = (byCust[b.customer.name] || 0) + b.total; });
   const custRows = Object.entries(byCust).sort((a, b) => b[1] - a[1]).slice(0, 5);
 
   return (
     <div style={S.wide}>
-      <div style={S.subBar}><span style={S.subBarTitle}>แดชบอร์ดภาพรวม</span></div>
+      <div style={S.subBar}>
+        <span style={S.subBarTitle}>แดชบอร์ดภาพรวม{month ? <span style={{ fontSize: 13, fontWeight: 700, color: ACCENT_DK }}> · {ymTH(month)}</span> : null}</span>
+        <MonthBar months={months} value={month} onChange={setMonth} />
+      </div>
       <div style={{ padding: "16px 0" }}>
-        {bills.length === 0 ? (
+        {viewBills.length === 0 ? (
           <div style={S.emptyState}>
             <LayoutDashboard size={36} color="#d1d5db" />
             <div>ยังไม่มีข้อมูล — ออกบิลในหน้าขายไข่ แล้วกลับมาดูภาพรวม</div>
@@ -4345,7 +4378,7 @@ function AddMedModal({ onSave, onClose }) {
 /* ============================================================
    หน้าจอ: บัญชีต้นทุน — ค่าใช้จ่าย 6 หมวด ระบุหลังได้ + สรุปรายเดือนต่อหมวด
 ============================================================ */
-function CostView({ expenses = [], addExpense, deleteExpense, production = {}, medCostByMonth = {} }) {
+function CostView({ expenses = [], addExpense, deleteExpense, production = {}, medCostByMonth = {}, bills = [] }) {
   const prodDates = Object.keys(production).sort();
   const houseIds = (production[prodDates[prodDates.length - 1]] || []).map((h) => h.id);
   const [date, setDate] = useState(isoFromTs(Date.now()));
@@ -4381,6 +4414,51 @@ function CostView({ expenses = [], addExpense, deleteExpense, production = {}, m
     });
     return m;
   }, [expenses, medCostByMonth]);
+
+  // ---------- รายงานต้นทุนไข่รายเดือน (ตามวิธีบัญชีปัจจุบัน: ต้นทุน/ฟอง = รวมค่าใช้จ่าย ÷ ฟองรับเข้า) ----------
+  // อัตราคิดต่อฟอง (แก้ได้): ค่าสายพันธุ์ 0.5 บ./ฟอง · ค่าเสื่อมโรงเรือน 0.30 บ./ฟอง — คิดจากฟองรับเข้าอัตโนมัติ
+  const [rates, setRates] = useState(() => { try { return { breed: 0.5, depre: 0.3, ...JSON.parse(localStorage.getItem("eggCostRates") || "{}") }; } catch { return { breed: 0.5, depre: 0.3 }; } });
+  useEffect(() => { try { localStorage.setItem("eggCostRates", JSON.stringify(rates)); } catch {} }, [rates]);
+  // ฟองรับเข้าต่อเดือน = จากหน้าผลผลิต (Σ เบอร์ฟอง + ตกเกรดแผง×30) — ตรงกับ "จำนวนฟอง" ในชีต
+  const eggsByMonth = useMemo(() => {
+    const m = {};
+    Object.entries(production).forEach(([d, houses]) => {
+      const ym = monthKey(d);
+      (houses || []).forEach((h) => {
+        const good = Object.values(h.grade?.เบอร์ || {}).reduce((s, v) => s + (+v || 0), 0);
+        const off = Object.values(h.grade?.ตกเกรด || {}).reduce((s, v) => s + (+v || 0), 0);
+        m[ym] = (m[ym] || 0) + good + off * PER_PRADANG;
+      });
+    });
+    return m;
+  }, [production]);
+  // รายได้ค่าไข่ต่อเดือน (จากบิลจริง — เฉพาะค่าไข่ ไม่รวมมัดจำ/ค่าส่ง) — ตรงกับ "จำนวนเงิน" ในชีต
+  const revenueByMonth = useMemo(() => {
+    const m = {};
+    (bills || []).forEach((b) => { const ym = monthKey(b.workDay || isoFromTs(b.ts || 0)); m[ym] = (m[ym] || 0) + (b.eggTotal || 0); });
+    return m;
+  }, [bills]);
+  // สรุปเต็มของเดือน: ค่าใช้จ่ายทุกหมวด (กรอกเอง + ยาอัตโนมัติ + อัตรา×ฟอง) → ต้นทุน/ฟอง + กำไร
+  const monthReport = (ym) => {
+    const eggs = eggsByMonth[ym] || 0;
+    const bm = byMonth[ym] || { total: 0, cats: {}, autoMed: 0 };
+    const breedAuto = eggs * (rates.breed || 0);
+    const depreAuto = eggs * (rates.depre || 0);
+    const lines = EXPENSE_CATS.map((c) => {
+      let amt = bm.cats[c] || 0, note = "";
+      if (c === "ค่าสายพันธุ์") { amt += breedAuto; note = `อัตโนมัติ ${rates.breed} บ./ฟอง × ${fmt(eggs)} ฟอง`; }
+      if (c === "ค่าเสื่อมโรงเรือน") { amt += depreAuto; note = `อัตโนมัติ ${rates.depre} บ./ฟอง × ${fmt(eggs)} ฟอง`; }
+      if (c === "ค่ายา+วัสดุสิ้นเปลือง" && bm.autoMed) note = `รวมค่ายาจากบันทึกรายวัน ${fmt(Math.round(bm.autoMed))} บ.`;
+      return { cat: c, amt, note };
+    });
+    const total = lines.reduce((s, l) => s + l.amt, 0);
+    const revenue = revenueByMonth[ym] || 0;
+    return { eggs, lines, total, costPerEgg: eggs ? total / eggs : null, revenue, profit: revenue - total };
+  };
+  const repMonths = [...new Set([...Object.keys(eggsByMonth), ...Object.keys(byMonth), ...Object.keys(revenueByMonth)])].sort();
+  const [repMonth, setRepMonth] = useState(() => monthKey(isoFromTs(Date.now())));
+  const repIdx = repMonths.indexOf(repMonth);
+  const rep = monthReport(repMonth);
   const months = Object.keys(byMonth).sort().reverse();
   const curM = byMonth[thisMonth] || { total: 0, cats: {} };
   const topCat = Object.entries(curM.cats).sort((a, b) => b[1] - a[1])[0];
@@ -4404,6 +4482,62 @@ function CostView({ expenses = [], addExpense, deleteExpense, production = {}, m
         {card(`ต้นทุนเดือนนี้ (${monthTH(thisMonth)})`, fmt(Math.round(curM.total)) + " บ.", "#B91C1C")}
         {card("หมวดสูงสุดเดือนนี้", topCat ? `${topCat[0]} · ${fmt(Math.round(topCat[1]))} บ.` : "—")}
         {card("รายการทั้งหมด", fmt(expenses.length) + " รายการ")}
+      </div>
+
+      {/* 🧮 รายงานต้นทุนไข่รายเดือน — ตามแบบบัญชีที่ทำอยู่: ต้นทุน/ฟอง = รวมค่าใช้จ่าย ÷ ฟองรับเข้า */}
+      <div style={{ background: "#fff", border: `2px solid ${ACCENT}`, borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+          <span style={{ fontWeight: 800, fontSize: 15.5, color: INK }}>🧮 ต้นทุนไข่ไก่ · {monthTH(repMonth)}</span>
+          <span style={{ display: "flex", gap: 6, marginLeft: "auto", alignItems: "center" }}>
+            <button onClick={() => { if (!repMonths.length) return; if (repIdx === -1) setRepMonth(repMonths[repMonths.length - 1]); else if (repIdx > 0) setRepMonth(repMonths[repIdx - 1]); }} disabled={!repMonths.length || repIdx === 0}
+              style={{ padding: "5px 11px", border: `1px solid ${ACCENT}`, background: "#fff", color: repIdx === 0 ? "#c9c0ad" : ACCENT_DK, borderRadius: 8, fontSize: 14, fontWeight: 800, cursor: "pointer" }}>‹</button>
+            <button onClick={() => { if (repIdx >= 0 && repIdx < repMonths.length - 1) setRepMonth(repMonths[repIdx + 1]); }} disabled={repIdx < 0 || repIdx >= repMonths.length - 1}
+              style={{ padding: "5px 11px", border: `1px solid ${ACCENT}`, background: "#fff", color: (repIdx < 0 || repIdx >= repMonths.length - 1) ? "#c9c0ad" : ACCENT_DK, borderRadius: 8, fontSize: 14, fontWeight: 800, cursor: "pointer" }}>›</button>
+          </span>
+        </div>
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "stretch" }}>
+          {/* ซ้าย: รายการค่าใช้จ่าย 6 หมวด (กรอกเอง + อัตโนมัติ) */}
+          <div style={{ flex: "1.4 1 340px" }}>
+            {rep.lines.map((l) => (
+              <div key={l.cat} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, padding: "6px 4px", borderBottom: "1px solid #f3eee1", fontSize: 13.5 }}>
+                <span style={{ fontWeight: 700 }}>{l.cat}{l.note ? <span style={{ fontWeight: 500, fontSize: 11, color: "#9b8e78" }}> · {l.note}</span> : null}</span>
+                <span style={{ fontWeight: 700, whiteSpace: "nowrap" }}>{l.amt ? fmt2(l.amt) : "—"}</span>
+              </div>
+            ))}
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 4px", fontSize: 14.5, fontWeight: 800, color: "#7A4F16", background: "#FDF5E6", borderRadius: 8, marginTop: 6 }}>
+              <span>รวมค่าใช้จ่ายทั้งหมด</span><span>{fmt2(rep.total)} บาท</span>
+            </div>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 10, fontSize: 12, color: "#7a6f5c" }}>
+              <span style={{ fontWeight: 700 }}>อัตราคิดต่อฟอง:</span>
+              <span>สายพันธุ์</span>
+              <input inputMode="decimal" value={rates.breed} onChange={(e) => setRates((p) => ({ ...p, breed: parseFloat(e.target.value.replace(/[^0-9.]/g, "")) || 0 }))}
+                style={{ width: 52, padding: "3px 6px", border: "1px solid #e0d7c3", borderRadius: 6, textAlign: "right", fontSize: 12, fontFamily: "inherit", fontWeight: 700 }} />
+              <span>บ./ฟอง · ค่าเสื่อมโรงเรือน</span>
+              <input inputMode="decimal" value={rates.depre} onChange={(e) => setRates((p) => ({ ...p, depre: parseFloat(e.target.value.replace(/[^0-9.]/g, "")) || 0 }))}
+                style={{ width: 52, padding: "3px 6px", border: "1px solid #e0d7c3", borderRadius: 6, textAlign: "right", fontSize: 12, fontFamily: "inherit", fontWeight: 700 }} />
+              <span>บ./ฟอง</span>
+            </div>
+          </div>
+          {/* ขวา: ผลลัพธ์ ต้นทุน/ฟอง + กำไร */}
+          <div style={{ flex: "1 1 260px", display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ background: "#FAF6EE", borderRadius: 10, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: "#7a6f5c" }}>ฟองรับเข้า (จากหน้าผลผลิต)</span>
+              <span style={{ fontSize: 16, fontWeight: 800 }}>{fmt(rep.eggs)} <span style={{ fontSize: 11.5, fontWeight: 600 }}>ฟอง</span></span>
+            </div>
+            <div style={{ background: "#15803D", color: "#fff", borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
+              <div style={{ fontSize: 12.5, fontWeight: 700, opacity: 0.9 }}>ต้นทุนต่อฟอง = รวมค่าใช้จ่าย ÷ ฟองรับเข้า</div>
+              <div style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.25 }}>{rep.costPerEgg != null ? fmt2(rep.costPerEgg) : "—"} <span style={{ fontSize: 15 }}>บาท/ฟอง</span></div>
+              {rep.costPerEgg != null && <div style={{ fontSize: 11.5, opacity: 0.85 }}>({fmt2(rep.total)} ÷ {fmt(rep.eggs)})</div>}
+            </div>
+            <div style={{ background: "#FAF6EE", borderRadius: 10, padding: "10px 14px", fontSize: 13 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}><span style={{ color: "#7a6f5c", fontWeight: 700 }}>รายได้ค่าไข่ (จากบิลขาย)</span><span style={{ fontWeight: 700 }}>{rep.revenue ? fmt2(rep.revenue) : "—"}</span></div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ color: "#7a6f5c", fontWeight: 700 }}>กำไร (รายได้ − ต้นทุน)</span>
+                <span style={{ fontWeight: 800, color: rep.profit >= 0 ? "#15803D" : "#B91C1C" }}>{rep.revenue || rep.total ? (rep.profit >= 0 ? "+" : "") + fmt2(rep.profit) : "—"}</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-start", marginBottom: 12 }}>
