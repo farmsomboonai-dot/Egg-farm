@@ -5107,6 +5107,7 @@ function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], 
   const [lineModal, setLineModal] = useState(null);
   const [replaceModal, setReplaceModal] = useState(null);
   const [custAction, setCustAction] = useState(null);       // {mode: "replace"|"brokenBack", customerId} — บันทึกเหตุการณ์ระดับลูกค้า
+  const [reportCust, setReportCust] = useState(null);        // row ลูกค้าที่กำลังออกใบรายงานส่ง LINE
   const [newReturn, setNewReturn] = useState(false);
   const [newReturnCust, setNewReturnCust] = useState("");   // ลูกค้าที่ preselect ตอนกด "รับคืนอีก" (ต่อกลุ่ม)
   const [tab, setTab] = useState("byCustomer"); // byCustomer | list
@@ -5247,6 +5248,7 @@ function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], 
             onSort={(t) => setSortModal(t)}
             onReplace={(cid) => setCustAction({ mode: "replace", customerId: cid })}
             onBrokenBack={(cid) => setCustAction({ mode: "brokenBack", customerId: cid })}
+            onReport={(row) => setReportCust(row)}
             onDeleteEvent={deleteTrayEvent} />
         )}
       </div>
@@ -5257,6 +5259,7 @@ function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], 
         acc={trayAccountOf(custAction.customerId, bills, trays, null, trayEvents)}
         onClose={() => setCustAction(null)}
         onApply={(qty, dateISO, by) => applyCustAction(custAction.mode, custAction.customerId, qty, dateISO, by)} />}
+      {reportCust && <TrayCustReportModal row={reportCust} onClose={() => setReportCust(null)} />}
       {newReturn && <NewReturnModal initialCustomerId={newReturnCust} onClose={() => { setNewReturn(false); setNewReturnCust(""); }} onAdd={addReceive} bills={bills} trays={trays} trayEvents={trayEvents} />}
     </>
   );
@@ -5272,7 +5275,7 @@ function thShortToISO(s) {
 }
 
 /* สมุดแผงต่อลูกค้า — กติกาหน้างานจริง: ชำรุดสะสมจนกว่าจะ (1) รับแผงดีทดแทน (2) คืนแผงชำรุดให้ลูกค้า (2 จังหวะแยกกัน) */
-function TrayByCustomer({ rows, onReceive, onSort, onReplace, onBrokenBack, onDeleteEvent }) {
+function TrayByCustomer({ rows, onReceive, onSort, onReplace, onBrokenBack, onReport, onDeleteEvent }) {
   const [expanded, setExpanded] = useState(null);
   if (rows.length === 0) return <div style={S.emptyState}><RotateCcw size={36} color="#d1d5db" /><div>ยังไม่มีข้อมูลแผง — ออกบิลที่มีแผง หรือกด “รับแผงคืน”</div></div>;
   const actBtn = (color, bg) => ({ border: `1.5px solid ${color}`, background: bg, color, borderRadius: 9, padding: "7px 13px", cursor: "pointer", fontWeight: 800, fontSize: 12.5, fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 5 });
@@ -5311,6 +5314,7 @@ function TrayByCustomer({ rows, onReceive, onSort, onReplace, onBrokenBack, onDe
                   <button style={actBtn("#B45309", "#FFF7EC")} onClick={(ev) => { ev.stopPropagation(); onReceive && onReceive(r.customerId); }}>📥 รับแผงคืน (เข้าคิวคัด)</button>
                   <button style={actBtn("#15803D", "#F0FDF4")} onClick={(ev) => { ev.stopPropagation(); onReplace && onReplace(r.customerId); }}>🔁 รับแผงดีทดแทน{r.owed > 0 ? ` (ค้าง ${fmt(r.owed)})` : ""}</button>
                   <button style={actBtn("#B91C1C", "#FEF2F2")} onClick={(ev) => { ev.stopPropagation(); onBrokenBack && onBrokenBack(r.customerId); }}>↩ คืนแผงชำรุดให้ลูกค้า{r.brokenPending > 0 ? ` (มี ${fmt(r.brokenPending)})` : ""}</button>
+                  <button style={{ ...actBtn("#1D4ED8", "#EFF6FF"), marginLeft: "auto" }} onClick={(ev) => { ev.stopPropagation(); onReport && onReport(r); }}>📤 รายงานส่งลูกค้า (LINE)</button>
                 </div>
                 {timeline.length === 0 && <div style={{ fontSize: 12.5, color: "#9b9384", padding: "2px 2px 4px" }}>ยังไม่มีรายการ — กด "รับแผงคืน" เมื่อลูกค้าเอาแผงมาคืน</div>}
                 {timeline.map((x, i) => x.kind === "rt" ? (
@@ -5379,6 +5383,94 @@ function TrayCustActionModal({ mode, custName, acc, onClose, onApply }) {
         <div style={{ fontSize: 12, color: "#9b8e78", marginBottom: 12 }}>{isReplace ? "แผงดีทดแทนจะเข้าคลังแผงฟาร์ม และตัดยอดค้างทดแทนของลูกค้า" : "ตัดยอดกองแผงชำรุดที่ฟาร์มถือรอส่งคืน — ไม่กระทบยอดค้างทดแทน"}</div>
         <button disabled={total <= 0} onClick={() => onApply({ ใหญ่: parseInt(big) || 0, เล็ก: parseInt(small) || 0 }, date, by)}
           style={{ ...S.primaryBtn, opacity: total > 0 ? 1 : 0.5 }}>{isReplace ? "บันทึกรับทดแทน" : "บันทึกคืนชำรุด"} {total > 0 ? `· ${fmt(total)} แผง` : ""}</button>
+      </div>
+    </div>
+  );
+}
+
+/* 📤 ใบรายงานแผงต่อลูกค้า — เซฟเป็นรูปส่ง LINE หรือคัดลอกข้อความ */
+function TrayCustReportModal({ row, onClose }) {
+  const [saving, setSaving] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const todayTH = toThaiDate(isoFromTs(Date.now()));
+  // ไทม์ไลน์ล่าสุด (สูงสุด 6 รายการ) — ใบคืน+คัด และเหตุการณ์ทดแทน/คืนชำรุด
+  const timeline = [
+    ...row.trays.map((t) => ({ iso: thShortToISO(t.date), text: t.sorted
+      ? `${t.date} คืนแผง ${fmt(sumTray(t.received))} → คัดดี ${fmt(sumTray(t.sorted.good))} · ชำรุด ${fmt(sumTray(t.sorted.broken))}`
+      : `${t.date} คืนแผง ${fmt(sumTray(t.received))} (รอคัดแยก)`, red: t.sorted && sumTray(t.sorted.broken) > 0 })),
+    ...(row.events || []).map((e) => ({ iso: e.date || "", ts: e.ts, text: `${toThaiDate(e.date, false)} ${e.type === "replace" ? "รับแผงดีทดแทน" : "ฟาร์มคืนแผงชำรุดให้"} ${fmt((e.ใหญ่ || 0) + (e.เล็ก || 0))} แผง`, green: e.type === "replace" })),
+  ].sort((a, b) => (b.iso || "").localeCompare(a.iso || "") || (b.ts || 0) - (a.ts || 0)).slice(0, 6);
+
+  const lineText = [
+    `📋 สรุปบัญชีแผงไข่ · ${COMPANY.name}`,
+    `ลูกค้า: ${row.name}`, `ณ วันที่ ${todayTH}`, ``,
+    `🔴 แผงชำรุดค้างทดแทน ${fmt(row.owed)} แผง`,
+    ...(row.brokenPending > 0 ? [`📦 แผงชำรุดที่ฟาร์มเก็บไว้รอส่งคืน ${fmt(row.brokenPending)} แผง`] : []),
+    ...(row.carriedOwed > 0 ? [`⏳ แผงค้างคืน (ยกยอด) ${fmt(row.carriedOwed)} แผง`] : []),
+    ...(row.chargedHeld > 0 ? [`🔵 แผงที่ยืมไป (จ่ายมัดจำแล้ว) ${fmt(row.chargedHeld)} แผง`] : []), ``,
+    `🔄 รบกวนนำแผงดีมาทดแทน ${fmt(row.owed)} แผง ในรอบส่งไข่ถัดไป`,
+    `แผงชำรุดทางฟาร์มจะส่งคืนพร้อมเที่ยวส่งไข่ค่ะ ขอบคุณค่ะ 🙏`,
+  ].join("\n");
+  const copy = () => { if (navigator.clipboard) navigator.clipboard.writeText(lineText); setCopied(true); setTimeout(() => setCopied(false), 1800); };
+  const saveImage = async () => {
+    const el = document.getElementById("tray-cust-report");
+    if (!el) return;
+    setSaving(true);
+    try {
+      const h2c = window.html2canvas || await new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+        s.onload = () => resolve(window.html2canvas); s.onerror = reject;
+        document.body.appendChild(s);
+      });
+      const canvas = await h2c(el, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
+      const link = document.createElement("a");
+      link.download = `รายงานแผง_${row.name}_${isoFromTs(Date.now())}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+    } catch (e) { alert("สร้างรูปไม่สำเร็จ — ใช้ปุ่มคัดลอกข้อความแทนได้"); }
+    finally { setSaving(false); }
+  };
+  const bigRow = (label, value, color) => (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "7px 2px", borderBottom: "1px dashed #eee3cd" }}>
+      <span style={{ fontSize: 13.5, fontWeight: 700, color: "#5b5347" }}>{label}</span>
+      <span style={{ fontSize: 18, fontWeight: 800, color }}>{value} <span style={{ fontSize: 12, fontWeight: 600 }}>แผง</span></span>
+    </div>
+  );
+  return (
+    <div style={S.modalOverlay} onClick={onClose}>
+      <div style={{ ...S.modal, maxWidth: 440, maxHeight: "92vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <div style={S.modalHead}>
+          <div><div style={S.modalTitle}>📤 รายงานส่งลูกค้า</div><div style={S.modalSub}>เซฟเป็นรูปแล้วส่งใน LINE หรือคัดลอกข้อความ</div></div>
+          <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
+        </div>
+        {/* ใบรายงาน (ส่วนที่ถูกจับเป็นรูป) */}
+        <div id="tray-cust-report" style={{ background: "#fff", border: "1.5px solid #E8D9BC", borderRadius: 12, padding: "16px 18px", marginBottom: 14 }}>
+          <div style={{ textAlign: "center", borderBottom: "2px solid #E8943A", paddingBottom: 10, marginBottom: 10 }}>
+            <div style={{ fontSize: 17, fontWeight: 800, color: "#2B2620" }}>🥚 {COMPANY.name}</div>
+            <div style={{ fontSize: 14.5, fontWeight: 800, color: "#C9742A", marginTop: 3 }}>สรุปบัญชีแผงไข่</div>
+            <div style={{ fontSize: 12, color: "#8a8170", marginTop: 2 }}>ลูกค้า <b style={{ color: "#2B2620" }}>{row.name}</b> · ณ วันที่ {todayTH}</div>
+          </div>
+          {bigRow("🔴 แผงชำรุดค้างทดแทน (รอแผงดีมาแทน)", fmt(row.owed), "#B91C1C")}
+          {row.brokenPending > 0 && bigRow("📦 แผงชำรุดที่ฟาร์มเก็บไว้รอส่งคืน", fmt(row.brokenPending), "#B45309")}
+          {row.carriedOwed > 0 && bigRow("⏳ แผงค้างคืน (ยกยอดจากบิล)", fmt(row.carriedOwed), "#B91C1C")}
+          {row.chargedHeld > 0 && bigRow("🔵 แผงที่ยืมไป (จ่ายมัดจำแล้ว)", fmt(row.chargedHeld), "#1D4ED8")}
+          {timeline.length > 0 && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: "#8a8170", marginBottom: 5 }}>รายการล่าสุด</div>
+              {timeline.map((x, i) => (
+                <div key={i} style={{ fontSize: 12, color: x.green ? "#15803D" : x.red ? "#7a4f16" : "#5b5347", padding: "2px 0" }}>• {x.text}</div>
+              ))}
+            </div>
+          )}
+          <div style={{ marginTop: 12, background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 9, padding: "8px 11px", fontSize: 12.5, color: "#7A4F16", fontWeight: 700 }}>
+            🔄 รบกวนนำแผงดีมาทดแทน {fmt(row.owed)} แผง ในรอบส่งไข่ถัดไป — แผงชำรุดทางฟาร์มจะส่งคืนพร้อมเที่ยวส่งไข่ค่ะ ขอบคุณค่ะ 🙏
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button style={{ ...S.primaryBtn, flex: 1.3 }} onClick={saveImage} disabled={saving}>{saving ? "กำลังสร้างรูป…" : "💾 บันทึกเป็นรูป (ส่ง LINE)"}</button>
+          <button style={{ ...S.primaryBtn, flex: 1, background: "#fff", color: ACCENT_DK, border: `1.5px solid ${ACCENT_DK}` }} onClick={copy}>{copied ? "✓ คัดลอกแล้ว" : "📋 คัดลอกข้อความ"}</button>
+        </div>
       </div>
     </div>
   );
