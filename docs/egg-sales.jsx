@@ -4248,8 +4248,8 @@ function MedView({ medTrials = [], addMedTrial, deleteMedTrial, rearingByDate = 
         <button onClick={() => setShowAddMed(true)} style={{ padding: "8px 16px", borderRadius: 999, border: "1.5px solid #0D9488", background: "#0D9488", color: "#fff", fontSize: 13.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>＋ เพิ่มยาใหม่เข้าสต๊อก</button>
       </div>
       <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
-        {card("มูลค่าสต๊อกคงเหลือ", fmt(Math.round(stockValue)) + " บ.")}
-        {card("ค่ายาที่ใช้เดือนนี้ (จากบันทึกรายวัน)", fmt(Math.round(medCostThisMonth)) + " บ.", medCostThisMonth ? "#B91C1C" : undefined)}
+        {card("💊 ค่ายาที่ใช้จริงเดือนนี้ — ตัวนี้เข้าบัญชีต้นทุน", fmt(Math.round(medCostThisMonth)) + " บ.", medCostThisMonth ? "#B91C1C" : undefined)}
+        {card("📦 มูลค่าสต๊อกในคลัง (ทรัพย์สิน — ไม่ใช่ค่าใช้จ่าย)", fmt(Math.round(stockValue)) + " บ.", "#9b8e78")}
         {card("การทดลองทั้งหมด", medTrials.length + " รายการ")}
         {card("กำลังให้อยู่วันนี้", activeTrials.length + " รายการ", activeTrials.length ? "#0F766E" : undefined)}
       </div>
@@ -4299,7 +4299,7 @@ function MedView({ medTrials = [], addMedTrial, deleteMedTrial, rearingByDate = 
       {/* 📅 สรุปค่ายารายเดือน (จากบันทึกให้ยา × ราคาสต๊อก) แยกต่อหลัง */}
       {Object.keys(medCostByMonth).length > 0 && (
         <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflow: "auto", marginBottom: 14 }}>
-          <div style={{ fontWeight: 800, fontSize: 13.5, color: "#7a6f5c", padding: "12px 14px 4px" }}>📅 สรุปค่ายารายเดือน</div>
+          <div style={{ fontWeight: 800, fontSize: 13.5, color: "#7a6f5c", padding: "12px 14px 4px" }}>📅 สรุปค่ายาที่ใช้จริงรายเดือน แยกต่อหลัง — ตัวเลขชุดนี้เท่านั้นที่เข้าบัญชีต้นทุน (จำนวนที่ให้จริง × ราคา)</div>
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 620 }}>
             <thead><tr>
               <th style={{ padding: "8px 10px", fontSize: 12, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", textAlign: "left" }}>เดือน</th>
