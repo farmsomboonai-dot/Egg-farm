@@ -5269,7 +5269,7 @@ function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], 
         acc={trayAccountOf(custAction.customerId, bills, trays, null, trayEvents)}
         onClose={() => setCustAction(null)}
         onApply={(qty, dateISO, by) => applyCustAction(custAction.mode, custAction.customerId, qty, dateISO, by)} />}
-      {reportCust && <TrayCustReportModal row={reportCust} onClose={() => setReportCust(null)} />}
+      {reportCust && <TrayCustReportModal row={reportCust} bills={bills} onClose={() => setReportCust(null)} />}
       {newReturn && <NewReturnModal initialCustomerId={newReturnCust} onClose={() => { setNewReturn(false); setNewReturnCust(""); }} onAdd={addReceive} bills={bills} trays={trays} trayEvents={trayEvents} />}
     </>
   );
@@ -5399,32 +5399,41 @@ function TrayCustActionModal({ mode, custName, acc, onClose, onApply }) {
 }
 
 /* 📤 ใบรายงานแผงต่อลูกค้า — เซฟเป็นรูปส่ง LINE หรือคัดลอกข้อความ */
-function TrayCustReportModal({ row, onClose }) {
+function TrayCustReportModal({ row, bills = [], onClose }) {
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
   const todayTH = toThaiDate(isoFromTs(Date.now()));
-  // ไทม์ไลน์แบบสมุดบัญชี: เรียงเก่า→ใหม่ + ยอดค้างทดแทนสะสมต่อท้ายทุกบรรทัด (วันเดียวกัน: ใบคืน/คัดมาก่อนเหตุการณ์)
+  // ไทม์ไลน์แบบสมุดบัญชี เรียงเก่า→ใหม่: ฟาร์มส่งแผงพร้อมไข่ (จากบิล) · ลูกค้าคืน/คัด · แลก/คืนชำรุด
+  // ต่อท้าย 2 ยอดสะสม: ถือแผง (บวกส่ง ลบคืน → เห็นเกิน/ขาด/พอดี) + ค้างทดแทน
   const timeline = (() => {
     const items = [
+      ...(bills || []).filter((b) => b.customerId === row.customerId && b.traySummary && ((b.traySummary.blackSent || 0) + (b.traySummary.orangeSent || 0)) > 0)
+        .map((b) => ({ iso: (b.workDay || isoFromTs(b.ts || 0)), ts: -1, kind: "bill", sent: (b.traySummary.blackSent || 0) + (b.traySummary.orangeSent || 0) })),
       ...row.trays.map((t) => ({ iso: thShortToISO(t.date), ts: 0, kind: "rt", t })),
       ...(row.events || []).map((e) => ({ iso: e.date || "", ts: e.ts || 1, kind: e.type, e })),
     ].sort((a, b) => (a.iso || "").localeCompare(b.iso || "") || a.ts - b.ts);
-    let bal = 0;
+    let bal = 0, hold = 0;
+    const holdTxt = () => hold > 0 ? `ค้างคืน ${fmt(hold)}` : hold < 0 ? `คืนเกิน ${fmt(-hold)}` : "คืนครบ";
     const out = items.map((x) => {
-      const d = toThaiDate(x.iso, false) || (x.kind === "rt" ? x.t.date : "");
+      const d = toThaiDate(x.iso, false) || "";
+      if (x.kind === "bill") {
+        hold += x.sent;
+        return { text: `${d} · 📤 ฟาร์มส่งแผงพร้อมไข่ ${fmt(x.sent)} แผง`, tail: holdTxt(), blue: true };
+      }
       if (x.kind === "rt") {
-        if (!x.t.sorted) return { text: `${d} · ลูกค้าคืนแผง ${fmt(sumTray(x.t.received))} แผง (รอคัดแยก)` };
+        hold -= sumTray(x.t.received);
+        if (!x.t.sorted) return { text: `${d} · 📥 ลูกค้าคืนแผง ${fmt(sumTray(x.t.received))} แผง (รอคัดแยก)`, tail: holdTxt() };
         const br = Math.max(0, sumTray(x.t.sorted.broken) - sumTray(x.t.replacedGood));
         const good = sumTray(x.t.sorted.good);
         const offset = Math.min(bal, good);                 // แผงดีที่คัดได้ หักล้างค้างเก่าอัตโนมัติ
         bal = Math.max(0, bal - good) + br;
-        return { text: `${d} · คืนแผง ${fmt(sumTray(x.t.received))} → คัดดี ${fmt(good)} · ชำรุด ${fmt(sumTray(x.t.sorted.broken))}${offset > 0 ? ` · แผงดีหักค้างเดิม ${fmt(offset)}` : ""}`, bal, red: sumTray(x.t.sorted.broken) > 0 };
+        return { text: `${d} · 📥 คืนแผง ${fmt(sumTray(x.t.received))} → คัดดี ${fmt(good)} · ชำรุด ${fmt(sumTray(x.t.sorted.broken))}${offset > 0 ? ` · แผงดีหักค้างเดิม ${fmt(offset)}` : ""}`, tail: `${holdTxt()} · ค้างทดแทน ${fmt(bal)}`, red: sumTray(x.t.sorted.broken) > 0 };
       }
       const q = (x.e.ใหญ่ || 0) + (x.e.เล็ก || 0);
-      if (x.kind === "replace") { bal = Math.max(0, bal - q); return { text: `${d} · ลูกค้านำแผงดีมาแลก ${fmt(q)} แผง`, bal, green: true }; }
-      return { text: `${d} · ฟาร์มส่งแผงชำรุดคืนให้ลูกค้า ${fmt(q)} แผง`, noBal: true };
+      if (x.kind === "replace") { bal = Math.max(0, bal - q); return { text: `${d} · ลูกค้านำแผงดีมาแลก ${fmt(q)} แผง`, tail: `ค้างทดแทน ${fmt(bal)}`, green: true }; }
+      return { text: `${d} · ฟาร์มส่งแผงชำรุดคืนให้ลูกค้า ${fmt(q)} แผง` };
     });
-    return out.slice(-6);   // 6 รายการล่าสุด (แต่ยอดสะสมคิดจากทั้งหมด)
+    return out.slice(-7);   // 7 รายการล่าสุด (ยอดสะสมคิดจากทั้งหมด)
   })();
 
   const lineText = [
@@ -5464,7 +5473,7 @@ function TrayCustReportModal({ row, onClose }) {
   );
   return (
     <div style={S.modalOverlay} onClick={onClose}>
-      <div style={{ ...S.modal, maxWidth: 440, maxHeight: "92vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ ...S.modal, maxWidth: 560, maxHeight: "92vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
         <div style={S.modalHead}>
           <div><div style={S.modalTitle}>📤 รายงานส่งลูกค้า</div><div style={S.modalSub}>เซฟเป็นรูปแล้วส่งใน LINE หรือคัดลอกข้อความ</div></div>
           <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
@@ -5484,13 +5493,13 @@ function TrayCustReportModal({ row, onClose }) {
             <div style={{ marginTop: 10 }}>
               <div style={{ fontSize: 12, fontWeight: 800, color: "#8a8170", marginBottom: 5 }}>รายการล่าสุด</div>
               {timeline.map((x, i) => (
-                <div key={i} style={{ fontSize: 12, color: x.green ? "#15803D" : x.red ? "#7a4f16" : "#5b5347", padding: "2px 0" }}>
-                  • {x.text}{x.bal != null ? <b style={{ color: x.bal > 0 ? "#B91C1C" : "#15803D" }}> → ค้างทดแทน {fmt(x.bal)}</b> : null}
+                <div key={i} style={{ fontSize: 12, color: x.blue ? "#1D4ED8" : x.green ? "#15803D" : x.red ? "#7a4f16" : "#5b5347", padding: "2px 0" }}>
+                  • {x.text}{x.tail ? <b style={{ color: "#2B2620" }}> → {x.tail}</b> : null}
                 </div>
               ))}
             </div>
           )}
-          <div style={{ marginTop: 12, background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 9, padding: "8px 11px", fontSize: 12.5, color: "#7A4F16", fontWeight: 700 }}>
+          <div style={{ marginTop: 12, background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 9, padding: "8px 11px", fontSize: 12, color: "#7A4F16", fontWeight: 700, whiteSpace: "nowrap", textAlign: "center", overflow: "hidden" }}>
             🔄 รบกวนนำแผงดี {fmt(row.owed)} แผง มาแลกคืนแผงชำรุดในรอบรับไข่ถัดไปค่ะ 🙏
           </div>
         </div>
