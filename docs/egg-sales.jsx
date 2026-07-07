@@ -5370,11 +5370,24 @@ function TrayByCustomer({ rows, onReceive, onSort, onBrokenBack, onReport, onDel
                 <div style={S.byCustMeta}>รับไป {trayQty(r.sentBig, r.sentSmall)} · คืนแล้ว {trayQty(r.retBig, r.retSmall)} · คัดดี {trayQty(r.goodBig, r.goodSmall)} / ชำรุดสะสม {trayQty(r.brokenBig, r.brokenSmall)}</div>
               </div>
               <div style={{ textAlign: "right" }}>
-                {r.owed > 0
-                  ? <div style={{ fontWeight: 800, color: "#B91C1C", fontSize: 15 }}>ค้างทดแทน {trayQty(r.owedBig, r.owedSmall)}</div>
-                  : <div style={{ fontWeight: 800, color: "#15803D" }}>ไม่มีค้างทดแทน ✓</div>}
-                {r.brokenPending > 0 && <div style={{ fontSize: 12.5, fontWeight: 700, color: "#B45309" }}>ชำรุดรอส่งคืนลูกค้า {trayQty(r.brokenPendingBig, r.brokenPendingSmall)}</div>}
-                {r.carriedOwed > 0 && <div style={{ fontSize: 12, color: "#B91C1C" }}>ค้างคืนแผง {fmt(r.carriedOwed)}</div>}
+                {(() => {
+                  // กติกา user 2026-07-07: ค้างคืน = ส่ง − คัดดี (ชำรุด/รอคัด ไม่นับว่าคืนแล้ว) · แยกขนาด
+                  const owBig = (r.sentBig || 0) - (r.goodBig || 0);
+                  const owSmall = (r.sentSmall || 0) - (r.goodSmall || 0);
+                  const owTotal = owBig + owSmall;
+                  const owTxt = (v) => v < 0 ? `เกิน ${fmt(-v)}` : fmt(v);
+                  return (
+                    <>
+                      {owTotal > 0
+                        ? <div style={{ fontWeight: 800, color: "#B91C1C", fontSize: 15 }}>ค้างคืน {fmt(owTotal)} แผง</div>
+                        : owTotal < 0
+                          ? <div style={{ fontWeight: 800, color: "#1D4ED8", fontSize: 15 }}>คืนเกิน {fmt(-owTotal)} แผง</div>
+                          : <div style={{ fontWeight: 800, color: "#15803D" }}>คืนครบ ✓</div>}
+                      {(owSmall !== 0 || (owBig !== 0 && owBig !== owTotal)) && <div style={{ fontSize: 11.5, fontWeight: 700, color: "#8a8170" }}>ใหญ่ {owTxt(owBig)} · เล็ก {owTxt(owSmall)}</div>}
+                    </>
+                  );
+                })()}
+                {r.brokenPending > 0 && <div style={{ fontSize: 12.5, fontWeight: 700, color: "#B45309" }}>ชำรุดรอคืนลูกค้า {trayQty(r.brokenPendingBig, r.brokenPendingSmall)}</div>}
                 {r.chargedHeld > 0 && <div style={{ fontSize: 12, color: "#1D4ED8" }}>ยืมไป {fmt(r.chargedHeld)}{r.depositHeld > 0 ? ` · มัดจำ ${fmt(r.depositHeld)}฿` : ""}</div>}
               </div>
               <ChevronRight size={18} color="#9ca3af" style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform .2s" }} />
@@ -5401,7 +5414,7 @@ function TrayByCustomer({ rows, onReceive, onSort, onBrokenBack, onReport, onDel
                     if (x.t.sorted) { a.gb += x.t.sorted.good?.ใหญ่ || 0; a.gs += x.t.sorted.good?.เล็ก || 0; a.bb += x.t.sorted.broken?.ใหญ่ || 0; a.bs += x.t.sorted.broken?.เล็ก || 0; }
                     return a;
                   }, { sb: 0, ss: 0, rb: 0, rs: 0, gb: 0, gs: 0, bb: 0, bs: 0 });
-                  return (
+                  return (<>
                     <div style={S.tableScroll}>
                       <table style={{ ...S.table, fontSize: 12.5 }}>
                         <thead>
@@ -5473,6 +5486,24 @@ function TrayByCustomer({ rows, onReceive, onSort, onBrokenBack, onReport, onDel
                         </tbody>
                       </table>
                     </div>
+                    {(() => {
+                      // สรุปตามสูตร user: ค้างคืน = ส่ง − คัดดี (บวกชำรุดอยู่ในตัว เพราะชำรุดไม่นับว่าคืน) · ชำรุด = แผงรอคืนลูกค้า
+                      const owBig = (r.sentBig || 0) - (r.goodBig || 0);
+                      const owSmall = (r.sentSmall || 0) - (r.goodSmall || 0);
+                      const owTotal = owBig + owSmall;
+                      const owTxt = (v) => v < 0 ? `เกิน ${fmt(-v)}` : fmt(v);
+                      const waiting = r.trays.reduce((s, t) => s + (t.status === "รอคัด" ? sumTray(t.received) : 0), 0);
+                      return (
+                        <div style={{ marginTop: 8, background: "#FBF8F2", border: "1px solid #efe7d8", borderRadius: 9, padding: "8px 12px", fontSize: 12.5, color: "#5b5347", display: "flex", flexDirection: "column", gap: 3 }}>
+                          <div>🧮 แผงค้างคืน = ส่ง {fmt((r.sentBig || 0) + (r.sentSmall || 0))} − คัดดี {fmt((r.goodBig || 0) + (r.goodSmall || 0))} = <b style={{ color: owTotal > 0 ? "#B91C1C" : owTotal < 0 ? "#1D4ED8" : "#15803D" }}>{owTotal < 0 ? `คืนเกิน ${fmt(-owTotal)}` : fmt(owTotal)} แผง</b>
+                            <span style={{ color: "#8a8170" }}> (ใหญ่ {owTxt(owBig)} · เล็ก {owTxt(owSmall)})</span>
+                            {waiting > 0 && <span style={{ color: "#B45309", fontWeight: 700 }}> · ⏳ รอคัดอีก {fmt(waiting)} แผง (ยังไม่หักจนกว่าจะคัดเสร็จ)</span>}
+                          </div>
+                          <div>↩ แผงชำรุดรอคืนลูกค้า <b style={{ color: "#B45309" }}>{trayQty(r.brokenPendingBig, r.brokenPendingSmall)}</b> <span style={{ color: "#8a8170" }}>— ลูกค้านำแผงดีมาแลกคืนในรอบรับไข่</span></div>
+                        </div>
+                      );
+                    })()}
+                  </>
                   );
                 })()}
               </div>
@@ -5526,6 +5557,15 @@ function TrayCustReportModal({ row, bills = [], onClose }) {
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
   const todayTH = toThaiDate(isoFromTs(Date.now()));
+  // กติกา user 2026-07-07: ค้างคืน = ส่ง − คัดดี (ชำรุด/รอคัด ไม่นับว่าคืน) · แยกขนาด
+  const owBig = (row.sentBig || 0) - (row.goodBig || 0);
+  const owSmall = (row.sentSmall || 0) - (row.goodSmall || 0);
+  const owTotal = owBig + owSmall;
+  const owTxt = (v) => v < 0 ? `เกิน ${fmt(-v)}` : fmt(v);
+  const owStr = owBig >= 0 && owSmall >= 0
+    ? trayQty(owBig, owSmall)
+    : `${owTotal < 0 ? "คืนเกิน " + fmt(-owTotal) : fmt(owTotal)} แผง (ใหญ่ ${owTxt(owBig)} · เล็ก ${owTxt(owSmall)})`;
+  const askQty = owBig >= 0 && owSmall >= 0 ? trayQty(owBig, owSmall) : `${fmt(Math.max(0, owTotal))} แผง`;
   // ไทม์ไลน์แบบสมุดบัญชี เรียงเก่า→ใหม่: ฟาร์มส่งแผงพร้อมไข่ (จากบิล) · ลูกค้าคืน/คัด · แลก/คืนชำรุด
   // ต่อท้าย 2 ยอดสะสม: ถือแผง (บวกส่ง ลบคืน → เห็นเกิน/ขาด/พอดี) + ค้างทดแทน
   const timeline = (() => {
@@ -5567,11 +5607,10 @@ function TrayCustReportModal({ row, bills = [], onClose }) {
   const lineText = [
     `📋 สรุปบัญชีแผงไข่ · ${COMPANY.name}`,
     `ลูกค้า: ${row.name}`, `ณ วันที่ ${todayTH}`, ``,
-    `🔴 แผงชำรุดค้างทดแทน ${trayQty(row.owedBig, row.owedSmall)}`,
-    ...(row.brokenPending > 0 ? [`📦 แผงชำรุดที่ฟาร์มเก็บไว้รอส่งคืน ${trayQty(row.brokenPendingBig, row.brokenPendingSmall)}`] : []),
-    ...(row.carriedOwed > 0 ? [`⏳ แผงค้างคืน (ยกยอด) ${fmt(row.carriedOwed)} แผง`] : []),
+    `🔴 แผงค้างคืน (ส่ง − คัดดี) ${owStr}`,
+    ...(row.brokenPending > 0 ? [`📦 แผงชำรุดที่ฟาร์มเก็บไว้รอคืนลูกค้า ${trayQty(row.brokenPendingBig, row.brokenPendingSmall)}`] : []),
     ...(row.chargedHeld > 0 ? [`🔵 แผงที่ยืมไป (จ่ายมัดจำแล้ว) ${fmt(row.chargedHeld)} แผง`] : []), ``,
-    `🔄 รบกวนนำแผงดี ${trayQty(row.owedBig, row.owedSmall)} มาแลกคืนแผงชำรุดในรอบรับไข่ถัดไปค่ะ 🙏`,
+    owTotal > 0 ? `🔄 รบกวนนำแผงดี ${askQty} มาแลกคืนแผงชำรุดในรอบรับไข่ถัดไปค่ะ 🙏` : `✅ ไม่มีแผงค้างคืน ขอบคุณค่ะ 🙏`,
   ].join("\n");
   const copy = () => { if (navigator.clipboard) navigator.clipboard.writeText(lineText); setCopied(true); setTimeout(() => setCopied(false), 1800); };
   const saveImage = async () => {
@@ -5617,9 +5656,9 @@ function TrayCustReportModal({ row, bills = [], onClose }) {
             <div style={{ fontSize: 14.5, fontWeight: 800, color: "#C9742A", marginTop: 3 }}>สรุปบัญชีแผงไข่</div>
             <div style={{ fontSize: 12, color: "#8a8170", marginTop: 2 }}>ลูกค้า <b style={{ color: "#2B2620" }}>{row.name}</b> · ณ วันที่ {todayTH}</div>
           </div>
-          {bigRow("🔴 แผงชำรุดค้างทดแทน (รอแผงดีมาแทน)", fmt(row.owed), "#B91C1C", sizeSub(row.owedBig, row.owedSmall))}
-          {row.brokenPending > 0 && bigRow("📦 แผงชำรุดที่ฟาร์มเก็บไว้รอส่งคืน", fmt(row.brokenPending), "#B45309", sizeSub(row.brokenPendingBig, row.brokenPendingSmall))}
-          {row.carriedOwed > 0 && bigRow("⏳ แผงค้างคืน (ยกยอดจากบิล)", fmt(row.carriedOwed), "#B91C1C")}
+          {bigRow("🔴 แผงค้างคืน (ส่ง − คัดดี)", owTotal < 0 ? `เกิน ${fmt(-owTotal)}` : fmt(owTotal), owTotal > 0 ? "#B91C1C" : owTotal < 0 ? "#1D4ED8" : "#15803D",
+            (owBig !== 0 && owSmall !== 0) || owBig < 0 || owSmall < 0 ? `ใหญ่ ${owTxt(owBig)} · เล็ก ${owTxt(owSmall)}` : sizeSub(Math.max(0, owBig), Math.max(0, owSmall)))}
+          {row.brokenPending > 0 && bigRow("📦 แผงชำรุดที่ฟาร์มเก็บไว้รอคืนลูกค้า", fmt(row.brokenPending), "#B45309", sizeSub(row.brokenPendingBig, row.brokenPendingSmall))}
           {row.chargedHeld > 0 && bigRow("🔵 แผงที่ยืมไป (จ่ายมัดจำแล้ว)", fmt(row.chargedHeld), "#1D4ED8")}
           {timeline.length > 0 && (
             <div style={{ marginTop: 10 }}>
@@ -5632,7 +5671,7 @@ function TrayCustReportModal({ row, bills = [], onClose }) {
             </div>
           )}
           <div style={{ marginTop: 12, background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 9, padding: "8px 11px", fontSize: 12, color: "#7A4F16", fontWeight: 700, whiteSpace: "nowrap", textAlign: "center", overflow: "hidden" }}>
-            🔄 รบกวนนำแผงดี {trayQty(row.owedBig, row.owedSmall)} มาแลกคืนแผงชำรุดในรอบรับไข่ถัดไปค่ะ 🙏
+            {owTotal > 0 ? <>🔄 รบกวนนำแผงดี {askQty} มาแลกคืนแผงชำรุดในรอบรับไข่ถัดไปค่ะ 🙏</> : <>✅ ไม่มีแผงค้างคืน ขอบคุณค่ะ 🙏</>}
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
