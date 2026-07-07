@@ -5389,36 +5389,92 @@ function TrayByCustomer({ rows, onReceive, onSort, onBrokenBack, onReport, onDel
                 </div>
                 <div style={{ fontSize: 11.5, color: "#9b8e78", margin: "-4px 2px 8px" }}>แผงทุกใบที่ลูกค้าคืนต้องคัดก่อน (รวมแผงทดแทน) — แผงดีที่คัดได้จะหักยอดค้างทดแทนให้อัตโนมัติ</div>
                 {timeline.length === 0 && <div style={{ fontSize: 12.5, color: "#9b9384", padding: "2px 2px 4px" }}>ยังไม่มีรายการ — กด "รับแผงคืน" เมื่อลูกค้าเอาแผงมาคืน</div>}
-                {timeline.map((x, i) => x.kind === "rt" ? (
-                  <div key={"rt" + x.t.id} style={S.byCustTrayRow}>
-                    <div style={{ flex: 1 }}>
-                      <span style={S.byCustTrayNo}>{x.t.id}</span>
-                      <span style={{ ...S.statusPill, background: (STATUS_STYLE[x.t.status] || {}).bg, color: (STATUS_STYLE[x.t.status] || {}).c, marginLeft: 8 }}>{x.t.status}</span>
+                {timeline.length > 0 && (() => {
+                  // ตารางรายการ: คอลัมน์แยกใหญ่/เล็กทุกยอด + แถวรวม
+                  const num = (v, color) => <td style={{ ...S.td, color: (v || 0) > 0 ? (color || INK) : "#d5cdbd", fontWeight: (v || 0) > 0 ? 700 : 400 }}>{(v || 0) > 0 ? fmt(v) : "-"}</td>;
+                  const subTh = { ...S.th, fontSize: 10.5, padding: "3px 8px", color: "#9b9384" };
+                  const tot = timeline.reduce((a, x) => {
+                    if (x.kind !== "rt") return a;
+                    const so = sentOfRT[x.t.id] || { b: 0, s: 0 };
+                    a.sb += so.b; a.ss += so.s;
+                    a.rb += x.t.received?.ใหญ่ || 0; a.rs += x.t.received?.เล็ก || 0;
+                    if (x.t.sorted) { a.gb += x.t.sorted.good?.ใหญ่ || 0; a.gs += x.t.sorted.good?.เล็ก || 0; a.bb += x.t.sorted.broken?.ใหญ่ || 0; a.bs += x.t.sorted.broken?.เล็ก || 0; }
+                    return a;
+                  }, { sb: 0, ss: 0, rb: 0, rs: 0, gb: 0, gs: 0, bb: 0, bs: 0 });
+                  return (
+                    <div style={S.tableScroll}>
+                      <table style={{ ...S.table, fontSize: 12.5 }}>
+                        <thead>
+                          <tr>
+                            <th style={{ ...S.th, textAlign: "left" }} rowSpan={2}>ใบรับคืน</th>
+                            <th style={S.th} rowSpan={2}>วันที่</th>
+                            <th style={{ ...S.th, color: "#1D4ED8" }} colSpan={2}>📤 ส่ง</th>
+                            <th style={S.th} colSpan={2}>📥 คืน</th>
+                            <th style={{ ...S.th, color: "#15803D" }} colSpan={2}>✅ คัดดี</th>
+                            <th style={{ ...S.th, color: "#B91C1C" }} colSpan={2}>ชำรุด</th>
+                            <th style={S.th} rowSpan={2}>ผู้คัด</th>
+                            <th style={S.th} rowSpan={2}></th>
+                          </tr>
+                          <tr>{["ใหญ่", "เล็ก", "ใหญ่", "เล็ก", "ใหญ่", "เล็ก", "ใหญ่", "เล็ก"].map((k, i) => <th key={i} style={subTh}>{k}</th>)}</tr>
+                        </thead>
+                        <tbody>
+                          {timeline.map((x, i) => {
+                            if (x.kind !== "rt") return (
+                              <tr key={"ev" + x.e.id} style={{ background: x.kind === "replace" ? "#F0FDF4" : "#FEF7F2" }}>
+                                <td style={{ ...S.td, textAlign: "left", fontWeight: 700, color: x.kind === "replace" ? "#15803D" : "#B45309" }} colSpan={10}>
+                                  {x.kind === "replace" ? "🔁 รับแผงดีทดแทน" : "↩ คืนแผงชำรุดให้ลูกค้า"} · {toThaiDate(x.e.date, false)} · {trayQty(x.e.ใหญ่, x.e.เล็ก)}{x.e.by ? ` · โดย ${x.e.by}` : ""}
+                                </td>
+                                <td style={S.td} colSpan={2}>
+                                  <button title="ลบรายการนี้ (กรอกผิด)" onClick={() => { if (window.confirm("ลบรายการนี้? (ยอดจะคำนวณใหม่)")) onDeleteEvent && onDeleteEvent(x.e.id); }}
+                                    style={{ border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 7, padding: "1px 7px", cursor: "pointer", fontWeight: 800, fontSize: 11 }}>✕</button>
+                                </td>
+                              </tr>
+                            );
+                            const so = sentOfRT[x.t.id] || { b: 0, s: 0 };
+                            const missing = x.t.sorted ? sumTray(x.t.received) - sumTray(x.t.sorted.good) - sumTray(x.t.sorted.broken) : 0;
+                            return (
+                              <tr key={x.t.id}>
+                                <td style={{ ...S.td, textAlign: "left", whiteSpace: "nowrap" }}>
+                                  <span style={{ fontWeight: 700 }}>{x.t.id}</span>
+                                  <span style={{ ...S.statusPill, background: (STATUS_STYLE[x.t.status] || {}).bg, color: (STATUS_STYLE[x.t.status] || {}).c, marginLeft: 6 }}>{x.t.status}</span>
+                                </td>
+                                <td style={{ ...S.td, whiteSpace: "nowrap" }}>{toThaiDate(thShortToISO(x.t.date), false) || x.t.date}</td>
+                                {num(so.b, "#1D4ED8")}{num(so.s, "#1D4ED8")}
+                                {num(x.t.received?.ใหญ่)}{num(x.t.received?.เล็ก)}
+                                {x.t.sorted ? (
+                                  <>
+                                    {num(x.t.sorted.good?.ใหญ่, "#15803D")}{num(x.t.sorted.good?.เล็ก, "#15803D")}
+                                    {num(x.t.sorted.broken?.ใหญ่, "#B91C1C")}{num(x.t.sorted.broken?.เล็ก, "#B91C1C")}
+                                  </>
+                                ) : (
+                                  <td style={S.td} colSpan={4}>
+                                    <button style={{ ...actBtn("#B45309", "#FFF7EC"), padding: "3px 10px", fontSize: 12 }} onClick={() => onSort && onSort(x.t)}>✂️ คัดแยกใบนี้</button>
+                                  </td>
+                                )}
+                                <td style={{ ...S.td, fontSize: 11.5, color: "#9b8e78", whiteSpace: "nowrap" }}>{x.t.sorter || "-"}{missing > 0 ? <div style={{ color: "#B45309", fontWeight: 700 }}>หาย {fmt(missing)} ⚠️</div> : null}</td>
+                                <td style={S.td}>
+                                  <button title="ลบใบนี้ (กรอกผิด/บันทึกซ้ำ)" onClick={(ev) => {
+                                    ev.stopPropagation();
+                                    const extra = x.t.sorted ? `\nใบนี้คัดแล้ว — แผงดี ${fmt(sumTray(x.t.sorted.good))} แผงจะถูกถอนออกจากคลังแผงฟาร์มด้วย` : "";
+                                    if (window.confirm(`ลบใบรับคืน ${x.t.id} (${fmt(sumTray(x.t.received))} แผง)?${extra}\nยอดทุกหน้าจะคำนวณใหม่`)) onDeleteTray && onDeleteTray(x.t.id);
+                                  }} style={{ border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 7, padding: "1px 7px", cursor: "pointer", fontWeight: 800, fontSize: 11 }}>✕</button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                          <tr>
+                            <td style={{ ...S.td, ...S.tfoot, textAlign: "left" }} colSpan={2}>รวม</td>
+                            <td style={{ ...S.td, ...S.tfoot, color: "#1D4ED8" }}>{fmt(tot.sb)}</td><td style={{ ...S.td, ...S.tfoot, color: "#1D4ED8" }}>{fmt(tot.ss)}</td>
+                            <td style={{ ...S.td, ...S.tfoot }}>{fmt(tot.rb)}</td><td style={{ ...S.td, ...S.tfoot }}>{fmt(tot.rs)}</td>
+                            <td style={{ ...S.td, ...S.tfoot, color: "#15803D" }}>{fmt(tot.gb)}</td><td style={{ ...S.td, ...S.tfoot, color: "#15803D" }}>{fmt(tot.gs)}</td>
+                            <td style={{ ...S.td, ...S.tfoot, color: "#B91C1C" }}>{fmt(tot.bb)}</td><td style={{ ...S.td, ...S.tfoot, color: "#B91C1C" }}>{fmt(tot.bs)}</td>
+                            <td style={{ ...S.td, ...S.tfoot }} colSpan={2}>—</td>
+                          </tr>
+                        </tbody>
+                      </table>
                     </div>
-                    <div style={{ ...S.byCustTrayInfo, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                      <span>📥 {toThaiDate(thShortToISO(x.t.date), false) || x.t.date} · <b style={{ color: "#1D4ED8" }}>ส่ง {trayQty(sentOfRT[x.t.id]?.b, sentOfRT[x.t.id]?.s)}</b> · คืน {trayQtyO(x.t.received)}</span>
-                      {x.t.sorted
-                        ? <span> → ✅ ดี {trayQtyO(x.t.sorted.good)} · <b style={{ color: "#B91C1C" }}>ชำรุด {trayQtyO(x.t.sorted.broken)}</b>{(sumTray(x.t.received) - sumTray(x.t.sorted.good) - sumTray(x.t.sorted.broken)) > 0 ? <span style={{ color: "#B45309" }}> · หาย {fmt(sumTray(x.t.received) - sumTray(x.t.sorted.good) - sumTray(x.t.sorted.broken))}</span> : null}{x.t.sorter ? <span style={{ color: "#9b8e78" }}> · คัดโดย {x.t.sorter}</span> : null}</span>
-                        : <button style={{ ...actBtn("#B45309", "#FFF7EC"), padding: "4px 11px", fontSize: 12 }} onClick={() => onSort && onSort(x.t)}>✂️ คัดแยกใบนี้</button>}
-                      <button title="ลบใบนี้ (กรอกผิด/บันทึกซ้ำ)" onClick={(ev) => {
-                        ev.stopPropagation();
-                        const extra = x.t.sorted ? `\nใบนี้คัดแล้ว — แผงดี ${fmt(sumTray(x.t.sorted.good))} แผงจะถูกถอนออกจากคลังแผงฟาร์มด้วย` : "";
-                        if (window.confirm(`ลบใบรับคืน ${x.t.id} (${fmt(sumTray(x.t.received))} แผง)?${extra}\nยอดทุกหน้าจะคำนวณใหม่`)) onDeleteTray && onDeleteTray(x.t.id);
-                      }} style={{ border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 7, padding: "1px 7px", cursor: "pointer", fontWeight: 800, fontSize: 11 }}>✕</button>
-                    </div>
-                  </div>
-                ) : (
-                  <div key={"ev" + x.e.id} style={{ ...S.byCustTrayRow, background: x.kind === "replace" ? "#F0FDF4" : "#FEF7F2", borderRadius: 8 }}>
-                    <div style={{ flex: 1, fontSize: 12.5, fontWeight: 700, color: x.kind === "replace" ? "#15803D" : "#B45309" }}>
-                      {x.kind === "replace" ? "🔁 รับแผงดีทดแทน" : "↩ คืนแผงชำรุดให้ลูกค้า"}
-                    </div>
-                    <div style={{ ...S.byCustTrayInfo, display: "flex", alignItems: "center", gap: 8 }}>
-                      <span>{toThaiDate(x.e.date, false)} · <b>{fmt((x.e.ใหญ่ || 0) + (x.e.เล็ก || 0))} แผง</b> (ใหญ่ {fmt(x.e.ใหญ่ || 0)} · เล็ก {fmt(x.e.เล็ก || 0)}){x.e.by ? ` · โดย ${x.e.by}` : ""}</span>
-                      <button title="ลบรายการนี้ (กรอกผิด)" onClick={() => { if (window.confirm("ลบรายการนี้? (ยอดจะคำนวณใหม่)")) onDeleteEvent && onDeleteEvent(x.e.id); }}
-                        style={{ border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 7, padding: "1px 7px", cursor: "pointer", fontWeight: 800, fontSize: 11 }}>✕</button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })()}
               </div>
             )}
           </div>
