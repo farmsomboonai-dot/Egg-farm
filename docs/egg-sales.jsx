@@ -5583,7 +5583,8 @@ function TrayCustReportModal({ row, bills = [], onClose }) {
       ...row.trays.map((t) => ({ iso: thShortToISO(t.date), ts: 0, kind: "rt", t })),
       ...(row.events || []).map((e) => ({ iso: e.date || "", ts: e.ts || 1, kind: e.type, e })),
     ].sort((a, b) => (a.iso || "").localeCompare(b.iso || "") || a.ts - b.ts);
-    let balB = 0, balS = 0, hold = 0;   // ค้างทดแทนแยกขนาด (ดีใหญ่หักค้างใหญ่ / เล็กหักเล็ก) + แผงถือสะสม
+    // ค้างคืนสะสมตามกติกา 2026-07-07: +ส่ง −คัดดี (แผงชำรุด/รอคัด ไม่นับว่าคืน) — เลขท้ายบรรทัดสุดท้าย = ยอดหัวใบ
+    let hold = 0;
     const holdTxt = () => hold > 0 ? `ค้างคืน ${fmt(hold)}` : hold < 0 ? `คืนเกิน ${fmt(-hold)}` : "คืนครบ";
     const out = items.map((x) => {
       const d = toThaiDate(x.iso, false) || "";
@@ -5592,16 +5593,11 @@ function TrayCustReportModal({ row, bills = [], onClose }) {
         return { text: `${d} · 📤 ฟาร์มส่งแผงพร้อมไข่ ${trayQty(x.big, x.small)}`, tail: holdTxt(), blue: true };
       }
       if (x.kind === "rt") {
-        hold -= sumTray(x.t.received);
-        if (!x.t.sorted) return { text: `${d} · 📥 ลูกค้าคืน ${trayQtyO(x.t.received)} (ใบ ${x.t.id} · รอคัดแยก)`, tail: holdTxt() };
-        const brB = Math.max(0, (x.t.sorted.broken?.ใหญ่ || 0) - (x.t.replacedGood?.ใหญ่ || 0));
-        const brS = Math.max(0, (x.t.sorted.broken?.เล็ก || 0) - (x.t.replacedGood?.เล็ก || 0));
-        const gB = x.t.sorted.good?.ใหญ่ || 0, gS = x.t.sorted.good?.เล็ก || 0;
-        const offset = Math.min(balB, gB) + Math.min(balS, gS);   // แผงดีที่คัดได้ หักล้างค้างเก่าอัตโนมัติ (ขนาดเดียวกัน)
-        balB = Math.max(0, balB - gB) + brB; balS = Math.max(0, balS - gS) + brS;
-        return { text: `${d} · 📥 คืน ${trayQtyO(x.t.received)} (ใบ ${x.t.id}) → คัดดี ${trayQtyO(x.t.sorted.good)} · ชำรุด ${trayQtyO(x.t.sorted.broken)}${offset > 0 ? ` · แผงดีหักค้างเดิม ${fmt(offset)}` : ""}`, tail: `${holdTxt()} · ค้างทดแทน ${fmt(balB + balS)}`, red: sumTray(x.t.sorted.broken) > 0 };
+        if (!x.t.sorted) return { text: `${d} · 📥 ลูกค้าคืน ${trayQtyO(x.t.received)} (ใบ ${x.t.id} · รอคัดแยก — ยังไม่หัก)`, tail: holdTxt() };
+        hold -= sumTray(x.t.sorted.good);
+        return { text: `${d} · 📥 คืน ${trayQtyO(x.t.received)} (ใบ ${x.t.id}) → คัดดี ${trayQtyO(x.t.sorted.good)} · ชำรุด ${trayQtyO(x.t.sorted.broken)}`, tail: holdTxt(), red: sumTray(x.t.sorted.broken) > 0 };
       }
-      if (x.kind === "replace") { balB = Math.max(0, balB - (x.e.ใหญ่ || 0)); balS = Math.max(0, balS - (x.e.เล็ก || 0)); return { text: `${d} · ลูกค้านำแผงดีมาแลก ${trayQty(x.e.ใหญ่, x.e.เล็ก)}`, tail: `ค้างทดแทน ${fmt(balB + balS)}`, green: true }; }
+      if (x.kind === "replace") { hold -= (x.e.ใหญ่ || 0) + (x.e.เล็ก || 0); return { text: `${d} · ลูกค้านำแผงดีมาแลก ${trayQty(x.e.ใหญ่, x.e.เล็ก)}`, tail: holdTxt(), green: true }; }
       return { text: `${d} · ฟาร์มส่งแผงชำรุดคืนให้ลูกค้า ${trayQty(x.e.ใหญ่, x.e.เล็ก)}` };
     });
     return out.slice(-7);   // 7 รายการล่าสุด (ยอดสะสมคิดจากทั้งหมด)
