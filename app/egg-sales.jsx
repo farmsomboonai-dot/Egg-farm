@@ -5144,16 +5144,17 @@ function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], 
   const byCustomer = useMemo(() => {
     const map = {};
     const ensure = (id) => {
-      if (!map[id]) map[id] = { customerId: id, name: custName(id), good: 0, broken: 0, trays: [], events: [] };
+      if (!map[id]) map[id] = { customerId: id, name: custName(id), good: 0, broken: 0, trays: [], events: [], billTrays: [] };
       return map[id];
     };
-    // ลงทะเบียนลูกค้าที่มีแผงจากบิล
+    // ลงทะเบียนลูกค้าที่มีแผงจากบิล + เก็บยอดแผงที่ฟาร์มส่งไปแต่ละบิล (โชว์ในไทม์ไลน์สมุด)
     (bills || []).forEach((b) => {
       const ts = b.traySummary; if (!ts) return;
       const sent = (ts.blackSent || 0) + (ts.orangeSent || 0);
       const ret = (ts.blackReturned || 0) + (ts.orangeReturned || 0);
       if (sent === 0 && ret === 0) return;
-      ensure(b.customerId);
+      const m = ensure(b.customerId);
+      if (sent > 0) m.billTrays.push({ iso: b.workDay || isoFromTs(b.ts || 0), sent, no: b.no });
     });
     // รายละเอียดการรับแผงคืนภายหลัง (RT) + คัดแยกดี/ชำรุด
     trays.forEach((t) => {
@@ -5306,11 +5307,20 @@ function TrayByCustomer({ rows, onReceive, onSort, onBrokenBack, onReport, onDel
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {rows.map((r) => {
         const open = expanded === r.customerId || rows.length === 1;
-        // ไทม์ไลน์: ใบรับคืน (RT) + เหตุการณ์ทดแทน/คืนชำรุด เรียงใหม่→เก่า
-        const timeline = [
-          ...r.trays.map((t) => ({ kind: "rt", iso: thShortToISO(t.date), t })),
-          ...(r.events || []).map((e) => ({ kind: e.type, iso: e.date || "", e })),
-        ].sort((a, b) => (b.iso || "").localeCompare(a.iso || "") || (b.e?.ts || 0) - (a.e?.ts || 0));
+        // ไทม์ไลน์: บิลส่งแผง (📤) + ใบรับคืน (RT) + เหตุการณ์ — เรียงเวลาจริงก่อนเพื่อคิดยอดถือสะสม แล้วโชว์ใหม่→เก่า
+        const itemsAsc = [
+          ...(r.billTrays || []).map((bl) => ({ kind: "bill", iso: bl.iso || "", ord: -1, bl })),
+          ...r.trays.map((t) => ({ kind: "rt", iso: thShortToISO(t.date), ord: 0, t })),
+          ...(r.events || []).map((e) => ({ kind: e.type, iso: e.date || "", ord: e.ts || 1, e })),
+        ].sort((a, b) => (a.iso || "").localeCompare(b.iso || "") || a.ord - b.ord);
+        let hold = 0;   // ยอดแผงที่ลูกค้าถือสะสม: +ส่งไปกับไข่ −คืนกลับมา
+        itemsAsc.forEach((x) => {
+          if (x.kind === "bill") hold += x.bl.sent;
+          else if (x.kind === "rt") hold -= sumTray(x.t.received);
+          x.hold = hold;
+        });
+        const holdTxt = (h) => h > 0 ? `ค้างคืน ${fmt(h)}` : h < 0 ? `คืนเกิน ${fmt(-h)}` : "คืนครบ";
+        const timeline = itemsAsc.slice().reverse();
         return (
           <div key={r.customerId} style={S.byCustCard}>
             <button style={S.byCustHead} onClick={() => setExpanded(open && rows.length > 1 ? null : r.customerId)}>
@@ -5339,7 +5349,14 @@ function TrayByCustomer({ rows, onReceive, onSort, onBrokenBack, onReport, onDel
                 </div>
                 <div style={{ fontSize: 11.5, color: "#9b8e78", margin: "-4px 2px 8px" }}>แผงทุกใบที่ลูกค้าคืนต้องคัดก่อน (รวมแผงทดแทน) — แผงดีที่คัดได้จะหักยอดค้างทดแทนให้อัตโนมัติ</div>
                 {timeline.length === 0 && <div style={{ fontSize: 12.5, color: "#9b9384", padding: "2px 2px 4px" }}>ยังไม่มีรายการ — กด "รับแผงคืน" เมื่อลูกค้าเอาแผงมาคืน</div>}
-                {timeline.map((x, i) => x.kind === "rt" ? (
+                {timeline.map((x, i) => x.kind === "bill" ? (
+                  <div key={"bl" + i} style={{ ...S.byCustTrayRow, background: "#EFF6FF", borderRadius: 8 }}>
+                    <div style={{ flex: 1, fontSize: 12.5, fontWeight: 700, color: "#1D4ED8" }}>📤 ฟาร์มส่งแผงพร้อมไข่{x.bl.no ? <span style={{ color: "#7f96c9", fontWeight: 600 }}> · บิล {x.bl.no}</span> : null}</div>
+                    <div style={{ ...S.byCustTrayInfo, display: "flex", alignItems: "center", gap: 8 }}>
+                      <span>{toThaiDate(x.bl.iso, false)} · <b>{fmt(x.bl.sent)} แผง</b> → <b style={{ color: "#2B2620" }}>{holdTxt(x.hold)}</b></span>
+                    </div>
+                  </div>
+                ) : x.kind === "rt" ? (
                   <div key={"rt" + x.t.id} style={S.byCustTrayRow}>
                     <div style={{ flex: 1 }}>
                       <span style={S.byCustTrayNo}>{x.t.id}</span>
@@ -5350,6 +5367,7 @@ function TrayByCustomer({ rows, onReceive, onSort, onBrokenBack, onReport, onDel
                       {x.t.sorted
                         ? <span> → ✅ ดี {fmt(sumTray(x.t.sorted.good))} · <b style={{ color: "#B91C1C" }}>ชำรุด {fmt(sumTray(x.t.sorted.broken))}</b>{(sumTray(x.t.received) - sumTray(x.t.sorted.good) - sumTray(x.t.sorted.broken)) > 0 ? <span style={{ color: "#B45309" }}> · หาย {fmt(sumTray(x.t.received) - sumTray(x.t.sorted.good) - sumTray(x.t.sorted.broken))}</span> : null}{x.t.sorter ? <span style={{ color: "#9b8e78" }}> · คัดโดย {x.t.sorter}</span> : null}</span>
                         : <button style={{ ...actBtn("#B45309", "#FFF7EC"), padding: "4px 11px", fontSize: 12 }} onClick={() => onSort && onSort(x.t)}>✂️ คัดแยกใบนี้</button>}
+                      <span>→ <b style={{ color: "#2B2620" }}>{holdTxt(x.hold)}</b></span>
                       <button title="ลบใบนี้ (กรอกผิด/บันทึกซ้ำ)" onClick={(ev) => {
                         ev.stopPropagation();
                         const extra = x.t.sorted ? `\nใบนี้คัดแล้ว — แผงดี ${fmt(sumTray(x.t.sorted.good))} แผงจะถูกถอนออกจากคลังแผงฟาร์มด้วย` : "";
