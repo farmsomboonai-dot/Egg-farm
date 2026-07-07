@@ -5312,12 +5312,17 @@ function TrayByCustomer({ rows, onReceive, onSort, onBrokenBack, onReport, onDel
           ...r.trays.map((t) => ({ kind: "rt", iso: thShortToISO(t.date), t })),
           ...(r.events || []).map((e) => ({ kind: e.type, iso: e.date || "", e })),
         ].sort((a, b) => (b.iso || "").localeCompare(a.iso || "") || (b.e?.ts || 0) - (a.e?.ts || 0));
-        // "ส่ง X" หน้าคำว่า คืน: แผงที่ฟาร์มส่งไปกับไข่ (จากบิล) ในรอบนั้น = หลังใบคืนก่อนหน้า จนถึงวันของใบคืนนี้
-        const rtAsc = r.trays.map((t) => ({ id: t.id, iso: thShortToISO(t.date) || "" })).sort((a, b) => a.iso.localeCompare(b.iso) || String(a.id).localeCompare(String(b.id)));
+        // "ส่ง X" หน้าคำว่า คืน — โชว์ทุกใบ:
+        //   ใบคืนที่ผูกบิล (คืนตอนออกบิล) = แผงส่งของบิลใบนั้นตรง ๆ
+        //   ใบคืนลอย (รับคืนภายหลัง) = Σ แผงส่งจากบิลที่ไม่ถูกผูกกับใบไหน ในรอบ (หลังใบคืนก่อนหน้า → วันใบคืนนี้)
+        const billSentByNo = {}; (r.billTrays || []).forEach((bl) => { billSentByNo[bl.no] = (billSentByNo[bl.no] || 0) + bl.sent; });
+        const linkedNos = new Set(r.trays.map((t) => t.fromBill).filter(Boolean));
+        const rtAsc = r.trays.map((t) => ({ id: t.id, iso: thShortToISO(t.date) || "", fromBill: t.fromBill })).sort((a, b) => a.iso.localeCompare(b.iso) || String(a.id).localeCompare(String(b.id)));
         const sentOfRT = {};
         let prevIso = "";
         rtAsc.forEach((t) => {
-          sentOfRT[t.id] = (r.billTrays || []).filter((bl) => (bl.iso || "") > prevIso && (bl.iso || "") <= t.iso).reduce((s, bl) => s + bl.sent, 0);
+          if (t.fromBill) sentOfRT[t.id] = billSentByNo[t.fromBill] || 0;
+          else sentOfRT[t.id] = (r.billTrays || []).filter((bl) => !linkedNos.has(bl.no) && (bl.iso || "") > prevIso && (bl.iso || "") <= t.iso).reduce((s, bl) => s + bl.sent, 0);
           prevIso = t.iso || prevIso;
         });
         return (
@@ -5355,7 +5360,7 @@ function TrayByCustomer({ rows, onReceive, onSort, onBrokenBack, onReport, onDel
                       <span style={{ ...S.statusPill, background: (STATUS_STYLE[x.t.status] || {}).bg, color: (STATUS_STYLE[x.t.status] || {}).c, marginLeft: 8 }}>{x.t.status}</span>
                     </div>
                     <div style={{ ...S.byCustTrayInfo, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                      <span>📥 {toThaiDate(thShortToISO(x.t.date), false) || x.t.date}{sentOfRT[x.t.id] > 0 ? <> · <b style={{ color: "#1D4ED8" }}>ส่ง {fmt(sentOfRT[x.t.id])}</b></> : null} · คืน {fmt(sumTray(x.t.received))} แผง</span>
+                      <span>📥 {toThaiDate(thShortToISO(x.t.date), false) || x.t.date} · <b style={{ color: "#1D4ED8" }}>ส่ง {fmt(sentOfRT[x.t.id] || 0)}</b> · คืน {fmt(sumTray(x.t.received))} แผง</span>
                       {x.t.sorted
                         ? <span> → ✅ ดี {fmt(sumTray(x.t.sorted.good))} · <b style={{ color: "#B91C1C" }}>ชำรุด {fmt(sumTray(x.t.sorted.broken))}</b>{(sumTray(x.t.received) - sumTray(x.t.sorted.good) - sumTray(x.t.sorted.broken)) > 0 ? <span style={{ color: "#B45309" }}> · หาย {fmt(sumTray(x.t.received) - sumTray(x.t.sorted.good) - sumTray(x.t.sorted.broken))}</span> : null}{x.t.sorter ? <span style={{ color: "#9b8e78" }}> · คัดโดย {x.t.sorter}</span> : null}</span>
                         : <button style={{ ...actBtn("#B45309", "#FFF7EC"), padding: "4px 11px", fontSize: 12 }} onClick={() => onSort && onSort(x.t)}>✂️ คัดแยกใบนี้</button>}
