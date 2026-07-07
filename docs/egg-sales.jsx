@@ -5420,12 +5420,12 @@ function TrayByCustomer({ rows, onReceive, onSort, onBrokenBack, onReport, onDel
                         <thead>
                           <tr>
                             <th style={{ ...S.th, textAlign: "left" }} rowSpan={2}>ใบรับคืน</th>
-                            <th style={S.th} rowSpan={2}>วันที่</th>
+                            <th style={S.th} rowSpan={2}>วันรับคืน</th>
                             <th style={{ ...S.th, color: "#1D4ED8" }} colSpan={2}>📤 ส่ง</th>
                             <th style={S.th} colSpan={2}>📥 คืน</th>
                             <th style={{ ...S.th, color: "#15803D" }} colSpan={2}>✅ คัดดี</th>
                             <th style={{ ...S.th, color: "#B91C1C" }} colSpan={2}>ชำรุด</th>
-                            <th style={S.th} rowSpan={2}>ผู้คัด</th>
+                            <th style={S.th} rowSpan={2}>คัดเมื่อ · ผู้คัด</th>
                             <th style={S.th} rowSpan={2}></th>
                           </tr>
                           <tr>{["ใหญ่", "เล็ก", "ใหญ่", "เล็ก", "ใหญ่", "เล็ก", "ใหญ่", "เล็ก"].map((k, i) => <th key={i} style={subTh}>{k}</th>)}</tr>
@@ -5464,7 +5464,10 @@ function TrayByCustomer({ rows, onReceive, onSort, onBrokenBack, onReport, onDel
                                     <button style={{ ...actBtn("#B45309", "#FFF7EC"), padding: "3px 10px", fontSize: 12 }} onClick={() => onSort && onSort(x.t)}>✂️ คัดแยกใบนี้</button>
                                   </td>
                                 )}
-                                <td style={{ ...S.td, fontSize: 11.5, color: "#9b8e78", whiteSpace: "nowrap" }}>{x.t.sorter || "-"}{missing > 0 ? <div style={{ color: "#B45309", fontWeight: 700 }}>หาย {fmt(missing)} ⚠️</div> : null}</td>
+                                <td style={{ ...S.td, fontSize: 11.5, color: "#9b8e78", whiteSpace: "nowrap" }}>
+                                  {x.t.sorted ? <>{toThaiDate(thShortToISO(x.t.sortedDate), false) || x.t.sortedDate || "-"}{x.t.sorter ? <div>โดย {x.t.sorter}</div> : null}</> : "-"}
+                                  {missing > 0 ? <div style={{ color: "#B45309", fontWeight: 700 }}>หาย {fmt(missing)} ⚠️</div> : null}
+                                </td>
                                 <td style={S.td}>
                                   <button title="ลบใบนี้ (กรอกผิด/บันทึกซ้ำ)" onClick={(ev) => {
                                     ev.stopPropagation();
