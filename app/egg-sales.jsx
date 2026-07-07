@@ -5343,11 +5343,11 @@ function TrayByCustomer({ rows, onReceive, onSort, onBrokenBack, onReport, onDel
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {rows.map((r) => {
         const open = expanded === r.customerId || rows.length === 1;
-        // ไทม์ไลน์: ใบรับคืน (RT) + เหตุการณ์ เรียงใหม่→เก่า (แบบเดิม)
+        // ไทม์ไลน์: ใบรับคืน (RT) + เหตุการณ์ เรียงวันใหม่→เก่า · ใบวันเดียวกันเรียงเลขใบ (RT-0001 ก่อน = บิลเกิดก่อน)
         const timeline = [
           ...r.trays.map((t) => ({ kind: "rt", iso: thShortToISO(t.date), t })),
           ...(r.events || []).map((e) => ({ kind: e.type, iso: e.date || "", e })),
-        ].sort((a, b) => (b.iso || "").localeCompare(a.iso || "") || (b.e?.ts || 0) - (a.e?.ts || 0));
+        ].sort((a, b) => (b.iso || "").localeCompare(a.iso || "") || (b.e?.ts || 0) - (a.e?.ts || 0) || String(a.t?.id || "").localeCompare(String(b.t?.id || "")));
         // "ส่ง X" หน้าคำว่า คืน — โชว์ทุกใบ:
         //   ใบคืนที่ผูกบิล (คืนตอนออกบิล) = แผงส่งของบิลใบนั้นตรง ๆ
         //   ใบคืนลอย (รับคืนภายหลัง) = Σ แผงส่งจากบิลที่ไม่ถูกผูกกับใบไหน ในรอบ (หลังใบคืนก่อนหน้า → วันใบคืนนี้)
@@ -5582,7 +5582,7 @@ function TrayCustReportModal({ row, bills = [], onClose }) {
         }),
       ...row.trays.map((t) => ({ iso: thShortToISO(t.date), ts: 0, kind: "rt", t })),
       ...(row.events || []).map((e) => ({ iso: e.date || "", ts: e.ts || 1, kind: e.type, e })),
-    ].sort((a, b) => (a.iso || "").localeCompare(b.iso || "") || a.ts - b.ts);
+    ].sort((a, b) => (a.iso || "").localeCompare(b.iso || "") || a.ts - b.ts || String(a.t?.id || "").localeCompare(String(b.t?.id || "")));   // ใบวันเดียวกัน → เลขใบน้อยก่อน (บิลเกิดก่อน)
     // ค้างคืนสะสมตามกติกา 2026-07-07: +ส่ง −คัดดี (แผงชำรุด/รอคัด ไม่นับว่าคืน) — เลขท้ายบรรทัดสุดท้าย = ยอดหัวใบ
     let hold = 0;
     const holdTxt = () => hold > 0 ? `ค้างคืน ${fmt(hold)}` : hold < 0 ? `คืนเกิน ${fmt(-hold)}` : "คืนครบ";
