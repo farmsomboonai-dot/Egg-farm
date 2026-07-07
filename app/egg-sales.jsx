@@ -611,9 +611,10 @@ const TRAY_KINDS = ["ใหญ่", "เล็ก"];
 const sumTray = (o) => (o ? (o.ใหญ่ || 0) + (o.เล็ก || 0) : 0);
 
 // บัญชีแผงต่อลูกค้า: รวมยอดจากบิล (รับไป/คืนตอนซื้อ) + RT (คืนภายหลัง/คัดชำรุด) + สมุดเหตุการณ์ (events)
-// กติกาใหม่ 2026-07-06 (ตามหน้างานจริง): แผงชำรุดจากการคัด "สะสม" เป็นค้างทดแทนของลูกค้า
-//   - ไม่หักกับแผงดีที่คืนเกินอัตโนมัติ (ลูกค้าเอามาเผื่อ = แค่คืนแผง ไม่ใช่ทดแทน)
-//   - ตัดยอดเมื่อบันทึกเหตุการณ์ "replace" (รับแผงดีทดแทน) เท่านั้น · แผงชำรุดตัวจริงรอส่งคืนลูกค้า → เหตุการณ์ "brokenBack"
+// กติกา 2026-07-07 (ตามหน้างานจริง): "แผงทุกใบที่ลูกค้าคืนต้องผ่านการคัดก่อน — แม้แต่แผงทดแทน"
+//   - แผงทดแทนไม่มีทางเข้าแยกแล้ว: บันทึกเป็น รับแผงคืน → คัดแยก เหมือนแผงคืนปกติ
+//   - แผงดีที่คัดได้แต่ละรอบ หักล้างค้างทดแทนรอบก่อนอัตโนมัติ ก่อนบวกชำรุดใหม่ของรอบนั้น
+//   - แผงชำรุดตัวจริงที่ฟาร์มรอส่งคืนลูกค้า → เหตุการณ์ "brokenBack" · เหตุการณ์ "replace" = ข้อมูลเก่า (legacy) ยังคิดให้ถูก
 // excludeBillNo: ใช้ตอนออกบิล เพื่อไม่นับบิลที่กำลังทำอยู่ (ยังไม่บันทึก)
 function trayAccountOf(customerId, bills, trayRecords, excludeBillNo, trayEvents) {
   let billSent = 0, billReturned = 0, rtReturned = 0, brokenOwed = 0, brokenAtFarm = 0;
@@ -5194,11 +5195,21 @@ function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], 
     setReplaceModal(null);
   };
   // รับแผงคืน (ขั้นที่ 1): บันทึกแผงที่ลูกค้าคืนมา (แยกใหญ่/เล็ก) เข้าคิว "รอคัด" — ยังไม่คัด ยังไม่เข้าสต็อก
+  // เลขใบ = เลขสูงสุดที่เคยมี +1 (ไม่ใช่นับจำนวน — กันเลขซ้ำหลังลบใบ)
   const addReceive = (customerId, received, receivedDate) => {
-    const no = "RT-" + String(trays.length + 1).padStart(4, "0");
+    const maxNo = trays.reduce((m, t) => Math.max(m, parseInt(String(t.id).replace(/\D/g, "")) || 0), 0);
+    const no = "RT-" + String(maxNo + 1).padStart(4, "0");
     const today = new Date().toLocaleDateString("th-TH");
     setTrays((p) => [{ id: no, customerId, date: receivedDate || today, received, status: "รอคัด", sorted: null, sorter: "", sortedDate: "", replacedGood: { ใหญ่: 0, เล็ก: 0 }, replacements: [] }, ...p]);
     setNewReturn(false);
+  };
+  // ลบใบรับคืน (กรอกผิด/บันทึกซ้ำ) — ถ้าใบนั้นคัดแล้ว ถอนแผงดี (และแผงทดแทน legacy) ที่เคยเข้าคลังออกด้วย ให้คลังแผงตรง
+  const deleteTray = (id) => {
+    const t = trays.find((x) => x.id === id); if (!t) return;
+    const undoBig = (t.sorted?.good?.ใหญ่ || 0) + (t.replacedGood?.ใหญ่ || 0);
+    const undoSmall = (t.sorted?.good?.เล็ก || 0) + (t.replacedGood?.เล็ก || 0);
+    if (undoBig > 0 || undoSmall > 0) setTrayStock((prev) => ({ ใหญ่: Math.max(0, prev.ใหญ่ - undoBig), เล็ก: Math.max(0, prev.เล็ก - undoSmall) }));
+    setTrays((p) => p.filter((x) => x.id !== id));
   };
 
   return (
@@ -5256,10 +5267,10 @@ function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], 
           <TrayByCustomer rows={byCustomer}
             onReceive={(cid) => { setNewReturnCust(cid); setNewReturn(true); }}
             onSort={(t) => setSortModal(t)}
-            onReplace={(cid) => setCustAction({ mode: "replace", customerId: cid })}
             onBrokenBack={(cid) => setCustAction({ mode: "brokenBack", customerId: cid })}
             onReport={(row) => setReportCust(row)}
-            onDeleteEvent={deleteTrayEvent} />
+            onDeleteEvent={deleteTrayEvent}
+            onDeleteTray={deleteTray} />
         )}
       </div>
       {sortModal && <SortModal tray={sortModal} custName={custName(sortModal.customerId)} onClose={() => setSortModal(null)} onApply={applySort} />}
@@ -5284,8 +5295,9 @@ function thShortToISO(s) {
   return `${parseInt(m[3]) - 543}-${String(m[2]).padStart(2, "0")}-${String(m[1]).padStart(2, "0")}`;
 }
 
-/* สมุดแผงต่อลูกค้า — กติกาหน้างานจริง: ชำรุดสะสมจนกว่าจะ (1) รับแผงดีทดแทน (2) คืนแผงชำรุดให้ลูกค้า (2 จังหวะแยกกัน) */
-function TrayByCustomer({ rows, onReceive, onSort, onReplace, onBrokenBack, onReport, onDeleteEvent }) {
+/* สมุดแผงต่อลูกค้า — กติกาหน้างานจริง: แผงทุกใบที่ลูกค้าคืน (รวมแผงทดแทน) ต้องผ่านการคัดก่อน
+   แผงดีที่คัดได้หักค้างทดแทนเก่าอัตโนมัติ · คืนแผงชำรุดให้ลูกค้า = อีกจังหวะแยกต่างหาก */
+function TrayByCustomer({ rows, onReceive, onSort, onBrokenBack, onReport, onDeleteEvent, onDeleteTray }) {
   const [expanded, setExpanded] = useState(null);
   if (rows.length === 0) return <div style={S.emptyState}><RotateCcw size={36} color="#d1d5db" /><div>ยังไม่มีข้อมูลแผง — ออกบิลที่มีแผง หรือกด “รับแผงคืน”</div></div>;
   const actBtn = (color, bg) => ({ border: `1.5px solid ${color}`, background: bg, color, borderRadius: 9, padding: "7px 13px", cursor: "pointer", fontWeight: 800, fontSize: 12.5, fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 5 });
@@ -5319,13 +5331,13 @@ function TrayByCustomer({ rows, onReceive, onSort, onReplace, onBrokenBack, onRe
             </button>
             {open && (
               <div style={S.byCustDetail}>
-                {/* ปุ่มบันทึก 3 จังหวะของหน้างานจริง */}
+                {/* ปุ่มบันทึก 2 จังหวะของหน้างานจริง — แผงทดแทนก็เข้าทาง "รับแผงคืน" (ต้องคัดก่อนทุกใบ) */}
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", padding: "6px 2px 10px", borderBottom: "1px solid #f3f0e9", marginBottom: 8 }}>
-                  <button style={actBtn("#B45309", "#FFF7EC")} onClick={(ev) => { ev.stopPropagation(); onReceive && onReceive(r.customerId); }}>📥 รับแผงคืน (เข้าคิวคัด)</button>
-                  <button style={actBtn("#15803D", "#F0FDF4")} onClick={(ev) => { ev.stopPropagation(); onReplace && onReplace(r.customerId); }}>🔁 รับแผงดีทดแทน{r.owed > 0 ? ` (ค้าง ${fmt(r.owed)})` : ""}</button>
+                  <button style={actBtn("#B45309", "#FFF7EC")} onClick={(ev) => { ev.stopPropagation(); onReceive && onReceive(r.customerId); }}>📥 รับแผงคืน / แผงทดแทน (เข้าคิวคัด){r.owed > 0 ? ` · ค้าง ${fmt(r.owed)}` : ""}</button>
                   <button style={actBtn("#B91C1C", "#FEF2F2")} onClick={(ev) => { ev.stopPropagation(); onBrokenBack && onBrokenBack(r.customerId); }}>↩ คืนแผงชำรุดให้ลูกค้า{r.brokenPending > 0 ? ` (มี ${fmt(r.brokenPending)})` : ""}</button>
                   <button style={{ ...actBtn("#1D4ED8", "#EFF6FF"), marginLeft: "auto" }} onClick={(ev) => { ev.stopPropagation(); onReport && onReport(r); }}>📤 รายงานส่งลูกค้า (LINE)</button>
                 </div>
+                <div style={{ fontSize: 11.5, color: "#9b8e78", margin: "-4px 2px 8px" }}>แผงทุกใบที่ลูกค้าคืนต้องคัดก่อน (รวมแผงทดแทน) — แผงดีที่คัดได้จะหักยอดค้างทดแทนให้อัตโนมัติ</div>
                 {timeline.length === 0 && <div style={{ fontSize: 12.5, color: "#9b9384", padding: "2px 2px 4px" }}>ยังไม่มีรายการ — กด "รับแผงคืน" เมื่อลูกค้าเอาแผงมาคืน</div>}
                 {timeline.map((x, i) => x.kind === "rt" ? (
                   <div key={"rt" + x.t.id} style={S.byCustTrayRow}>
@@ -5338,6 +5350,11 @@ function TrayByCustomer({ rows, onReceive, onSort, onReplace, onBrokenBack, onRe
                       {x.t.sorted
                         ? <span> → ✅ ดี {fmt(sumTray(x.t.sorted.good))} · <b style={{ color: "#B91C1C" }}>ชำรุด {fmt(sumTray(x.t.sorted.broken))}</b>{(sumTray(x.t.received) - sumTray(x.t.sorted.good) - sumTray(x.t.sorted.broken)) > 0 ? <span style={{ color: "#B45309" }}> · หาย {fmt(sumTray(x.t.received) - sumTray(x.t.sorted.good) - sumTray(x.t.sorted.broken))}</span> : null}{x.t.sorter ? <span style={{ color: "#9b8e78" }}> · คัดโดย {x.t.sorter}</span> : null}</span>
                         : <button style={{ ...actBtn("#B45309", "#FFF7EC"), padding: "4px 11px", fontSize: 12 }} onClick={() => onSort && onSort(x.t)}>✂️ คัดแยกใบนี้</button>}
+                      <button title="ลบใบนี้ (กรอกผิด/บันทึกซ้ำ)" onClick={(ev) => {
+                        ev.stopPropagation();
+                        const extra = x.t.sorted ? `\nใบนี้คัดแล้ว — แผงดี ${fmt(sumTray(x.t.sorted.good))} แผงจะถูกถอนออกจากคลังแผงฟาร์มด้วย` : "";
+                        if (window.confirm(`ลบใบรับคืน ${x.t.id} (${fmt(sumTray(x.t.received))} แผง)?${extra}\nยอดทุกหน้าจะคำนวณใหม่`)) onDeleteTray && onDeleteTray(x.t.id);
+                      }} style={{ border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 7, padding: "1px 7px", cursor: "pointer", fontWeight: 800, fontSize: 11 }}>✕</button>
                     </div>
                   </div>
                 ) : (
@@ -5422,12 +5439,12 @@ function TrayCustReportModal({ row, bills = [], onClose }) {
       }
       if (x.kind === "rt") {
         hold -= sumTray(x.t.received);
-        if (!x.t.sorted) return { text: `${d} · 📥 ลูกค้าคืนแผง ${fmt(sumTray(x.t.received))} แผง (รอคัดแยก)`, tail: holdTxt() };
+        if (!x.t.sorted) return { text: `${d} · 📥 ลูกค้าคืนแผง ${fmt(sumTray(x.t.received))} แผง (ใบ ${x.t.id} · รอคัดแยก)`, tail: holdTxt() };
         const br = Math.max(0, sumTray(x.t.sorted.broken) - sumTray(x.t.replacedGood));
         const good = sumTray(x.t.sorted.good);
         const offset = Math.min(bal, good);                 // แผงดีที่คัดได้ หักล้างค้างเก่าอัตโนมัติ
         bal = Math.max(0, bal - good) + br;
-        return { text: `${d} · 📥 คืนแผง ${fmt(sumTray(x.t.received))} → คัดดี ${fmt(good)} · ชำรุด ${fmt(sumTray(x.t.sorted.broken))}${offset > 0 ? ` · แผงดีหักค้างเดิม ${fmt(offset)}` : ""}`, tail: `${holdTxt()} · ค้างทดแทน ${fmt(bal)}`, red: sumTray(x.t.sorted.broken) > 0 };
+        return { text: `${d} · 📥 คืนแผง ${fmt(sumTray(x.t.received))} (ใบ ${x.t.id}) → คัดดี ${fmt(good)} · ชำรุด ${fmt(sumTray(x.t.sorted.broken))}${offset > 0 ? ` · แผงดีหักค้างเดิม ${fmt(offset)}` : ""}`, tail: `${holdTxt()} · ค้างทดแทน ${fmt(bal)}`, red: sumTray(x.t.sorted.broken) > 0 };
       }
       const q = (x.e.ใหญ่ || 0) + (x.e.เล็ก || 0);
       if (x.kind === "replace") { bal = Math.max(0, bal - q); return { text: `${d} · ลูกค้านำแผงดีมาแลก ${fmt(q)} แผง`, tail: `ค้างทดแทน ${fmt(bal)}`, green: true }; }
@@ -5650,7 +5667,7 @@ function TrayCard({ tray, custName, onSort, onReturned, onAnnounce, onReplace })
         ) : (
           <>
             <button style={S.trayBtnGhost} onClick={onAnnounce}><Send size={14} /> แจ้งลูกค้า (LINE)</button>
-            <span style={{ fontSize: 11.5, color: "#9b8e78", alignSelf: "center" }}>บันทึก รับทดแทน/คืนชำรุด ที่แท็บ "สรุปแยกลูกค้า"</span>
+            <span style={{ fontSize: 11.5, color: "#9b8e78", alignSelf: "center" }}>แผงทดแทน → กด "รับคืนอีก" เข้าคิวคัด · คืนชำรุดให้ลูกค้า → แท็บ "สรุปแยกลูกค้า"</span>
           </>
         )}
       </div>
@@ -5817,7 +5834,7 @@ function NewReturnModal({ onClose, onAdd, bills = [], trays = [], trayEvents = [
     <div style={S.modalOverlay} onClick={onClose}>
       <div style={{ ...S.modal, maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
         <div style={S.modalHead}>
-          <div><div style={S.modalTitle}>รับแผงคืน</div><div style={S.modalSub}>บันทึกแผงที่ลูกค้าคืน (ใหญ่/เล็ก) → เข้าคิวรอคัด</div></div>
+          <div><div style={S.modalTitle}>รับแผงคืน</div><div style={S.modalSub}>บันทึกแผงที่ลูกค้าคืน (ใหญ่/เล็ก) → เข้าคิวรอคัด · แผงทดแทนก็บันทึกที่นี่ (คัดแล้วระบบหักค้างทดแทนให้เอง)</div></div>
           <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
         </div>
         <div style={{ marginBottom: 14 }}>
