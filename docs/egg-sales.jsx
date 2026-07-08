@@ -6367,14 +6367,14 @@ function BookingPlanView({ bookings = [], addBooking, updateBooking, deleteBooki
         </div>
       </div>
       {mode === "book"
-        ? <BookingEntry bookings={bookings} addBooking={addBooking} updateBooking={updateBooking} deleteBooking={deleteBooking} />
+        ? <BookingEntry bookings={bookings} addBooking={addBooking} updateBooking={updateBooking} deleteBooking={deleteBooking} production={production} planEstimates={planEstimates} />
         : <PlanBoard bookings={bookings} production={production} planEstimates={planEstimates} setPlanEstimate={setPlanEstimate} />}
     </div>
   );
 }
 
 /* 🛒 หน้ารับจอง — ลูกค้า (หรือเรา) เลือกลูกค้า + วันส่ง แล้วใส่จำนวนไข่แต่ละชนิด */
-function BookingEntry({ bookings, addBooking, updateBooking, deleteBooking }) {
+function BookingEntry({ bookings, addBooking, updateBooking, deleteBooking, production = {}, planEstimates = {} }) {
   const tmr = shiftDayISO(isoFromTs(Date.now()), 1);
   const [customerId, setCustomerId] = useState("");
   const [date, setDate] = useState(tmr);
@@ -6382,6 +6382,10 @@ function BookingEntry({ bookings, addBooking, updateBooking, deleteBooking }) {
   const [note, setNote] = useState("");
   const [editId, setEditId] = useState(null);
   const custName = (id) => CUSTOMERS.find((c) => c.id === id)?.name || "—";
+  // ประมาณการไข่วันนั้น (ต่อชนิด) + ยอดจองเดิมของลูกค้าอื่น → เตือนถ้าจองรวมเกินสต๊อกที่คาด
+  const { est: autoEst } = useMemo(() => autoEstimate(production, date), [production, date]);
+  const estOf = (pid) => { const o = (planEstimates[date] || {})[pid]; return o != null && o !== "" ? (parseInt(o) || 0) : (autoEst[pid] || 0); };
+  const otherDemand = (pid) => bookings.filter((b) => b.date === date && b.id !== editId).reduce((s, b) => s + (parseInt(b.items?.[pid]) || 0), 0);
   const STEP = 10;                                   // จองเป็นหน่วยละ 10 แผง (หารด้วย 10 ลงตัว)
   const snap10 = (n) => Math.max(0, Math.round((parseInt(n) || 0) / STEP) * STEP);
   const setQty = (pid, v) => setItems((p) => { const n = { ...p }; const q = v.replace(/[^0-9]/g, ""); if (q) n[pid] = q; else delete n[pid]; return n; });
@@ -6389,6 +6393,12 @@ function BookingEntry({ bookings, addBooking, updateBooking, deleteBooking }) {
   const bumpQty = (pid, d) => setItems((p) => { const s = Math.max(0, snap10(p[pid]) + d * STEP); const n = { ...p }; if (s > 0) n[pid] = String(s); else delete n[pid]; return n; });
   const total = bookingTotal(items);
   const badTypes = Object.entries(items).filter(([, v]) => (parseInt(v) || 0) % STEP !== 0).length;   // ช่องที่ยังไม่ลงตัว 10
+  // ชนิด/เบอร์ที่ใบจองนี้ (รวมกับที่คนอื่นจองวันเดียวกัน) ทำให้เกินไข่ที่คาดว่าจะได้
+  const overBooked = BOOKING_IDS.map((pid) => {
+    const q = snap10(items[pid]); if (!q) return null;
+    const est = estOf(pid), all = otherDemand(pid) + q;
+    return all > est ? { pid, name: PRODUCT_BY_ID[pid]?.name || pid, over: all - est, all, est } : null;
+  }).filter(Boolean);
   const reset = () => { setCustomerId(""); setItems({}); setNote(""); setEditId(null); };
   const save = () => {
     if (!customerId || total <= 0) return;
@@ -6437,6 +6447,17 @@ function BookingEntry({ bookings, addBooking, updateBooking, deleteBooking }) {
           </div>
         ))}
         <div style={{ marginBottom: 12 }}><label style={lbl}>หมายเหตุ</label><input style={{ ...inp, textAlign: "left" }} value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น รับ 09.00 · ส่งสาขา" /></div>
+        {overBooked.length > 0 && (
+          <div style={{ background: "#FEF2F2", border: "1.5px solid #FCA5A5", borderRadius: 10, padding: "10px 13px", marginBottom: 12 }}>
+            <div style={{ fontWeight: 800, color: "#B91C1C", fontSize: 13, marginBottom: 5 }}>⚠️ จองรวมของวัน {toThaiDate(date, false)} เกินไข่ที่คาดว่าจะได้:</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {overBooked.map((o) => (
+                <span key={o.pid} style={{ fontSize: 12.5, fontWeight: 800, background: "#fff", border: "1px solid #FCA5A5", color: "#B91C1C", borderRadius: 8, padding: "3px 9px" }}>{o.name} เกิน {fmt(o.over)} <span style={{ fontWeight: 600, color: "#9b8e78" }}>(จองรวม {fmt(o.all)} / คาดว่าได้ {fmt(o.est)})</span></span>
+              ))}
+            </div>
+            <div style={{ fontSize: 11.5, color: "#9b8e78", marginTop: 5 }}>บันทึกได้ตามปกติ — ไว้เตือนให้เตรียมไข่เพิ่ม หรือปรับยอด</div>
+          </div>
+        )}
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <div style={{ fontSize: 15, fontWeight: 800, color: INK }}>รวมจอง <span style={{ color: ACCENT_DK, fontSize: 20 }}>{fmt(total)}</span> แผง</div>
           {badTypes > 0 && <span style={{ fontSize: 12, fontWeight: 700, color: "#B91C1C" }}>⚠ มี {badTypes} ช่องยังไม่ลงตัว 10 — ระบบจะปัดให้ตอนบันทึก</span>}
@@ -6504,6 +6525,8 @@ function PlanBoard({ bookings, production, planEstimates, setPlanEstimate }) {
   const totEst = shownIds.reduce((s, pid) => s + estOf(pid), 0);
   const totDemand = shownIds.reduce((s, pid) => s + demandOf(pid), 0);
   const totLeft = totEst - totDemand;
+  // ชนิด/เบอร์ที่จองรวมเกินไข่ที่คาดว่าจะได้ → ขึ้นเตือน
+  const overTypes = shownIds.map((pid) => { const short = demandOf(pid) - estOf(pid); return short > 0 ? { pid, short, name: PRODUCT_BY_ID[pid]?.name || pid } : null; }).filter(Boolean).sort((a, b) => b.short - a.short);
   const th = { padding: "9px 10px", fontSize: 12.5, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", textAlign: "right", whiteSpace: "nowrap" };
   const td = { padding: "7px 10px", fontSize: 13.5, borderBottom: "1px solid #f3eee2", textAlign: "right" };
   const estInp = { width: 78, padding: "5px 7px", border: "1.5px solid #e3ddd0", borderRadius: 7, fontSize: 13.5, fontFamily: "inherit", textAlign: "right", outline: "none", background: "#fff" };
@@ -6520,6 +6543,18 @@ function PlanBoard({ bookings, production, planEstimates, setPlanEstimate }) {
       <div style={{ fontSize: 12.5, color: "#9b8e78", margin: "2px 2px 12px" }}>
         {base ? <>ประมาณการไข่จากผลผลิตวันล่าสุด <b>{toThaiDate(base, false)}</b> (แก้ตัวเลขได้ตามที่คาด) · เทียบกับยอดจองของวันที่วางแผน</> : "ยังไม่มีข้อมูลผลผลิตให้ประมาณการ — ใส่ตัวเลขคาดการณ์เองได้"}
       </div>
+      {overTypes.length > 0 && (
+        <div style={{ background: "#FEF2F2", border: "1.5px solid #FCA5A5", borderRadius: 12, padding: "11px 14px", marginBottom: 12 }}>
+          <div style={{ fontWeight: 800, color: "#B91C1C", fontSize: 14, marginBottom: 6 }}>⚠️ จองเกินไข่ที่คาดว่าจะได้ {overTypes.length} ชนิด — ต้องเพิ่มไข่ หรือลดยอดจอง</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+            {overTypes.map((o) => (
+              <span key={o.pid} style={{ fontSize: 13, fontWeight: 800, background: "#fff", border: "1px solid #FCA5A5", color: "#B91C1C", borderRadius: 9, padding: "4px 11px" }}>
+                {o.name} <span style={{ fontWeight: 700 }}>ขาด {fmt(o.short)} แผง</span> <span style={{ fontSize: 11, fontWeight: 600, color: "#9b8e78" }}>(จอง {fmt(demandOf(o.pid))} / มี {fmt(estOf(o.pid))})</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       <div style={S.summaryGrid}>
         <SummaryCard icon={<Egg size={18} />} label="ประมาณการไข่รวม" value={totEst} tone="green" sub="แผงที่คาดว่าจะได้" />
         <SummaryCard icon={<ClipboardCheck size={18} />} label="จองแล้วรวม" value={totDemand} tone="amber" sub={`${dayBookings.length} ใบจอง`} />
@@ -6548,8 +6583,8 @@ function PlanBoard({ bookings, production, planEstimates, setPlanEstimate }) {
                 {shownIds.map((pid) => {
                   const e = estOf(pid), d = demandOf(pid), left = e - d;
                   return (
-                    <tr key={pid}>
-                      <td style={{ ...td, textAlign: "left", fontWeight: 600, position: "sticky", left: 0, background: "#fff", zIndex: 1 }}>{PRODUCT_BY_ID[pid]?.name || pid}</td>
+                    <tr key={pid} style={left < 0 ? { background: "#FEF2F2" } : {}}>
+                      <td style={{ ...td, textAlign: "left", fontWeight: 600, position: "sticky", left: 0, background: left < 0 ? "#FEF2F2" : "#fff", zIndex: 1 }}>{left < 0 ? "⚠️ " : ""}{PRODUCT_BY_ID[pid]?.name || pid}</td>
                       <td style={td}><input style={estInp} inputMode="numeric" value={override[pid] != null && override[pid] !== "" ? override[pid] : (auto[pid] || 0)} onChange={(ev) => setPlanEstimate(date, pid, ev.target.value.replace(/[^0-9]/g, ""))} /></td>
                       {custCols.map((c) => <td key={c.customerId} style={{ ...td, color: c.items[pid] ? INK : "#d5cdbd", fontWeight: c.items[pid] ? 700 : 400 }}>{c.items[pid] ? fmt(c.items[pid]) : "-"}</td>)}
                       <td style={{ ...td, color: d > 0 ? "#B45309" : "#c9bfad", fontWeight: 700 }}>{d > 0 ? fmt(d) : "-"}</td>
