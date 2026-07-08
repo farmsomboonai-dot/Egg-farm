@@ -6387,22 +6387,20 @@ function BookingEntry({ bookings, addBooking, updateBooking, deleteBooking, prod
   const estOf = (pid) => { const o = (planEstimates[date] || {})[pid]; return o != null && o !== "" ? (parseInt(o) || 0) : (autoEst[pid] || 0); };
   const otherDemand = (pid) => bookings.filter((b) => b.date === date && b.id !== editId).reduce((s, b) => s + (parseInt(b.items?.[pid]) || 0), 0);
   const STEP = 10;                                   // จองเป็นหน่วยละ 10 แผง (หารด้วย 10 ลงตัว)
-  const snap10 = (n) => Math.max(0, Math.round((parseInt(n) || 0) / STEP) * STEP);
   const setQty = (pid, v) => setItems((p) => { const n = { ...p }; const q = v.replace(/[^0-9]/g, ""); if (q) n[pid] = q; else delete n[pid]; return n; });
-  const snapQty = (pid) => setItems((p) => { const s = snap10(p[pid]); const n = { ...p }; if (s > 0) n[pid] = String(s); else delete n[pid]; return n; });   // ปัดเป็นหลักสิบเมื่อพิมพ์เสร็จ
-  const bumpQty = (pid, d) => setItems((p) => { const s = Math.max(0, snap10(p[pid]) + d * STEP); const n = { ...p }; if (s > 0) n[pid] = String(s); else delete n[pid]; return n; });
   const total = bookingTotal(items);
-  const badTypes = Object.entries(items).filter(([, v]) => (parseInt(v) || 0) % STEP !== 0).length;   // ช่องที่ยังไม่ลงตัว 10
+  const badTypes = Object.entries(items).filter(([, v]) => (parseInt(v) || 0) % STEP !== 0).length;   // ช่องที่ไม่ลงตัว 10 → บันทึกไม่ได้
+  const canSave = customerId && total > 0 && badTypes === 0;
   // ชนิด/เบอร์ที่ใบจองนี้ (รวมกับที่คนอื่นจองวันเดียวกัน) ทำให้เกินไข่ที่คาดว่าจะได้
   const overBooked = BOOKING_IDS.map((pid) => {
-    const q = snap10(items[pid]); if (!q) return null;
+    const q = parseInt(items[pid]) || 0; if (!q) return null;
     const est = estOf(pid), all = otherDemand(pid) + q;
     return all > est ? { pid, name: PRODUCT_BY_ID[pid]?.name || pid, over: all - est, all, est } : null;
   }).filter(Boolean);
   const reset = () => { setCustomerId(""); setItems({}); setNote(""); setEditId(null); };
   const save = () => {
-    if (!customerId || total <= 0) return;
-    const clean = {}; Object.entries(items).forEach(([k, v]) => { const q = snap10(v); if (q > 0) clean[k] = q; });   // บันทึกเป็นหลักสิบเสมอ
+    if (!canSave) return;   // ไม่ยินยอมบันทึกถ้ามีช่องไม่เป็นหลักสิบ
+    const clean = {}; Object.entries(items).forEach(([k, v]) => { const q = parseInt(v) || 0; if (q > 0) clean[k] = q; });
     if (!Object.keys(clean).length) return;
     if (editId) updateBooking(editId, { customerId, date, items: clean, note: note.trim() });
     else addBooking({ customerId, date, items: clean, note: note.trim() });
@@ -6425,21 +6423,16 @@ function BookingEntry({ bookings, addBooking, updateBooking, deleteBooking, prod
           </div>
           <div style={{ flex: "1 1 170px" }}><label style={lbl}>วันที่ส่ง / รับไข่</label><ThaiDateField value={date} onChange={setDate} style={{ ...inp, textAlign: "left" }} /></div>
         </div>
-        <div style={{ fontSize: 12, color: "#B45309", fontWeight: 700, margin: "0 2px 8px", background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 8, padding: "6px 10px" }}>📦 จองเป็นหน่วยละ 10 แผง (10, 20, 30 …) — ใส่เลขอื่นระบบจะปัดเป็นหลักสิบให้</div>
+        <div style={{ fontSize: 12, color: "#B45309", fontWeight: 700, margin: "0 2px 8px", background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 8, padding: "6px 10px" }}>📦 จองเป็นหน่วยละ 10 แผง เท่านั้น (10, 20, 30 …) — เลขที่ไม่ลงตัว 10 จะขึ้นแดงและบันทึกไม่ได้</div>
         {BOOKING_GROUPS.map((g) => (
           <div key={g.group} style={{ marginBottom: 10 }}>
             <div style={{ fontSize: 12, fontWeight: 800, color: "#9b8e78", marginBottom: 5 }}>{g.group}</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 8 }}>
               {g.items.map((p) => {
                 const on = !!items[p.id], bad = on && (parseInt(items[p.id]) || 0) % STEP !== 0;
-                const stepBtn = { width: 26, flexShrink: 0, border: `1.5px solid ${on ? ACCENT : "#e3ddd0"}`, background: on ? "#FFFBF3" : "#fff", color: ACCENT_DK, borderRadius: 7, cursor: "pointer", fontWeight: 800, fontSize: 15, fontFamily: "inherit", lineHeight: 1, padding: "6px 0" };
                 return (
                   <div key={p.id}><label style={lbl}>{p.name}</label>
-                    <div style={{ display: "flex", gap: 3 }}>
-                      <button type="button" onClick={() => bumpQty(p.id, -1)} title="−10" style={stepBtn}>−</button>
-                      <input style={{ ...inp, flex: 1, minWidth: 0, ...(on ? { borderColor: bad ? "#B91C1C" : ACCENT, background: bad ? "#FEF2F2" : "#FFFBF3" } : {}) }} inputMode="numeric" placeholder="0" value={items[p.id] || ""} onChange={(e) => setQty(p.id, e.target.value)} onBlur={() => snapQty(p.id)} />
-                      <button type="button" onClick={() => bumpQty(p.id, 1)} title="+10" style={stepBtn}>＋</button>
-                    </div>
+                    <input style={{ ...inp, ...(on ? { borderColor: bad ? "#B91C1C" : ACCENT, background: bad ? "#FEF2F2" : "#FFFBF3", color: bad ? "#B91C1C" : INK, fontWeight: bad ? 800 : 400 } : {}) }} inputMode="numeric" placeholder="0" value={items[p.id] || ""} onChange={(e) => setQty(p.id, e.target.value)} />
                   </div>
                 );
               })}
@@ -6460,10 +6453,10 @@ function BookingEntry({ bookings, addBooking, updateBooking, deleteBooking, prod
         )}
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <div style={{ fontSize: 15, fontWeight: 800, color: INK }}>รวมจอง <span style={{ color: ACCENT_DK, fontSize: 20 }}>{fmt(total)}</span> แผง</div>
-          {badTypes > 0 && <span style={{ fontSize: 12, fontWeight: 700, color: "#B91C1C" }}>⚠ มี {badTypes} ช่องยังไม่ลงตัว 10 — ระบบจะปัดให้ตอนบันทึก</span>}
+          {badTypes > 0 && <span style={{ fontSize: 12.5, fontWeight: 800, color: "#B91C1C" }}>⛔ มี {badTypes} ช่องไม่เป็นหลักสิบ — แก้ให้ลงตัว 10 ก่อนถึงบันทึกได้</span>}
           <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
             {editId && <button onClick={reset} style={{ ...S.ghostBtn, padding: "9px 16px" }}>ยกเลิกแก้ไข</button>}
-            <button disabled={!customerId || total <= 0} onClick={save} style={{ ...S.primaryBtn, width: "auto", padding: "9px 22px", opacity: (customerId && total > 0) ? 1 : 0.5 }}>{editId ? "บันทึกการแก้ไข" : "บันทึกใบจอง"}</button>
+            <button disabled={!canSave} onClick={save} style={{ ...S.primaryBtn, width: "auto", padding: "9px 22px", opacity: canSave ? 1 : 0.5, cursor: canSave ? "pointer" : "not-allowed" }}>{editId ? "บันทึกการแก้ไข" : "บันทึกใบจอง"}</button>
           </div>
         </div>
       </div>
