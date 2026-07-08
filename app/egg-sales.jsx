@@ -6342,6 +6342,8 @@ const BOOKING_IDS = BOOKING_GROUPS.flatMap((g) => g.items.map((p) => p.id));
 // ไข่คละ (ตามน้ำหนัก) — โชว์ในช่องจอง/ตารางเฉพาะเมื่อมีในประมาณการสต๊อกของวันนั้น
 const CLA_GROUP = { group: "ไข่คละ (ตามน้ำหนัก)", items: PRODUCTS["คละ"] || [] };
 const CLA_IDS = (PRODUCTS["คละ"] || []).map((p) => p.id);
+// สีประจำลูกค้าในตารางวางแผน (ต่อคอลัมน์) — เข้มพออ่านชัดบนขาว แยกคอลัมน์ง่ายตอนจัดของ
+const CUST_COLORS = ["#1D4ED8", "#B91C1C", "#15803D", "#7C3AED", "#C2410C", "#0891B2", "#BE185D", "#4D7C0F", "#4338CA", "#0F766E", "#9333EA", "#A16207"];
 // ป้ายชนิดไข่แบบสั้น — โชว์จางๆ ข้างหน้าตัวเลขจอง กันหลงบรรทัดตอนปริ้นจัดของ
 const BOOKING_SHORT = { n0: "0#", n1: "1#", n2: "2#", n3: "3#", n4: "4#", n5: "5#", s_white: "ขาว", g_nuan: "นวล", g_sand: "ทราย", g_pueanmak: "ป.มาก", g_pueannoi: "ป.น้อย", g_bub: "บุบ", g_jiw: "จิ๋ว", g_tok: "ตอก", g_toklew: "ตล", g_tokdaeng: "ตด", s_jumbo: "จบ", w18: "18+", w19: "19+", w20: "20+", w21: "21+", w22: "22+", w23: "23+" };
 // ประมาณการไข่ (แผง) ต่อชนิด สำหรับวันที่ระบุ = ใช้ "วันผลิตล่าสุด (≤ วันนั้น)" เป็นตัวตั้ง
@@ -6602,11 +6604,11 @@ function PlanBoard({ bookings, production, planEstimates, setPlanEstimate }) {
               <thead><tr>
                 <th style={{ ...th, textAlign: "left", position: "sticky", left: 0, background: "#F6F1E7", zIndex: 1 }}>ชนิดไข่</th>
                 <th style={{ ...th, color: "#15803D" }}>ประมาณการ</th>
-                {custCols.map((c) => (
-                  <th key={c.customerId} style={{ ...th, color: ACCENT_DK, minWidth: 78 }}>
+                {custCols.map((c, ci) => (
+                  <th key={c.customerId} style={{ ...th, color: CUST_COLORS[ci % CUST_COLORS.length], minWidth: 78, borderTop: `3px solid ${CUST_COLORS[ci % CUST_COLORS.length]}` }}>
                     {custCode(c.customerId) ? <div style={{ fontSize: 9.5, fontWeight: 700, color: "#b3a892" }}>{custCode(c.customerId)}</div> : null}
                     {c.name}{c.notes.length ? <span title={c.notes.join(" · ")} style={{ marginLeft: 3 }}>📝</span> : null}
-                    <div style={{ fontSize: 10.5, fontWeight: 700, color: "#9b8e78" }}>{fmt(bookingTotal(c.items))} แผง</div>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: CUST_COLORS[ci % CUST_COLORS.length], opacity: 0.75 }}>{fmt(bookingTotal(c.items))} แผง</div>
                   </th>
                 ))}
                 <th style={{ ...th, color: "#B45309" }}>จองรวม</th>
@@ -6619,7 +6621,7 @@ function PlanBoard({ bookings, production, planEstimates, setPlanEstimate }) {
                     <tr key={pid} style={left < 0 ? { background: "#FEF2F2" } : {}}>
                       <td style={{ ...td, textAlign: "left", fontWeight: 600, position: "sticky", left: 0, background: left < 0 ? "#FEF2F2" : "#fff", zIndex: 1 }}>{left < 0 ? "⚠️ " : ""}{PRODUCT_BY_ID[pid]?.name || pid}</td>
                       <td style={td}><input style={estInp} inputMode="numeric" value={override[pid] != null && override[pid] !== "" ? override[pid] : (auto[pid] || 0)} onChange={(ev) => setPlanEstimate(date, pid, ev.target.value.replace(/[^0-9]/g, ""))} /></td>
-                      {custCols.map((c) => <td key={c.customerId} style={{ ...td, color: c.items[pid] ? INK : "#d5cdbd", fontWeight: c.items[pid] ? 700 : 400 }}>{c.items[pid] ? <><span style={{ fontSize: 9, fontWeight: 600, color: "#c4b79b" }}>{BOOKING_SHORT[pid] || ""}</span> {fmt(c.items[pid])}</> : "-"}</td>)}
+                      {custCols.map((c, ci) => <td key={c.customerId} style={{ ...td, color: c.items[pid] ? CUST_COLORS[ci % CUST_COLORS.length] : "#d5cdbd", fontWeight: c.items[pid] ? 800 : 400 }}>{c.items[pid] ? <><span style={{ fontSize: 9, fontWeight: 600, color: "#c4b79b" }}>{BOOKING_SHORT[pid] || ""}</span> {fmt(c.items[pid])}</> : "-"}</td>)}
                       <td style={{ ...td, color: d > 0 ? "#B45309" : "#c9bfad", fontWeight: 700 }}>{d > 0 ? <><span style={{ fontSize: 9, fontWeight: 600, color: "#d9b98a" }}>{BOOKING_SHORT[pid] || ""}</span> {fmt(d)}</> : "-"}</td>
                       <td style={{ ...td, fontWeight: 800, color: left < 0 ? "#B91C1C" : left === 0 ? "#15803D" : "#1D4ED8" }}>{left < 0 ? `ขาด ${fmt(-left)}` : fmt(left)}</td>
                     </tr>
@@ -6628,7 +6630,7 @@ function PlanBoard({ bookings, production, planEstimates, setPlanEstimate }) {
                 <tr>
                   <td style={{ ...td, ...S.tfoot, textAlign: "left", position: "sticky", left: 0, zIndex: 1 }}>รวม</td>
                   <td style={{ ...td, ...S.tfoot, color: "#15803D" }}>{fmt(totEst)}</td>
-                  {custCols.map((c) => <td key={c.customerId} style={{ ...td, ...S.tfoot, color: ACCENT_DK }}>{fmt(bookingTotal(c.items))}</td>)}
+                  {custCols.map((c, ci) => <td key={c.customerId} style={{ ...td, ...S.tfoot, color: CUST_COLORS[ci % CUST_COLORS.length] }}>{fmt(bookingTotal(c.items))}</td>)}
                   <td style={{ ...td, ...S.tfoot, color: "#B45309" }}>{fmt(totDemand)}</td>
                   <td style={{ ...td, ...S.tfoot, color: totLeft < 0 ? "#B91C1C" : "#1D4ED8" }}>{totLeft < 0 ? `ขาด ${fmt(-totLeft)}` : fmt(totLeft)}</td>
                 </tr>
