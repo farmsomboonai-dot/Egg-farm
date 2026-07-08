@@ -6339,8 +6339,8 @@ const BOOKING_GROUPS = [
   { group: "พิเศษ", items: PRODUCTS["พิเศษ"] || [] },
 ];
 const BOOKING_IDS = BOOKING_GROUPS.flatMap((g) => g.items.map((p) => p.id));
-// ป้ายชนิดไข่แบบสั้น — โชว์จางๆ หลังตัวเลขจอง กันหลงบรรทัดตอนปริ้นจัดของ
-const BOOKING_SHORT = { n0: "บ0", n1: "บ1", n2: "บ2", n3: "บ3", n4: "บ4", n5: "บ5", s_white: "ขาว", g_nuan: "นวล", g_sand: "ทราย", g_pueanmak: "ปม", g_pueannoi: "ปน", g_bub: "บุบ", g_jiw: "จิ๋ว", g_tok: "ตอก", g_toklew: "ตล", g_tokdaeng: "ตด", s_jumbo: "จบ" };
+// ป้ายชนิดไข่แบบสั้น — โชว์จางๆ ข้างหน้าตัวเลขจอง กันหลงบรรทัดตอนปริ้นจัดของ
+const BOOKING_SHORT = { n0: "0#", n1: "1#", n2: "2#", n3: "3#", n4: "4#", n5: "5#", s_white: "ขาว", g_nuan: "นวล", g_sand: "ทราย", g_pueanmak: "ป.มาก", g_pueannoi: "ป.น้อย", g_bub: "บุบ", g_jiw: "จิ๋ว", g_tok: "ตอก", g_toklew: "ตล", g_tokdaeng: "ตด", s_jumbo: "จบ" };
 // ประมาณการไข่ (แผง) ต่อชนิด สำหรับวันที่ระบุ = ใช้ "วันผลิตล่าสุด (≤ วันนั้น)" เป็นตัวตั้ง
 // เบอร์เก็บเป็นฟอง → ÷30 เป็นแผง ; ตกเกรดเก็บเป็นแผงอยู่แล้ว
 function autoEstimate(production, dateISO) {
@@ -6603,8 +6603,8 @@ function PlanBoard({ bookings, production, planEstimates, setPlanEstimate }) {
                     <tr key={pid} style={left < 0 ? { background: "#FEF2F2" } : {}}>
                       <td style={{ ...td, textAlign: "left", fontWeight: 600, position: "sticky", left: 0, background: left < 0 ? "#FEF2F2" : "#fff", zIndex: 1 }}>{left < 0 ? "⚠️ " : ""}{PRODUCT_BY_ID[pid]?.name || pid}</td>
                       <td style={td}><input style={estInp} inputMode="numeric" value={override[pid] != null && override[pid] !== "" ? override[pid] : (auto[pid] || 0)} onChange={(ev) => setPlanEstimate(date, pid, ev.target.value.replace(/[^0-9]/g, ""))} /></td>
-                      {custCols.map((c) => <td key={c.customerId} style={{ ...td, color: c.items[pid] ? INK : "#d5cdbd", fontWeight: c.items[pid] ? 700 : 400 }}>{c.items[pid] ? <>{fmt(c.items[pid])} <span style={{ fontSize: 9, fontWeight: 600, color: "#c4b79b" }}>{BOOKING_SHORT[pid] || ""}</span></> : "-"}</td>)}
-                      <td style={{ ...td, color: d > 0 ? "#B45309" : "#c9bfad", fontWeight: 700 }}>{d > 0 ? <>{fmt(d)} <span style={{ fontSize: 9, fontWeight: 600, color: "#d9b98a" }}>{BOOKING_SHORT[pid] || ""}</span></> : "-"}</td>
+                      {custCols.map((c) => <td key={c.customerId} style={{ ...td, color: c.items[pid] ? INK : "#d5cdbd", fontWeight: c.items[pid] ? 700 : 400 }}>{c.items[pid] ? <><span style={{ fontSize: 9, fontWeight: 600, color: "#c4b79b" }}>{BOOKING_SHORT[pid] || ""}</span> {fmt(c.items[pid])}</> : "-"}</td>)}
+                      <td style={{ ...td, color: d > 0 ? "#B45309" : "#c9bfad", fontWeight: 700 }}>{d > 0 ? <><span style={{ fontSize: 9, fontWeight: 600, color: "#d9b98a" }}>{BOOKING_SHORT[pid] || ""}</span> {fmt(d)}</> : "-"}</td>
                       <td style={{ ...td, fontWeight: 800, color: left < 0 ? "#B91C1C" : left === 0 ? "#15803D" : "#1D4ED8" }}>{left < 0 ? `ขาด ${fmt(-left)}` : fmt(left)}</td>
                     </tr>
                   );
