@@ -848,7 +848,7 @@ export default function App() {
     catch { return VACCINE_SEED; }
   });
   useEffect(() => { try { localStorage.setItem("eggVaccines", JSON.stringify(vaccines)); } catch {} }, [vaccines]);
-  const addVaccine = (hid, row) => setVaccines((p) => ({ ...p, [hid]: [...(p[hid] || []), { ...row, id: "VC" + Date.now() }] }));
+  const addVaccine = (hid, row) => setVaccines((p) => ({ ...p, [hid]: [...(p[hid] || []), { ...row, id: "VC" + Date.now(), src: "ฟาร์มเรา" }] }));   // รายการที่ฟาร์มเราทำเอง (seed = ฟาร์มต้นทาง)
   const deleteVaccine = (hid, id) => setVaccines((p) => ({ ...p, [hid]: (p[hid] || []).filter((r) => r.id !== id) }));
   // รับยาเข้าสต๊อก [{id, date, medId, qty, by}]
   const [medReceipts, setMedReceipts] = useState(() => { try { return JSON.parse(localStorage.getItem("eggMedReceipts") || "[]"); } catch { return []; } });
@@ -3678,6 +3678,7 @@ function VaccineModal({ houseId, rows = [], info, onAdd, onDelete, onClose }) {
           <div>
             <div style={S.modalTitle}>💉 สมุดวัคซีน · โรงเรือน {houseId}</div>
             <div style={S.modalSub}>{info || "บันทึกการทำวัคซีนของรุ่นนี้ — เพิ่มรายการที่ทำต่อที่ฟาร์มได้ด้านล่าง"}</div>
+            {(() => { const src = rows.filter((r) => r.src !== "ฟาร์มเรา").length, own = rows.length - src; return (src > 0 || own > 0) ? <div style={{ fontSize: 11.5, color: "#8a8170", marginTop: 3 }}>📋 ทำที่ฟาร์มต้นทาง (NCP) {src} รายการ{own > 0 ? ` · ✅ ทำที่ฟาร์มเรา ${own} รายการ` : ""}</div> : null; })()}
           </div>
           <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
         </div>
@@ -3694,7 +3695,7 @@ function VaccineModal({ houseId, rows = [], info, onAdd, onDelete, onClose }) {
                   const newDate = i === 0 || sorted[i - 1].date !== r.date;
                   return (
                     <tr key={r.id} style={newDate && i > 0 ? { borderTop: "2px solid #e6ddca" } : {}}>
-                      <td style={{ ...td, whiteSpace: "nowrap", fontWeight: 700 }}>{newDate ? toThaiDate(r.date, false) : ""}</td>
+                      <td style={{ ...td, whiteSpace: "nowrap", fontWeight: 700 }}>{newDate ? <>{toThaiDate(r.date, false)}<div style={{ marginTop: 3 }}><span style={{ fontSize: 9.5, fontWeight: 800, padding: "1px 6px", borderRadius: 9, background: r.src === "ฟาร์มเรา" ? "#DCFCE7" : "#EEF2FF", color: r.src === "ฟาร์มเรา" ? "#15803D" : "#4338CA" }}>{r.src === "ฟาร์มเรา" ? "ฟาร์มเรา" : "ต้นทาง NCP"}</span></div></> : ""}</td>
                       <td style={{ ...td, whiteSpace: "nowrap" }}>{newDate ? (r.age || "") : ""}</td>
                       <td style={{ ...td, textAlign: "right" }}>{newDate && r.birds ? fmt(r.birds) : ""}</td>
                       <td style={{ ...td, fontWeight: 700 }}>{r.name}</td>
