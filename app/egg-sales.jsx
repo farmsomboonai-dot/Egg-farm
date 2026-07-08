@@ -6339,6 +6339,8 @@ const BOOKING_GROUPS = [
   { group: "พิเศษ", items: PRODUCTS["พิเศษ"] || [] },
 ];
 const BOOKING_IDS = BOOKING_GROUPS.flatMap((g) => g.items.map((p) => p.id));
+// ป้ายชนิดไข่แบบสั้น — โชว์จางๆ หลังตัวเลขจอง กันหลงบรรทัดตอนปริ้นจัดของ
+const BOOKING_SHORT = { n0: "บ0", n1: "บ1", n2: "บ2", n3: "บ3", n4: "บ4", n5: "บ5", s_white: "ขาว", g_nuan: "นวล", g_sand: "ทราย", g_pueanmak: "ปม", g_pueannoi: "ปน", g_bub: "บุบ", g_jiw: "จิ๋ว", g_tok: "ตอก", g_toklew: "ตล", g_tokdaeng: "ตด", s_jumbo: "จบ" };
 // ประมาณการไข่ (แผง) ต่อชนิด สำหรับวันที่ระบุ = ใช้ "วันผลิตล่าสุด (≤ วันนั้น)" เป็นตัวตั้ง
 // เบอร์เก็บเป็นฟอง → ÷30 เป็นแผง ; ตกเกรดเก็บเป็นแผงอยู่แล้ว
 function autoEstimate(production, dateISO) {
@@ -6508,6 +6510,8 @@ function PlanBoard({ bookings, production, planEstimates, setPlanEstimate }) {
   const tmr = shiftDayISO(isoFromTs(Date.now()), 1);
   const [date, setDate] = useState(tmr);
   const custName = (id) => CUSTOMERS.find((c) => c.id === id)?.name || "—";
+  const custCode = (id) => CUSTOMERS.find((c) => c.id === id)?.code || "";
+  const custRank = (id) => { const i = CUSTOMERS.findIndex((c) => c.id === id); return i < 0 ? 99999 : i; };   // ลำดับตามที่กำหนดในรายชื่อลูกค้า
   const { base, est: auto } = useMemo(() => autoEstimate(production, date), [production, date]);
   const override = planEstimates[date] || {};
   const estOf = (pid) => { const o = override[pid]; return o != null && o !== "" ? (parseInt(o) || 0) : (auto[pid] || 0); };
@@ -6520,7 +6524,8 @@ function PlanBoard({ bookings, production, planEstimates, setPlanEstimate }) {
       Object.entries(b.items || {}).forEach(([pid, q]) => { m.items[pid] = (m.items[pid] || 0) + (parseInt(q) || 0); });
       if (b.note) m.notes.push(b.note);
     });
-    return Object.values(map).sort((a, b) => bookingTotal(b.items) - bookingTotal(a.items));   // เรียงจองมาก→น้อย
+    // เรียงคอลัมน์ตามรหัสลูกค้าที่กำหนดไว้ (ไม่ใช่ตามลำดับที่คีย์จองเข้ามา)
+    return Object.values(map).sort((a, b) => custCode(a.customerId).localeCompare(custCode(b.customerId), undefined, { numeric: true }) || custRank(a.customerId) - custRank(b.customerId));
   }, [dayBookings]);
   const demandOf = (pid) => custCols.reduce((s, c) => s + (c.items[pid] || 0), 0);
   // เฉพาะชนิดที่มี ประมาณการ หรือ ยอดจอง (ไม่โชว์แถวว่างเปล่า)
@@ -6583,6 +6588,7 @@ function PlanBoard({ bookings, production, planEstimates, setPlanEstimate }) {
                 <th style={{ ...th, color: "#15803D" }}>ประมาณการ</th>
                 {custCols.map((c) => (
                   <th key={c.customerId} style={{ ...th, color: ACCENT_DK, minWidth: 78 }}>
+                    {custCode(c.customerId) ? <div style={{ fontSize: 9.5, fontWeight: 700, color: "#b3a892" }}>{custCode(c.customerId)}</div> : null}
                     {c.name}{c.notes.length ? <span title={c.notes.join(" · ")} style={{ marginLeft: 3 }}>📝</span> : null}
                     <div style={{ fontSize: 10.5, fontWeight: 700, color: "#9b8e78" }}>{fmt(bookingTotal(c.items))} แผง</div>
                   </th>
@@ -6597,8 +6603,8 @@ function PlanBoard({ bookings, production, planEstimates, setPlanEstimate }) {
                     <tr key={pid} style={left < 0 ? { background: "#FEF2F2" } : {}}>
                       <td style={{ ...td, textAlign: "left", fontWeight: 600, position: "sticky", left: 0, background: left < 0 ? "#FEF2F2" : "#fff", zIndex: 1 }}>{left < 0 ? "⚠️ " : ""}{PRODUCT_BY_ID[pid]?.name || pid}</td>
                       <td style={td}><input style={estInp} inputMode="numeric" value={override[pid] != null && override[pid] !== "" ? override[pid] : (auto[pid] || 0)} onChange={(ev) => setPlanEstimate(date, pid, ev.target.value.replace(/[^0-9]/g, ""))} /></td>
-                      {custCols.map((c) => <td key={c.customerId} style={{ ...td, color: c.items[pid] ? INK : "#d5cdbd", fontWeight: c.items[pid] ? 700 : 400 }}>{c.items[pid] ? fmt(c.items[pid]) : "-"}</td>)}
-                      <td style={{ ...td, color: d > 0 ? "#B45309" : "#c9bfad", fontWeight: 700 }}>{d > 0 ? fmt(d) : "-"}</td>
+                      {custCols.map((c) => <td key={c.customerId} style={{ ...td, color: c.items[pid] ? INK : "#d5cdbd", fontWeight: c.items[pid] ? 700 : 400 }}>{c.items[pid] ? <>{fmt(c.items[pid])} <span style={{ fontSize: 9, fontWeight: 600, color: "#c4b79b" }}>{BOOKING_SHORT[pid] || ""}</span></> : "-"}</td>)}
+                      <td style={{ ...td, color: d > 0 ? "#B45309" : "#c9bfad", fontWeight: 700 }}>{d > 0 ? <>{fmt(d)} <span style={{ fontSize: 9, fontWeight: 600, color: "#d9b98a" }}>{BOOKING_SHORT[pid] || ""}</span></> : "-"}</td>
                       <td style={{ ...td, fontWeight: 800, color: left < 0 ? "#B91C1C" : left === 0 ? "#15803D" : "#1D4ED8" }}>{left < 0 ? `ขาด ${fmt(-left)}` : fmt(left)}</td>
                     </tr>
                   );
