@@ -3743,6 +3743,25 @@ function VaccineModal({ houseId, rows = [], info, onAdd, onDelete, onClose }) {
   );
 }
 
+// ย่อรูป (จากกล้อง/ไฟล์) เป็น data URL ก่อนเก็บลง localStorage — ด้านยาวสุด maxDim, JPEG quality (กันสตอเรจเต็ม)
+function fileToScaledDataURL(file, maxDim = 1400, quality = 0.68) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.width, h = img.height;
+        if (Math.max(w, h) > maxDim) { const s = maxDim / Math.max(w, h); w = Math.round(w * s); h = Math.round(h * s); }
+        const c = document.createElement("canvas"); c.width = w; c.height = h;
+        c.getContext("2d").drawImage(img, 0, 0, w, h);
+        try { resolve(c.toDataURL("image/jpeg", quality)); } catch (e) { reject(e); }
+      };
+      img.onerror = reject; img.src = reader.result;
+    };
+    reader.onerror = reject; reader.readAsDataURL(file);
+  });
+}
+
 /* 🧪 สมุดผลตรวจแล็บประจำหลัง — เจาะเลือด (serology/titer) · เก็บซาก (ผ่าซาก necropsy) · อื่นๆ ส่งตรวจ */
 const LAB_TYPES = {
   เลือด: { label: "🩸 เจาะเลือด (serology)", bg: "#FEE2E2", c: "#B91C1C" },
@@ -3750,15 +3769,27 @@ const LAB_TYPES = {
   อื่นๆ: { label: "🧫 อื่นๆ", bg: "#E0E7FF", c: "#4338CA" },
 };
 function LabTestModal({ houseId, rows = [], onAdd, onDelete, onClose }) {
-  const empty = { date: isoFromTs(Date.now()), type: "เลือด", age: "", samples: "", lab: "", result: "", recommend: "", by: "" };
+  const empty = { date: isoFromTs(Date.now()), type: "เลือด", age: "", samples: "", lab: "", result: "", recommend: "", by: "", images: [] };
   const [f, setF] = useState(empty);
+  const [busy, setBusy] = useState(false);         // กำลังย่อรูป
+  const [zoom, setZoom] = useState(null);          // รูปที่กำลังซูมดูเต็มจอ (data URL)
   const up = (k) => (e) => setF((p) => ({ ...p, [k]: e.target.value }));
+  const addImages = async (fileList) => {
+    const files = [...(fileList || [])].filter((x) => x.type.startsWith("image/"));
+    if (!files.length) return;
+    setBusy(true);
+    try { const urls = await Promise.all(files.map((x) => fileToScaledDataURL(x))); setF((p) => ({ ...p, images: [...(p.images || []), ...urls] })); }
+    catch (e) { alert("อ่านรูปไม่สำเร็จ ลองรูปอื่น"); }
+    finally { setBusy(false); }
+  };
+  const rmImage = (i) => setF((p) => ({ ...p, images: (p.images || []).filter((_, j) => j !== i) }));
   const sorted = rows.slice().sort((a, b) => (b.date || "").localeCompare(a.date || "") || String(b.id).localeCompare(String(a.id)));   // ใหม่→เก่า
   const inp = { width: "100%", padding: "8px 9px", border: "1.5px solid #e3ddd0", borderRadius: 8, fontSize: 13.5, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: "#fff" };
   const lbl = { display: "block", fontSize: 11, fontWeight: 700, color: "#7a6f5c", marginBottom: 2 };
-  const valid = f.date && f.result.trim();
-  const submit = () => { if (!valid) return; onAdd(houseId, { ...f, result: f.result.trim(), recommend: f.recommend.trim(), lab: f.lab.trim(), by: f.by.trim(), samples: f.samples ? parseInt(f.samples) : "" }); setF({ ...empty, date: f.date, type: f.type, age: f.age, lab: f.lab, by: f.by }); };
+  const valid = f.date && (f.result.trim() || (f.images || []).length);
+  const submit = () => { if (!valid) return; onAdd(houseId, { ...f, result: f.result.trim(), recommend: f.recommend.trim(), lab: f.lab.trim(), by: f.by.trim(), samples: f.samples ? parseInt(f.samples) : "", images: f.images || [] }); setF({ ...empty, date: f.date, type: f.type, age: f.age, lab: f.lab, by: f.by }); };
   const nBlood = rows.filter((r) => r.type === "เลือด").length, nCarcass = rows.filter((r) => r.type === "ซาก").length;
+  const thumb = { width: 62, height: 62, objectFit: "cover", borderRadius: 8, border: "1px solid #e3ddd0", cursor: "pointer", display: "block" };
   return (
     <div style={S.modalOverlay} onClick={onClose}>
       <div style={{ ...S.modal, maxWidth: 640, maxHeight: "92vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
@@ -3786,7 +3817,12 @@ function LabTestModal({ houseId, rows = [], onAdd, onDelete, onClose }) {
                     <button title="ลบผลตรวจนี้" onClick={() => { if (window.confirm(`ลบผลตรวจ ${toThaiDate(r.date, false)}?`)) onDelete(houseId, r.id); }}
                       style={{ marginLeft: "auto", border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 7, padding: "1px 7px", cursor: "pointer", fontWeight: 800, fontSize: 11 }}>✕</button>
                   </div>
-                  <div style={{ fontSize: 13, color: "#3a352c", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{r.result}</div>
+                  {r.result ? <div style={{ fontSize: 13, color: "#3a352c", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{r.result}</div> : null}
+                  {(r.images || []).length > 0 && (
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                      {(r.images || []).map((src, i) => <img key={i} src={src} alt={`ผลตรวจ ${i + 1}`} style={thumb} onClick={() => setZoom(src)} />)}
+                    </div>
+                  )}
                   {r.recommend ? <div style={{ marginTop: 6, fontSize: 12.5, color: "#7A4F16", background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 8, padding: "6px 9px", whiteSpace: "pre-wrap" }}>💡 คำแนะนำ/ทำต่อ: {r.recommend}</div> : null}
                   {r.by ? <div style={{ marginTop: 5, fontSize: 11.5, color: "#9b8e78" }}>ผู้บันทึก: {r.by}</div> : null}
                 </div>
@@ -3803,9 +3839,24 @@ function LabTestModal({ houseId, rows = [], onAdd, onDelete, onClose }) {
             <div><label style={lbl}>จำนวนตัวอย่าง</label><input style={inp} inputMode="numeric" value={f.samples} onChange={(e) => setF((p) => ({ ...p, samples: e.target.value.replace(/[^0-9]/g, "") }))} /></div>
             <div style={{ gridColumn: "1 / -1" }}><label style={lbl}>แล็บ / หน่วยตรวจ</label><input style={inp} value={f.lab} onChange={up("lab")} placeholder="เช่น แล็บบริษัท / ปศุสัตว์จังหวัด / มหาวิทยาลัย" /></div>
           </div>
-          <div style={{ marginBottom: 8 }}><label style={lbl}>ผลตรวจ *</label>
+          <div style={{ marginBottom: 8 }}><label style={lbl}>ผลตรวจ <span style={{ color: "#9b8e78", fontWeight: 600 }}>(พิมพ์ผล หรือแนบรูปใบผลตรวจก็ได้)</span></label>
             <textarea style={{ ...inp, minHeight: 72, resize: "vertical", textAlign: "left" }} value={f.result} onChange={up("result")}
               placeholder={f.type === "เลือด" ? "เช่น ND HI titer เฉลี่ย 6.5 (สม่ำเสมอ) · IB titer ต่ำ · AI H5 titer 5 …" : f.type === "ซาก" ? "เช่น ผ่าซาก 3 ตัว — พบหลอดลมอักเสบเล็กน้อย · ลำไส้ปกติ · ไม่พบรอยโรค ND …" : "บันทึกผลตรวจ"} /></div>
+          <div style={{ marginBottom: 8 }}>
+            <label style={lbl}>📎 รูปใบผลตรวจ (ถ่ายรูป / เลือกไฟล์ได้หลายรูป)</label>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              {(f.images || []).map((src, i) => (
+                <div key={i} style={{ position: "relative" }}>
+                  <img src={src} alt={`แนบ ${i + 1}`} style={thumb} onClick={() => setZoom(src)} />
+                  <button onClick={() => rmImage(i)} title="ลบรูป" style={{ position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: "50%", border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", cursor: "pointer", fontWeight: 800, fontSize: 12, lineHeight: 1, padding: 0 }}>×</button>
+                </div>
+              ))}
+              <label style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", justifyContent: "center", width: 62, height: 62, border: "1.5px dashed #d8cdb6", borderRadius: 8, color: "#9b8e78", cursor: busy ? "wait" : "pointer", fontSize: 11, fontWeight: 700, background: "#fff", textAlign: "center" }}>
+                {busy ? "…" : <><Plus size={16} /><span style={{ fontSize: 9.5, marginTop: 2 }}>เพิ่มรูป</span></>}
+                <input type="file" accept="image/*" multiple capture="environment" style={{ display: "none" }} onChange={(e) => { addImages(e.target.files); e.target.value = ""; }} />
+              </label>
+            </div>
+          </div>
           <div style={{ marginBottom: 8 }}><label style={lbl}>คำแนะนำ / สิ่งที่ต้องทำต่อ</label>
             <textarea style={{ ...inp, minHeight: 46, resize: "vertical", textAlign: "left" }} value={f.recommend} onChange={up("recommend")} placeholder="เช่น กระตุ้น ND live ละลายน้ำ · เฝ้าระวังหลอดลม" /></div>
           <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
@@ -3814,6 +3865,12 @@ function LabTestModal({ houseId, rows = [], onAdd, onDelete, onClose }) {
           </div>
         </div>
       </div>
+      {zoom && (
+        <div onClick={() => setZoom(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, cursor: "zoom-out" }}>
+          <img src={zoom} alt="ผลตรวจ" style={{ maxWidth: "96%", maxHeight: "92%", objectFit: "contain", borderRadius: 8 }} />
+          <button onClick={(e) => { e.stopPropagation(); setZoom(null); }} style={{ position: "absolute", top: 16, right: 16, width: 40, height: 40, borderRadius: "50%", border: "none", background: "rgba(255,255,255,0.9)", color: "#111", cursor: "pointer", fontWeight: 800, fontSize: 18 }}><X size={20} /></button>
+        </div>
+      )}
     </div>
   );
 }
