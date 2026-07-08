@@ -3029,6 +3029,11 @@ const HOUSES_4_7 = [
   { id: "H6", date: "2026-07-04", chickens: 66369, grade: { เบอร์: { 0: 2070, 1: 8220, 2: 18450, 3: 16410, 4: 5700, 5: 930 }, ตกเกรด: { จัมโบ้: 4, บุบ: 20, ตอก: 12, จิ๋ว: 4, เปลือกขาว: 1, หัวทราย: 107, นวล: 174, เปื้อนมาก: 43, เปื้อนน้อย: 56 } }, inspect: { count: 4, result: "ไข่เปลือกเข้มและไข่หัวทราย · ตอกออกมาไข่ขาวเหลว · อาหาร JBF เฉดสีไข่ 15" } },
 ];
 
+// โรงเรือนทั้งหมดของฟาร์ม — เพิ่มหลังใหม่ที่นี่ที่เดียว ทุกหน้า (ผลผลิต/เลี้ยง/อาหาร/ยา/ต้นทุน) เห็นเอง
+// H7 เริ่มเข้าไก่ 8/7/69 (ยังไม่มีผลผลิตย้อนหลัง — วันเก่าไม่โชว์ H7 ตามจริง)
+const HOUSE_IDS = ["H2", "H3", "H4", "H5", "H6", "H7"];
+const emptyHouseDay = (id, date) => ({ id, date, chickens: 0, grade: { เบอร์: { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }, ตกเกรด: { จัมโบ้: 0, บุบ: 0, ตอก: 0, จิ๋ว: 0, เปลือกขาว: 0, หัวทราย: 0, นวล: 0, เปื้อนมาก: 0, เปื้อนน้อย: 0 } } });
+
 // คลังผลผลิตรายวัน (ย้อนดูได้) — key = วันที่ ISO ; 3/7 ใช้ HOUSES เดิม (เติม date)
 const PRODUCTION_SEED = {
   "2026-07-03": HOUSES.map((h) => ({ ...h, date: "2026-07-03" })),
@@ -3207,7 +3212,9 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
     const latest = sortedDates.filter((d) => d < prodDate).pop() || sortedDates[sortedDates.length - 1];
     const base = production[latest] || [];
     const zero = (o) => Object.fromEntries(Object.keys(o).map((k) => [k, 0]));
-    setHouses(base.map((h) => ({ id: h.id, date: prodDate, chickens: h.chickens, grade: { เบอร์: zero(h.grade.เบอร์), ตกเกรด: zero(h.grade.ตกเกรด) } })));
+    const copied = base.map((h) => ({ id: h.id, date: prodDate, chickens: h.chickens, grade: { เบอร์: zero(h.grade.เบอร์), ตกเกรด: zero(h.grade.ตกเกรด) } }));
+    const extra = HOUSE_IDS.filter((id) => !copied.some((h) => h.id === id)).map((id) => emptyHouseDay(id, prodDate));   // หลังใหม่ (เช่น H7) โผล่ในวันใหม่อัตโนมัติ
+    setHouses([...copied, ...extra]);
   };
   const saveHouse = (id, grade, chickens, date, inspect) => {
     const cur = houses.find((h) => h.id === id);
@@ -4043,7 +4050,7 @@ function StockProdView({ stockProps, prodProps }) {
 ============================================================ */
 function FeedView({ rearingByDate = {}, flocks = {}, production = {}, feedDeliveries = [], addFeedDelivery, deleteFeedDelivery, feedPrice = 0, setFeedPrice, feedUseByMonth = {} }) {
   const prodDates = Object.keys(production).sort();
-  const houseIds = (production[prodDates[prodDates.length - 1]] || []).map((h) => h.id);
+  const houseIds = [...new Set([...(production[prodDates[prodDates.length - 1]] || []).map((h) => h.id), ...HOUSE_IDS])];   // รวมหลังใหม่ที่ยังไม่มีผลผลิต (เช่น H7)
   const rearDates = Object.keys(rearingByDate).sort();
   const [showDelivery, setShowDelivery] = useState(false);
   // เกณฑ์เตือนอาหารใกล้หมด (กก./ไซโล) — คีย์เดียวกับที่ฟอร์มการเลี้ยงใช้เตือนในหน้ากรอก
@@ -4246,7 +4253,7 @@ function FeedView({ rearingByDate = {}, flocks = {}, production = {}, feedDelive
 ============================================================ */
 function MedView({ medTrials = [], addMedTrial, deleteMedTrial, rearingByDate = {}, production = {}, medStock = [], medInfo = {}, medReceipts = [], addMedItem, updateMedItem, addMedReceipt, medCostByMonth = {} }) {
   const prodDates = Object.keys(production).sort();
-  const houseIds = (production[prodDates[prodDates.length - 1]] || []).map((h) => h.id);
+  const houseIds = [...new Set([...(production[prodDates[prodDates.length - 1]] || []).map((h) => h.id), ...HOUSE_IDS])];   // รวมหลังใหม่ที่ยังไม่มีผลผลิต (เช่น H7)
   const [viewTrial, setViewTrial] = useState(null);
   const [receiptItem, setReceiptItem] = useState(null);   // รายการยาที่กำลังรับเข้า
   const [showAddMed, setShowAddMed] = useState(false);
@@ -4536,7 +4543,7 @@ function AddMedModal({ onSave, onClose }) {
 ============================================================ */
 function CostView({ expenses = [], addExpense, deleteExpense, production = {}, medCostByMonth = {}, feedCostByMonth = {}, feedPrice = 0, bills = [] }) {
   const prodDates = Object.keys(production).sort();
-  const houseIds = (production[prodDates[prodDates.length - 1]] || []).map((h) => h.id);
+  const houseIds = [...new Set([...(production[prodDates[prodDates.length - 1]] || []).map((h) => h.id), ...HOUSE_IDS])];   // รวมหลังใหม่ที่ยังไม่มีผลผลิต (เช่น H7)
   const [date, setDate] = useState(isoFromTs(Date.now()));
   const [cat, setCat] = useState(EXPENSE_CATS[0]);
   const [hid, setHid] = useState("");
@@ -4776,7 +4783,7 @@ function CostView({ expenses = [], addExpense, deleteExpense, production = {}, m
 
 function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, production = {}, medTrials = [], medStock = [], medInfo = {} }) {
   const prodDates = Object.keys(production).sort();
-  const houseIds = (production[prodDates[prodDates.length - 1]] || []).map((h) => h.id);
+  const houseIds = [...new Set([...(production[prodDates[prodDates.length - 1]] || []).map((h) => h.id), ...HOUSE_IDS])];   // รวมหลังใหม่ที่ยังไม่มีผลผลิต (เช่น H7)
   const rearDates = Object.keys(rearingByDate).sort();
   const [mode, setMode] = useState("house");          // "house" = สมุดรายหลัง (หลังละ 1 หน้า เหมือนฟอร์มกระดาษ) | "day" = รายวันทุกหลัง
   const [selHouse, setSelHouse] = useState(houseIds[0] || "H2");
