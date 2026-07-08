@@ -655,7 +655,8 @@ function trayAccountOf(customerId, bills, trayRecords, excludeBillNo, trayEvents
     if (!t.fromBill) { rtReturned += sumTray(t.received); retBig += t.received?.ใหญ่ || 0; retSmall += t.received?.เล็ก || 0; }   // ใบจากบิลนับยอดคืนใน billReturned แล้ว → ไม่นับซ้ำ
     if (t.sorted) {
       brokenOwed += Math.max(0, sumTray(t.sorted.broken) - sumTray(t.replacedGood));   // ชำรุดสะสม (หัก legacy ทดแทนต่อใบสมัยเก่า)
-      if (t.status !== "ส่งคืนแล้ว") { brokenAtFarm += sumTray(t.sorted.broken); brokenAtFarmBig += t.sorted.broken?.ใหญ่ || 0; brokenAtFarmSmall += t.sorted.broken?.เล็ก || 0; }   // ชำรุดตัวจริงที่ยังอยู่ที่ฟาร์ม
+      // ชำรุดตัวจริงที่ยังอยู่ที่ฟาร์ม — ใบที่ปิดด้วยเหตุการณ์คืนชำรุด (brokenBackVia) ยังต้องนับ เพราะยอดเหตุการณ์เป็นตัวหัก (ไม่งั้นหักซ้ำ)
+      if (t.status !== "ส่งคืนแล้ว" || t.brokenBackVia) { brokenAtFarm += sumTray(t.sorted.broken); brokenAtFarmBig += t.sorted.broken?.ใหญ่ || 0; brokenAtFarmSmall += t.sorted.broken?.เล็ก || 0; }
       sortedRounds.push({
         iso: thShortToISO(t.date) || "", ts: 0,
         goodB: t.sorted.good?.ใหญ่ || 0, goodS: t.sorted.good?.เล็ก || 0,
@@ -5151,9 +5152,29 @@ function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], 
   const custName = (id) => CUSTOMERS.find((c) => c.id === id)?.name || "—";
   // บันทึกเหตุการณ์ระดับลูกค้า: รับแผงดีทดแทน (แผงดีเข้าฟาร์ม + ตัดค้าง) / คืนแผงชำรุดให้ลูกค้า (ตัดกองชำรุดที่ฟาร์ม)
   const applyCustAction = (mode, customerId, qty, dateISO, by) => {
-    addTrayEvent && addTrayEvent({ id: "TE" + Date.now(), type: mode, customerId, date: dateISO, ใหญ่: qty.ใหญ่ || 0, เล็ก: qty.เล็ก || 0, by: (by || "").trim(), ts: Date.now() });
+    const ev = { id: "TE" + Date.now(), type: mode, customerId, date: dateISO, ใหญ่: qty.ใหญ่ || 0, เล็ก: qty.เล็ก || 0, by: (by || "").trim(), ts: Date.now() };
+    addTrayEvent && addTrayEvent(ev);
     if (mode === "replace") setTrayStock((prev) => ({ ใหญ่: prev.ใหญ่ + (qty.ใหญ่ || 0), เล็ก: prev.เล็ก + (qty.เล็ก || 0) }));
+    if (mode === "brokenBack") reconcileBrokenBack(customerId, [...(trayEvents || []), ev]);
     setCustAction(null);
+  };
+  // จัดสถานะใบให้ตรงเหตุการณ์คืนชำรุด: ไล่ FIFO ใบเก่าก่อน — ชำรุดของใบไหนถูกคืนครบ (ทั้งใหญ่และเล็ก) → สถานะ "ส่งคืนแล้ว"
+  // (ติด marker brokenBackVia เพื่อให้ trayAccountOf ยังนับชำรุดใบนี้ แล้วหักด้วยยอดเหตุการณ์ — ไม่หักซ้ำ) · ลบเหตุการณ์ → สถานะถอยกลับเอง
+  const reconcileBrokenBack = (customerId, allEvents) => {
+    let remB = 0, remS = 0;
+    (allEvents || []).forEach((e) => { if (e.customerId === customerId && e.type === "brokenBack") { remB += e.ใหญ่ || 0; remS += e.เล็ก || 0; } });
+    setTrays((prev) => {
+      const flip = {};
+      prev.filter((t) => t.customerId === customerId && t.sorted && t.status !== "ปิดรายการ" && !(t.status === "ส่งคืนแล้ว" && !t.brokenBackVia))
+        .sort((a, b) => (thShortToISO(a.date) || "").localeCompare(thShortToISO(b.date) || "") || String(a.id).localeCompare(String(b.id)))
+        .forEach((t) => {
+          const nb = t.sorted.broken?.ใหญ่ || 0, ns = t.sorted.broken?.เล็ก || 0;
+          if ((nb > 0 || ns > 0) && remB >= nb && remS >= ns) { remB -= nb; remS -= ns; flip[t.id] = true; }
+          else flip[t.id] = false;
+        });
+      return prev.map((t) => flip[t.id] === true ? { ...t, status: "ส่งคืนแล้ว", brokenBackVia: "event" }
+        : flip[t.id] === false && t.brokenBackVia ? { ...t, status: "รอส่งคืน", brokenBackVia: undefined } : t);
+    });
   };
 
   const summary = useMemo(() => {
@@ -5214,7 +5235,8 @@ function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], 
   const totalCarriedOwed = byCustomer.reduce((s, r) => s + (r.carriedOwed || 0), 0);  // ค้างคืน (ยกยอด ไม่คิดเงิน = หนี้แผงจริง) รวม
 
   const applySort = (trayId, good, broken, sorter, sortedDate) => {
-    setTrays((prev) => prev.map((t) => t.id === trayId ? { ...t, status: "รอส่งคืน", sorted: { good, broken }, sorter, sortedDate: sortedDate || new Date().toLocaleDateString("th-TH") } : t));
+    // ไม่มีชำรุดเลย = จบใบทันที (ไม่มีอะไรรอส่งคืนลูกค้า)
+    setTrays((prev) => prev.map((t) => t.id === trayId ? { ...t, status: sumTray(broken) > 0 ? "รอส่งคืน" : "ปิดรายการ", sorted: { good, broken }, sorter, sortedDate: sortedDate || new Date().toLocaleDateString("th-TH") } : t));
     setTrayStock((prev) => ({ ใหญ่: prev.ใหญ่ + (good.ใหญ่ || 0), เล็ก: prev.เล็ก + (good.เล็ก || 0) }));
     setSortModal(null);
   };
@@ -5306,7 +5328,11 @@ function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], 
             onSort={(t) => setSortModal(t)}
             onBrokenBack={(cid) => setCustAction({ mode: "brokenBack", customerId: cid })}
             onReport={(row) => setReportCust(row)}
-            onDeleteEvent={deleteTrayEvent}
+            onDeleteEvent={(id) => {
+              const e = (trayEvents || []).find((x) => x.id === id);
+              deleteTrayEvent && deleteTrayEvent(id);
+              if (e && e.type === "brokenBack") reconcileBrokenBack(e.customerId, (trayEvents || []).filter((x) => x.id !== id));   // ลบเหตุการณ์คืนชำรุด → สถานะใบถอยกลับ
+            }}
             onDeleteTray={deleteTray} />
         )}
       </div>
