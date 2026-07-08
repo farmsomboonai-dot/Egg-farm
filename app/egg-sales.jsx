@@ -6621,8 +6621,8 @@ function PlanBoard({ bookings, production, planEstimates, setPlanEstimate }) {
                     <tr key={pid} style={left < 0 ? { background: "#FEF2F2" } : {}}>
                       <td style={{ ...td, textAlign: "left", fontWeight: 600, position: "sticky", left: 0, background: left < 0 ? "#FEF2F2" : "#fff", zIndex: 1 }}>{left < 0 ? "⚠️ " : ""}{PRODUCT_BY_ID[pid]?.name || pid}</td>
                       <td style={td}><input style={estInp} inputMode="numeric" value={override[pid] != null && override[pid] !== "" ? override[pid] : (auto[pid] || 0)} onChange={(ev) => setPlanEstimate(date, pid, ev.target.value.replace(/[^0-9]/g, ""))} /></td>
-                      {custCols.map((c, ci) => <td key={c.customerId} style={{ ...td, color: c.items[pid] ? CUST_COLORS[ci % CUST_COLORS.length] : "#d5cdbd", fontWeight: c.items[pid] ? 800 : 400 }}>{c.items[pid] ? <><span style={{ fontSize: 9, fontWeight: 600, color: "#c4b79b" }}>{BOOKING_SHORT[pid] || ""}</span> {fmt(c.items[pid])}</> : "-"}</td>)}
-                      <td style={{ ...td, color: d > 0 ? "#B45309" : "#c9bfad", fontWeight: 700 }}>{d > 0 ? <><span style={{ fontSize: 9, fontWeight: 600, color: "#d9b98a" }}>{BOOKING_SHORT[pid] || ""}</span> {fmt(d)}</> : "-"}</td>
+                      {custCols.map((c, ci) => <td key={c.customerId} style={{ ...td, color: c.items[pid] ? CUST_COLORS[ci % CUST_COLORS.length] : "#d5cdbd", fontWeight: c.items[pid] ? 800 : 400 }}>{c.items[pid] ? <><span style={{ fontSize: 11, fontWeight: 600, color: "#b8ab90" }}>{BOOKING_SHORT[pid] || ""}</span> {fmt(c.items[pid])}</> : "-"}</td>)}
+                      <td style={{ ...td, color: d > 0 ? "#B45309" : "#c9bfad", fontWeight: 700 }}>{d > 0 ? <><span style={{ fontSize: 11, fontWeight: 600, color: "#d0a878" }}>{BOOKING_SHORT[pid] || ""}</span> {fmt(d)}</> : "-"}</td>
                       <td style={{ ...td, fontWeight: 800, color: left < 0 ? "#B91C1C" : left === 0 ? "#15803D" : "#1D4ED8" }}>{left < 0 ? `ขาด ${fmt(-left)}` : fmt(left)}</td>
                     </tr>
                   );
