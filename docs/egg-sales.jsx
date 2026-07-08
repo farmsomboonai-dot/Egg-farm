@@ -6471,7 +6471,17 @@ function PlanBoard({ bookings, production, planEstimates, setPlanEstimate }) {
   const override = planEstimates[date] || {};
   const estOf = (pid) => { const o = override[pid]; return o != null && o !== "" ? (parseInt(o) || 0) : (auto[pid] || 0); };
   const dayBookings = bookings.filter((b) => b.date === date);
-  const demandOf = (pid) => dayBookings.reduce((s, b) => s + (parseInt(b.items?.[pid]) || 0), 0);
+  // รวมใบจองเป็นรายลูกค้า (ลูกค้าเดียวจองหลายใบ → รวมชนิดให้) → 1 คอลัมน์ต่อลูกค้า
+  const custCols = useMemo(() => {
+    const map = {};
+    dayBookings.forEach((b) => {
+      const m = map[b.customerId] || (map[b.customerId] = { customerId: b.customerId, name: custName(b.customerId), items: {}, notes: [] });
+      Object.entries(b.items || {}).forEach(([pid, q]) => { m.items[pid] = (m.items[pid] || 0) + (parseInt(q) || 0); });
+      if (b.note) m.notes.push(b.note);
+    });
+    return Object.values(map).sort((a, b) => bookingTotal(b.items) - bookingTotal(a.items));   // เรียงจองมาก→น้อย
+  }, [dayBookings]);
+  const demandOf = (pid) => custCols.reduce((s, c) => s + (c.items[pid] || 0), 0);
   // เฉพาะชนิดที่มี ประมาณการ หรือ ยอดจอง (ไม่โชว์แถวว่างเปล่า)
   const shownIds = BOOKING_IDS.filter((pid) => estOf(pid) > 0 || demandOf(pid) > 0);
   const totEst = shownIds.reduce((s, pid) => s + estOf(pid), 0);
@@ -6498,54 +6508,60 @@ function PlanBoard({ bookings, production, planEstimates, setPlanEstimate }) {
         <SummaryCard icon={<ClipboardCheck size={18} />} label="จองแล้วรวม" value={totDemand} tone="amber" sub={`${dayBookings.length} ใบจอง`} />
         <SummaryCard icon={<Package size={18} />} label={totLeft >= 0 ? "เหลือขายได้อีก" : "จองเกินของที่มี"} value={Math.abs(totLeft)} tone={totLeft >= 0 ? "blue" : "red"} sub={totLeft >= 0 ? "แผง" : "แผง — ต้องเพิ่มไข่/ลดจอง"} />
       </div>
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
-        <div style={{ flex: "1 1 420px", background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflow: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 380 }}>
-            <thead><tr>
-              <th style={{ ...th, textAlign: "left" }}>ชนิดไข่</th>
-              <th style={{ ...th, color: "#15803D" }}>ประมาณการ</th>
-              <th style={{ ...th, color: "#B45309" }}>จองแล้ว</th>
-              <th style={th}>เหลือขายได้</th>
-            </tr></thead>
-            <tbody>
-              {shownIds.length === 0 && <tr><td colSpan={4} style={{ ...td, textAlign: "center", color: "#9b8e78", padding: "22px" }}>ยังไม่มีประมาณการหรือยอดจองของวันนี้</td></tr>}
-              {shownIds.map((pid) => {
-                const e = estOf(pid), d = demandOf(pid), left = e - d;
-                return (
-                  <tr key={pid}>
-                    <td style={{ ...td, textAlign: "left", fontWeight: 600 }}>{PRODUCT_BY_ID[pid]?.name || pid}</td>
-                    <td style={td}><input style={estInp} inputMode="numeric" value={override[pid] != null && override[pid] !== "" ? override[pid] : (auto[pid] || 0)} onChange={(ev) => setPlanEstimate(date, pid, ev.target.value.replace(/[^0-9]/g, ""))} /></td>
-                    <td style={{ ...td, color: d > 0 ? "#B45309" : "#c9bfad", fontWeight: 700 }}>{d > 0 ? fmt(d) : "-"}</td>
-                    <td style={{ ...td, fontWeight: 800, color: left < 0 ? "#B91C1C" : left === 0 ? "#15803D" : "#1D4ED8" }}>{left < 0 ? `ขาด ${fmt(-left)}` : fmt(left)}</td>
-                  </tr>
-                );
-              })}
-              <tr>
-                <td style={{ ...td, ...S.tfoot, textAlign: "left" }}>รวม</td>
-                <td style={{ ...td, ...S.tfoot, color: "#15803D" }}>{fmt(totEst)}</td>
-                <td style={{ ...td, ...S.tfoot, color: "#B45309" }}>{fmt(totDemand)}</td>
-                <td style={{ ...td, ...S.tfoot, color: totLeft < 0 ? "#B91C1C" : "#1D4ED8" }}>{totLeft < 0 ? `ขาด ${fmt(-totLeft)}` : fmt(totLeft)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <div style={{ flex: "1 1 300px" }}>
-          <div style={{ fontWeight: 800, color: INK, marginBottom: 8 }}>ลูกค้าที่จองไว้ ({dayBookings.length})</div>
-          {dayBookings.length === 0 ? (
-            <div style={{ fontSize: 13, color: "#9b8e78", background: "#fff", border: "1px dashed #d8cdb6", borderRadius: 12, padding: "18px", textAlign: "center" }}>ยังไม่มีใครจองวันนี้ — ไปที่ “🛒 รับจอง” เพื่อเพิ่ม</div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-              {dayBookings.slice().sort((a, b) => bookingTotal(b.items) - bookingTotal(a.items)).map((b) => (
-                <div key={b.id} style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 10, padding: "9px 12px", display: "flex", alignItems: "center", gap: 8 }}>
-                  <User size={14} color={ACCENT_DK} /><span style={{ fontWeight: 700, color: INK }}>{custName(b.customerId)}</span>
-                  {b.note ? <span style={{ fontSize: 11.5, color: "#9b8e78" }}>· {b.note}</span> : null}
-                  <span style={{ marginLeft: "auto", fontWeight: 800, color: ACCENT_DK }}>{fmt(bookingTotal(b.items))} แผง</span>
+      {custCols.length === 0 && shownIds.length === 0 ? (
+        <div style={S.emptyState}><Calendar size={34} color="#d1d5db" /><div>ยังไม่มีใครจองวันนี้ — ไปที่ “🛒 รับจอง” เพื่อเพิ่ม (ตารางจะแยกให้เห็นรายลูกค้าเอง)</div></div>
+      ) : (
+        <>
+          {/* ตารางวางแผนแยกรายลูกค้า: แถว = ชนิดไข่ · คอลัมน์ = ลูกค้าแต่ละราย + ประมาณการ/จองรวม/เหลือ */}
+          <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflowX: "auto" }}>
+            <table style={{ borderCollapse: "collapse", minWidth: 460 + custCols.length * 92 }}>
+              <thead><tr>
+                <th style={{ ...th, textAlign: "left", position: "sticky", left: 0, background: "#F6F1E7", zIndex: 1 }}>ชนิดไข่</th>
+                <th style={{ ...th, color: "#15803D" }}>ประมาณการ</th>
+                {custCols.map((c) => (
+                  <th key={c.customerId} style={{ ...th, color: ACCENT_DK, minWidth: 78 }}>
+                    {c.name}{c.notes.length ? <span title={c.notes.join(" · ")} style={{ marginLeft: 3 }}>📝</span> : null}
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: "#9b8e78" }}>{fmt(bookingTotal(c.items))} แผง</div>
+                  </th>
+                ))}
+                <th style={{ ...th, color: "#B45309" }}>จองรวม</th>
+                <th style={th}>เหลือขายได้</th>
+              </tr></thead>
+              <tbody>
+                {shownIds.map((pid) => {
+                  const e = estOf(pid), d = demandOf(pid), left = e - d;
+                  return (
+                    <tr key={pid}>
+                      <td style={{ ...td, textAlign: "left", fontWeight: 600, position: "sticky", left: 0, background: "#fff", zIndex: 1 }}>{PRODUCT_BY_ID[pid]?.name || pid}</td>
+                      <td style={td}><input style={estInp} inputMode="numeric" value={override[pid] != null && override[pid] !== "" ? override[pid] : (auto[pid] || 0)} onChange={(ev) => setPlanEstimate(date, pid, ev.target.value.replace(/[^0-9]/g, ""))} /></td>
+                      {custCols.map((c) => <td key={c.customerId} style={{ ...td, color: c.items[pid] ? INK : "#d5cdbd", fontWeight: c.items[pid] ? 700 : 400 }}>{c.items[pid] ? fmt(c.items[pid]) : "-"}</td>)}
+                      <td style={{ ...td, color: d > 0 ? "#B45309" : "#c9bfad", fontWeight: 700 }}>{d > 0 ? fmt(d) : "-"}</td>
+                      <td style={{ ...td, fontWeight: 800, color: left < 0 ? "#B91C1C" : left === 0 ? "#15803D" : "#1D4ED8" }}>{left < 0 ? `ขาด ${fmt(-left)}` : fmt(left)}</td>
+                    </tr>
+                  );
+                })}
+                <tr>
+                  <td style={{ ...td, ...S.tfoot, textAlign: "left", position: "sticky", left: 0, zIndex: 1 }}>รวม</td>
+                  <td style={{ ...td, ...S.tfoot, color: "#15803D" }}>{fmt(totEst)}</td>
+                  {custCols.map((c) => <td key={c.customerId} style={{ ...td, ...S.tfoot, color: ACCENT_DK }}>{fmt(bookingTotal(c.items))}</td>)}
+                  <td style={{ ...td, ...S.tfoot, color: "#B45309" }}>{fmt(totDemand)}</td>
+                  <td style={{ ...td, ...S.tfoot, color: totLeft < 0 ? "#B91C1C" : "#1D4ED8" }}>{totLeft < 0 ? `ขาด ${fmt(-totLeft)}` : fmt(totLeft)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          {custCols.some((c) => c.notes.length) && (
+            <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 5 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: "#8a8170" }}>📝 หมายเหตุลูกค้า</div>
+              {custCols.filter((c) => c.notes.length).map((c) => (
+                <div key={c.customerId} style={{ fontSize: 12.5, color: "#7A4F16", background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 8, padding: "6px 10px" }}>
+                  <b style={{ color: INK }}>{c.name}</b> — {c.notes.join(" · ")}
                 </div>
               ))}
             </div>
           )}
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }
