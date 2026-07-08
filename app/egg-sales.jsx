@@ -3048,12 +3048,14 @@ function toThaiDate(v, long = true) {
 }
 
 // ช่องเลือกวันที่ที่ "แสดงเป็นไทยเสมอ" — โชว์ข้อความไทย ทับปฏิทิน native (opacity 0) ไว้ให้กดเลือก ; onChange คืนค่า ISO เหมือน input[type=date]
-function ThaiDateField({ value, onChange, style, long = true }) {
-  const box = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "9px 10px", border: "1.5px solid #e3ddd0", borderRadius: 9, background: "#fff", fontSize: 14.5, fontFamily: "inherit", color: value ? INK : "#9b9384", width: "100%", ...(style || {}) };
+function ThaiDateField({ value, onChange, style, long = true, inputRef, onKeyDown }) {
+  const [focused, setFocused] = useState(false);   // ช่อง input จริงซ่อนอยู่ — โชว์กรอบเมื่อโฟกัสด้วยคีย์บอร์ด (Enter-chain)
+  const box = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "9px 10px", border: "1.5px solid #e3ddd0", borderRadius: 9, background: "#fff", fontSize: 14.5, fontFamily: "inherit", color: value ? INK : "#9b9384", width: "100%", ...(style || {}), ...(focused ? { borderColor: ACCENT_DK, boxShadow: `0 0 0 2px ${ACCENT}44` } : {}) };
   return (
     <div style={{ position: "relative", width: (style && style.width) || "100%" }}>
       <div style={box}><span>{value ? toThaiDate(value, long) : "เลือกวันที่"}</span><Calendar size={15} color={ACCENT_DK} /></div>
-      <input type="date" value={value || ""} lang="th"
+      <input type="date" value={value || ""} lang="th" ref={inputRef} onKeyDown={onKeyDown}
+        onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
         onChange={(e) => onChange(e.target.value)}
         onClick={(e) => { try { e.target.showPicker(); } catch (err) {} }}
         style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, cursor: "pointer", border: 0, margin: 0, padding: 0 }} />
@@ -3575,23 +3577,27 @@ function FlockModal({ houseId, flock, suggestStart, onSave, onClose }) {
   const [startAgeWk, setStartAgeWk] = useState(flock?.startAgeWk != null ? String(flock.startAgeWk) : "");
   const inp = { width: "100%", padding: "9px 10px", border: "1.5px solid #e3ddd0", borderRadius: 9, fontSize: 15, fontFamily: "inherit", outline: "none" };
   const lbl = { display: "block", fontSize: 12.5, fontWeight: 700, color: INK, marginBottom: 3 };
+  // Enter = ไปช่องถัดไป (รุ่น → ฝูง → จำนวน → วันที่เริ่ม → อายุรับเข้า → ปุ่มบันทึก) แบบเดียวกับกรอกการเลี้ยงประจำวัน
+  const refs = React.useRef([]); const saveRef = React.useRef(null);
+  const onKey = (i) => (e) => { if (e.key !== "Enter") return; e.preventDefault(); const n = refs.current[i + 1]; if (n) n.focus(); else if (saveRef.current) saveRef.current.focus(); };
+  const chain = (i) => ({ ref: (el) => { refs.current[i] = el; }, onKeyDown: onKey(i), onFocus: (e) => { try { e.target.select(); } catch (err) {} } });
   return (
     <div style={S.modalOverlay} onClick={onClose}>
       <div style={{ ...S.modal, maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
         <div style={S.modalHead}>
-          <div><div style={S.modalTitle}>รุ่นการเลี้ยง · โรงเรือน {houseId}</div><div style={S.modalSub}>ใช้คำนวณ อายุ(สัปดาห์) · %ตายสะสม · ไก่คงเหลือ</div></div>
+          <div><div style={S.modalTitle}>รุ่นการเลี้ยง · โรงเรือน {houseId}</div><div style={S.modalSub}>ใช้คำนวณ อายุ(สัปดาห์) · %ตายสะสม · ไก่คงเหลือ · กด Enter ไปช่องถัดไป</div></div>
           <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
         </div>
         <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
-          <div style={{ flex: 1 }}><label style={lbl}>รุ่นที่</label><input style={inp} value={gen} onChange={(e) => setGen(e.target.value)} placeholder="เช่น 12" /></div>
-          <div style={{ flex: 1 }}><label style={lbl}>ฝูงที่</label><input style={inp} value={flockNo} onChange={(e) => setFlockNo(e.target.value)} placeholder="เช่น 3" /></div>
+          <div style={{ flex: 1 }}><label style={lbl}>รุ่นที่</label><input style={inp} {...chain(0)} autoFocus value={gen} onChange={(e) => setGen(e.target.value)} placeholder="เช่น 12" /></div>
+          <div style={{ flex: 1 }}><label style={lbl}>ฝูงที่</label><input style={inp} {...chain(1)} value={flockNo} onChange={(e) => setFlockNo(e.target.value)} placeholder="เช่น 3" /></div>
         </div>
-        <div style={{ marginBottom: 10 }}><label style={lbl}>จำนวนเริ่มเลี้ยง (ตัว)</label><input style={inp} inputMode="numeric" value={startCount} onChange={(e) => setStartCount(e.target.value.replace(/[^0-9]/g, ""))} placeholder="เช่น 66000" /></div>
+        <div style={{ marginBottom: 10 }}><label style={lbl}>จำนวนเริ่มเลี้ยง (ตัว)</label><input style={inp} {...chain(2)} inputMode="numeric" value={startCount} onChange={(e) => setStartCount(e.target.value.replace(/[^0-9]/g, ""))} placeholder="เช่น 66000" /></div>
         <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
-          <div style={{ flex: 1.4 }}><label style={lbl}>วันที่เริ่มเลี้ยง</label><ThaiDateField value={startDate} onChange={setStartDate} style={{ ...inp }} /></div>
-          <div style={{ flex: 1 }}><label style={lbl}>อายุรับเข้า (สัปดาห์)</label><input style={inp} inputMode="numeric" value={startAgeWk} onChange={(e) => setStartAgeWk(e.target.value.replace(/[^0-9]/g, ""))} placeholder="เช่น 17" /></div>
+          <div style={{ flex: 1.4 }}><label style={lbl}>วันที่เริ่มเลี้ยง</label><ThaiDateField value={startDate} onChange={setStartDate} style={{ ...inp }} inputRef={(el) => { refs.current[3] = el; }} onKeyDown={onKey(3)} /></div>
+          <div style={{ flex: 1 }}><label style={lbl}>อายุรับเข้า (สัปดาห์)</label><input style={inp} {...chain(4)} inputMode="numeric" value={startAgeWk} onChange={(e) => setStartAgeWk(e.target.value.replace(/[^0-9]/g, ""))} placeholder="เช่น 17" /></div>
         </div>
-        <button style={S.primaryBtn} onClick={() => onSave(houseId, { gen: gen.trim(), flock: flockNo.trim(), startCount: startCount ? parseInt(startCount) : null, startDate: startDate || null, startAgeWk: startAgeWk ? parseInt(startAgeWk) : null })}>บันทึกรุ่นการเลี้ยง</button>
+        <button style={S.primaryBtn} ref={saveRef} onClick={() => onSave(houseId, { gen: gen.trim(), flock: flockNo.trim(), startCount: startCount ? parseInt(startCount) : null, startDate: startDate || null, startAgeWk: startAgeWk ? parseInt(startAgeWk) : null })}>บันทึกรุ่นการเลี้ยง</button>
       </div>
     </div>
   );
