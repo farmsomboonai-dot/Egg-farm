@@ -3216,10 +3216,14 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
     const extra = HOUSE_IDS.filter((id) => !copied.some((h) => h.id === id)).map((id) => emptyHouseDay(id, prodDate));   // หลังใหม่ (เช่น H7) โผล่ในวันใหม่อัตโนมัติ
     setHouses([...copied, ...extra]);
   };
+  // โชว์ครบทุกหลังตาม HOUSE_IDS แม้วันนั้นยังไม่มีข้อมูล (เช่น H7 เพิ่งเข้าไก่) — แถวศูนย์ ยังไม่ถูกบันทึกจนกว่าจะกดแก้จริง
+  const housesAll = useMemo(() => [...houses, ...HOUSE_IDS.filter((id) => !houses.some((h) => h.id === id)).map((id) => emptyHouseDay(id, prodDate))], [houses, prodDate]);
   const saveHouse = (id, grade, chickens, date, inspect) => {
     const cur = houses.find((h) => h.id === id);
     if (cur) setUndoStack((s) => [...s, { id, house: cur }]);   // จำค่าก่อนแก้ไว้ย้อนกลับ (house object เดิม ไม่ถูก mutate)
-    if (setHouses) setHouses((prev) => prev.map((h) => h.id === id ? { ...h, chickens, grade, date, inspect } : h));
+    if (setHouses) setHouses((prev) => prev.some((h) => h.id === id)
+      ? prev.map((h) => h.id === id ? { ...h, chickens, grade, date, inspect } : h)
+      : [...prev, { id, chickens, grade, date, inspect }]);   // หลังใหม่ที่ยังไม่มีในวันนั้น (H7) → บันทึกครั้งแรกค่อยเพิ่มเข้าไป
     setEditHouse(null);
   };
   const undoEdit = () => {   // ย้อนการแก้ครั้งล่าสุด → คืนค่าหลังนั้นเป็นค่าเดิม
@@ -3250,7 +3254,7 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
 
   // แจ้งเตือน: คำนวณต่อหลัง + เก็บ tag ช่องที่เกินเกณฑ์ไว้ไฮไลต์สีแดง
   const alertMap = {}, flagSet = {};
-  houses.forEach((h) => { const a = computeHouseAlerts(h, alertCfg); alertMap[h.id] = a; flagSet[h.id] = new Set(a.map((x) => x.tag)); });
+  housesAll.forEach((h) => { const a = h.chickens > 0 ? computeHouseAlerts(h, alertCfg) : []; alertMap[h.id] = a; flagSet[h.id] = new Set(a.map((x) => x.tag)); });   // หลังที่ยังไม่มีไก่/ข้อมูล ไม่ต้องเตือน
   const totalAlerts = Object.values(alertMap).reduce((s, a) => s + a.length, 0);
   const flag = (hid, tag) => (flagSet[hid] && flagSet[hid].has(tag)) ? S.alertCell : null;
 
@@ -3289,7 +3293,7 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
             <button onClick={() => setShowAlertCfg(true)} style={S.alertCfgBtn}><Settings size={13} /> ปรับเกณฑ์</button>
           </div>
           <div style={S.alertList}>
-            {houses.filter((h) => alertMap[h.id] && alertMap[h.id].length).map((h) => (
+            {housesAll.filter((h) => alertMap[h.id] && alertMap[h.id].length).map((h) => (
               <div key={h.id} style={S.alertRow}>
                 <button onClick={() => setEditHouse(h)} style={S.alertHouseBtn} title="กรอก/แก้ไขข้อมูลหลังนี้">{h.id} <Pencil size={10} /></button>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -3341,7 +3345,7 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
             </tr>
           </thead>
           <tbody>
-            {houses.map((h, hi) => {
+            {housesAll.map((h, hi) => {
               const c = calc(h);
               const g = h.grade.ตกเกรด;
               const zebra = hi % 2 === 1 ? "#FAF5EA" : undefined;   // สลับสีพื้นรายหลัง
