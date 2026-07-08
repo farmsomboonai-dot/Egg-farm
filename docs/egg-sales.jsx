@@ -842,6 +842,14 @@ export default function App() {
   useEffect(() => { try { localStorage.setItem("eggMedStock", JSON.stringify(medStock)); } catch {} }, [medStock]);
   const addMedItem = (it) => setMedStock((prev) => [...prev, it]);
   const updateMedItem = (id, patch) => setMedStock((prev) => prev.map((x) => x.id === id ? { ...x, ...patch } : x));
+  // สมุดวัคซีนประจำหลัง {houseId: [rows]} — H7 seed จากใบบันทึกวัคซีนฟาร์มอนุบาล
+  const [vaccines, setVaccines] = useState(() => {
+    try { const st = localStorage.getItem("eggVaccines"); return st ? JSON.parse(st) : VACCINE_SEED; }
+    catch { return VACCINE_SEED; }
+  });
+  useEffect(() => { try { localStorage.setItem("eggVaccines", JSON.stringify(vaccines)); } catch {} }, [vaccines]);
+  const addVaccine = (hid, row) => setVaccines((p) => ({ ...p, [hid]: [...(p[hid] || []), { ...row, id: "VC" + Date.now() }] }));
+  const deleteVaccine = (hid, id) => setVaccines((p) => ({ ...p, [hid]: (p[hid] || []).filter((r) => r.id !== id) }));
   // รับยาเข้าสต๊อก [{id, date, medId, qty, by}]
   const [medReceipts, setMedReceipts] = useState(() => { try { return JSON.parse(localStorage.getItem("eggMedReceipts") || "[]"); } catch { return []; } });
   useEffect(() => { try { localStorage.setItem("eggMedReceipts", JSON.stringify(medReceipts)); } catch {} }, [medReceipts]);
@@ -1043,7 +1051,7 @@ export default function App() {
       {view === "stockprod" && <StockProdView
         stockProps={{ salesByDay, productionByDate, defaultDay: stockDay, stockCounts, closeMeta, refPrices, onCloseDay: closeDay, onReopenDay: reopenDay }}
         prodProps={{ houses, setHouses, prodDate, setProdDate, production: productionByDate }} />}
-      {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={saveRearing} flocks={flocks} saveFlock={saveFlock} production={productionByDate} medTrials={medTrials} medStock={medStock} medInfo={medInfo} />}
+      {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={saveRearing} flocks={flocks} saveFlock={saveFlock} production={productionByDate} medTrials={medTrials} medStock={medStock} medInfo={medInfo} vaccines={vaccines} addVaccine={addVaccine} deleteVaccine={deleteVaccine} />}
       {view === "feed" && <FeedView rearingByDate={rearingByDate} flocks={flocks} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} feedPrice={feedPrice} setFeedPrice={setFeedPrice} feedUseByMonth={feedUseByMonth} />}
       {view === "med" && <MedView medTrials={medTrials} addMedTrial={addMedTrial} deleteMedTrial={deleteMedTrial} rearingByDate={rearingByDate} production={productionByDate} medStock={medStock} medInfo={medInfo} medReceipts={medReceipts} addMedItem={addMedItem} updateMedItem={updateMedItem} addMedReceipt={addMedReceipt} medCostByMonth={medCostByMonth} />}
       {view === "cost" && <CostView expenses={expenses} addExpense={addExpense} deleteExpense={deleteExpense} production={productionByDate} medCostByMonth={medCostByMonth} feedCostByMonth={feedCostByMonth} feedPrice={feedPrice} bills={bills} />}
@@ -3034,6 +3042,36 @@ const HOUSES_4_7 = [
 const HOUSE_IDS = ["H2", "H3", "H4", "H5", "H6", "H7"];
 const emptyHouseDay = (id, date) => ({ id, date, chickens: 0, grade: { เบอร์: { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }, ตกเกรด: { จัมโบ้: 0, บุบ: 0, ตอก: 0, จิ๋ว: 0, เปลือกขาว: 0, หัวทราย: 0, นวล: 0, เปื้อนมาก: 0, เปื้อนน้อย: 0 } } });
 
+// ---------- สมุดวัคซีนประจำหลัง ----------
+// ข้อมูลอ้างอิงที่มาของรุ่น (โชว์หัวสมุด) — H7 = ใบบันทึกวัคซีนจากฟาร์มอนุบาล (ไก่เข้าฟาร์มเรา 8/7/69)
+const VACCINE_INFO = {
+  H7: "รุ่นที่ 01/2569 · จากหนองบัวหลวงฟาร์ม (เอ็น ซี พี โปรดักส์) โรงเรือนที่ 2 · เริ่มเลี้ยง 21/3/69 · 50,000 ตัว · สัตวแพทย์ควบคุม น.สพ. บุญชัย โพธิปัญญาธรรม",
+};
+// ประวัติการทำวัคซีน H7 — คัดจากใบจริง "บันทึกการทำวัคซีนไก่เล็ก-ไก่รุ่น" (21/3/69 – 20/6/69)
+const VACCINE_SEED = {
+  H7: [
+    { id: "VS01", date: "2026-03-21", age: "1 วัน", birds: 50000, bottles: "50", dose: "0.1 โด๊ส", doseSize: "1000 โด๊ส", name: "มาแร็กซ์", against: "มาแร็กซ์", kind: "เชื้อเป็น", method: "ฉีดใต้ผิวหนังคอ", lot: "", expiry: "", by: "ทำจากโรงฟัก", checker: "" },
+    { id: "VS02", date: "2026-03-21", age: "1 วัน", birds: 50000, bottles: "10", dose: "1 โด๊ส", doseSize: "5000 โด๊ส", name: "BIOVAC ND V6/10-H120", against: "นิวคาสเซิล+หลอดลมอักเสบ", kind: "เชื้อเป็น", method: "สเปรย์", lot: "", expiry: "", by: "ทำจากโรงฟัก", checker: "" },
+    { id: "VS03", date: "2026-04-03", age: "14 วัน", birds: 49950, bottles: "10", dose: "0.2 โด๊ส", doseSize: "1000 โด๊ส", name: "OLVAC เข็ม1", against: "นิวคาสเซิล", kind: "เชื้อตาย", method: "ฉีดใต้ผิวหนังคอ", lot: "511907", expiry: "09-2027", by: "วีระพล", checker: "เขมชาติ" },
+    { id: "VS04", date: "2026-04-03", age: "14 วัน", birds: 49950, bottles: "25", dose: "1 หยด", doseSize: "2000 โด๊ส", name: "Poulvac Bursa V877", against: "กัมโบโร รอบ 1", kind: "เชื้อเป็น", method: "หยอดปาก", lot: "015/25", expiry: "09-2027", by: "วีระพล", checker: "เขมชาติ" },
+    { id: "VS05", date: "2026-04-11", age: "21 วัน", birds: 49920, bottles: "25", dose: "1 หยด", doseSize: "2000 โด๊ส", name: "Poulvac Bursa V877", against: "กัมโบโร รอบ 2", kind: "เชื้อเป็น", method: "หยอดปาก", lot: "015/25", expiry: "09-2027", by: "วีระพล", checker: "เขมชาติ" },
+    { id: "VS06", date: "2026-04-11", age: "21 วัน", birds: 49920, bottles: "60", dose: "0.3 ml", doseSize: "500 โด๊ส", name: "QVAC RFH5+H9 เข็ม 1", against: "ไข้หวัดนก", kind: "เชื้อตาย", method: "ฉีดกล้ามเนื้ออกขวา", lot: "20251228", expiry: "27-12-2027", by: "วีระพล", checker: "เขมชาติ" },
+    { id: "VS07", date: "2026-04-18", age: "4 wks", birds: 49900, bottles: "50", dose: "1 โด๊ส", doseSize: "1000 โด๊ส", name: "VALOI-VAC", against: "ฝีดาษ", kind: "เชื้อเป็น", method: "แทงปีก", lot: "509919", expiry: "01-2027", by: "วีระพล", checker: "เขมชาติ" },
+    { id: "VS08", date: "2026-04-18", age: "4 wks", birds: 49900, bottles: "30", dose: "0.3 โด๊ส", doseSize: "1000 โด๊ส", name: "OLVAC เข็ม2", against: "นิวคาสเซิล", kind: "เชื้อตาย", method: "ฉีดกล้ามเนื้ออกซ้าย", lot: "511907", expiry: "09-2027", by: "วีระพล", checker: "เขมชาติ" },
+    { id: "VS09", date: "2026-04-26", age: "5 wks", birds: 49880, bottles: "50", dose: "1 โด๊ส", doseSize: "1000 โด๊ส", name: "PoulShot MG-F", against: "มัยโคพลาสม่า กัลลิเซปติคุม", kind: "เชื้อเป็น", method: "หยอดตาซ้าย", lot: "324 EMGF 04", expiry: "03-12-2026", by: "วีระพล", checker: "เขมชาติ" },
+    { id: "VS10", date: "2026-04-26", age: "5 wks", birds: 49880, bottles: "100", dose: "0.5 ml", doseSize: "500 โด๊ส", name: "QVAC RFH5+H9 เข็ม2", against: "ไข้หวัดนก", kind: "เชื้อตาย", method: "ฉีดกล้ามเนื้ออกซ้าย", lot: "20251228", expiry: "27-12-2027", by: "วีระพล", checker: "เขมชาติ" },
+    { id: "VS11", date: "2026-05-03", age: "6 wks", birds: 49860, bottles: "25", dose: "1 โด๊ส", doseSize: "2000 โด๊ส", name: "Poulvac IB.QX", against: "หลอดลมอักเสบ", kind: "เชื้อเป็น", method: "หยอดตาขวา", lot: "862721", expiry: "03-2027", by: "วีระพล", checker: "เขมชาติ" },
+    { id: "VS12", date: "2026-05-03", age: "6 wks", birds: 49860, bottles: "50", dose: "0.5 ml", doseSize: "1000 โด๊ส", name: "HG-GEL-VAC 3 (coryza)", against: "หวัดหน้าบวม", kind: "เชื้อตาย", method: "ฉีดกล้ามเนื้ออกขวา", lot: "511922", expiry: "11-2027", by: "วีระพล", checker: "เขมชาติ" },
+    { id: "VS13", date: "2026-05-16", age: "8 wks", birds: 49835, bottles: "50", dose: "1 หยด", doseSize: "1000 โด๊ส", name: "LARVAC", against: "กล่องเสียงอักเสบ", kind: "เชื้อเป็น", method: "หยอดจมูก", lot: "511969", expiry: "06-2027", by: "วีระพล", checker: "เขมชาติ" },
+    { id: "VS14", date: "2026-05-18", age: "8 wks", birds: 49765, bottles: "25 ซอง", dose: "1kg/Bw20000Kg", doseSize: "340 กรัม", name: "NUTRIMEC รอบ 1", against: "กำจัดพยาธิภายในและภายนอก 5 วัน", kind: "แบบผง", method: "ละลายน้ำ", lot: "", expiry: "", by: "วีระพล", checker: "เขมชาติ" },
+    { id: "VS15", date: "2026-05-31", age: "10 wks", birds: 49760, bottles: "50", dose: "0.5 cc", doseSize: "1000 โด๊ส", name: "OLVAC เข็ม3", against: "นิวคาสเซิล", kind: "เชื้อตาย", method: "ฉีดกล้ามเนื้ออกซ้าย", lot: "511958", expiry: "02-2028", by: "วีระพล", checker: "เขมชาติ" },
+    { id: "VS16", date: "2026-05-31", age: "10 wks", birds: 49760, bottles: "25", dose: "1 หยด", doseSize: "2000 โด๊ส", name: "BIOVAC ND V6/10-H120", against: "นิวคาสเซิล+หลอดลมอักเสบ", kind: "เชื้อเป็น", method: "หยอดตาซ้าย", lot: "601724", expiry: "06-2027", by: "วีระพล", checker: "เขมชาติ" },
+    { id: "VS17", date: "2026-05-31", age: "10 wks", birds: 49760, bottles: "50", dose: "1 หยด", doseSize: "1000 โด๊ส", name: "AE.VAC", against: "สมองและไขสันหลังอักเสบ", kind: "เชื้อเป็น", method: "หยอดปาก", lot: "", expiry: "", by: "วีระพล", checker: "เขมชาติ" },
+    { id: "VS18", date: "2026-06-20", age: "13 wks", birds: 49735, bottles: "50", dose: "0.5 cc", doseSize: "1000 โด๊ส", name: "OLVAC A+B+HG(EDS)", against: "โรคไข่ลด ไข่นิ่ม", kind: "เชื้อตาย", method: "ฉีดกล้ามเนื้ออกขวา", lot: "511908", expiry: "12-2027", by: "วีระพล", checker: "เขมชาติ" },
+    { id: "VS19", date: "2026-06-20", age: "13 wks", birds: 49735, bottles: "100", dose: "0.5 ml", doseSize: "500 โด๊ส", name: "QVAC RFH5+H9 เข็ม 3", against: "ไข้หวัดนก", kind: "เชื้อตาย", method: "ฉีดกล้ามเนื้ออกซ้าย", lot: "20260113", expiry: "12-10-2028", by: "วีระพล", checker: "เขมชาติ" },
+  ],
+};
+
 // คลังผลผลิตรายวัน (ย้อนดูได้) — key = วันที่ ISO ; 3/7 ใช้ HOUSES เดิม (เติม date)
 const PRODUCTION_SEED = {
   "2026-07-03": HOUSES.map((h) => ({ ...h, date: "2026-07-03" })),
@@ -3609,6 +3647,91 @@ function FlockModal({ houseId, flock, suggestStart, onSave, onClose }) {
           <div style={{ flex: 1 }}><label style={lbl}>อายุรับเข้า (สัปดาห์)</label><input style={inp} {...chain(4)} inputMode="numeric" value={startAgeWk} onChange={(e) => setStartAgeWk(e.target.value.replace(/[^0-9]/g, ""))} placeholder="เช่น 17" /></div>
         </div>
         <button style={S.primaryBtn} ref={saveRef} onClick={() => onSave(houseId, { gen: gen.trim(), flock: flockNo.trim(), startCount: startCount ? parseInt(startCount) : null, startDate: startDate || null, startAgeWk: startAgeWk ? parseInt(startAgeWk) : null })}>บันทึกรุ่นการเลี้ยง</button>
+      </div>
+    </div>
+  );
+}
+
+/* 💉 สมุดวัคซีนประจำหลัง — ตารางตามฟอร์มกระดาษ (บันทึกการทำวัคซีนไก่เล็ก-ไก่รุ่น) + เพิ่มรายการที่ทำต่อที่ฟาร์มเรา */
+function VaccineModal({ houseId, rows = [], info, onAdd, onDelete, onClose }) {
+  const empty = { date: isoFromTs(Date.now()), age: "", birds: "", name: "", against: "", kind: "เชื้อเป็น", method: "", bottles: "", dose: "", doseSize: "", lot: "", expiry: "", by: "" };
+  const [f, setF] = useState(empty);
+  const up = (k) => (e) => setF((p) => ({ ...p, [k]: e.target.value }));
+  const refs = React.useRef([]); const saveRef = React.useRef(null);
+  const onKey = (i) => (e) => { if (e.key !== "Enter") return; e.preventDefault(); const n = refs.current[i + 1]; if (n) n.focus(); else if (saveRef.current) saveRef.current.focus(); };
+  const chain = (i) => ({ ref: (el) => { refs.current[i] = el; }, onKeyDown: onKey(i) });
+  const sorted = rows.slice().sort((a, b) => (a.date || "").localeCompare(b.date || "") || String(a.id).localeCompare(String(b.id)));
+  const inp = { width: "100%", padding: "7px 8px", border: "1.5px solid #e3ddd0", borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: "#fff" };
+  const lbl = { display: "block", fontSize: 11, fontWeight: 700, color: "#7a6f5c", marginBottom: 2 };
+  const th = { padding: "7px 8px", fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", textAlign: "left", whiteSpace: "nowrap" };
+  const td = { padding: "6px 8px", fontSize: 12, borderBottom: "1px solid #f3eee2", verticalAlign: "top" };
+  const valid = f.date && f.name.trim();
+  const submit = () => {
+    if (!valid) return;
+    onAdd(houseId, { ...f, name: f.name.trim(), birds: f.birds ? parseInt(f.birds) : "", checker: "" });
+    setF({ ...empty, date: f.date, age: f.age, birds: f.birds, by: f.by });   // วันเดียวทำหลายตัว — คงวันที่/อายุ/จำนวน/ผู้ทำไว้
+  };
+  return (
+    <div style={S.modalOverlay} onClick={onClose}>
+      <div style={{ ...S.modal, maxWidth: 920, maxHeight: "92vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <div style={S.modalHead}>
+          <div>
+            <div style={S.modalTitle}>💉 สมุดวัคซีน · โรงเรือน {houseId}</div>
+            <div style={S.modalSub}>{info || "บันทึกการทำวัคซีนของรุ่นนี้ — เพิ่มรายการที่ทำต่อที่ฟาร์มได้ด้านล่าง"}</div>
+          </div>
+          <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
+        </div>
+        {sorted.length === 0 ? (
+          <div style={{ padding: "26px 16px", textAlign: "center", color: "#9b8e78", fontWeight: 600, marginBottom: 12 }}>ยังไม่มีบันทึกวัคซีนของหลังนี้ — เพิ่มรายการแรกด้านล่าง</div>
+        ) : (
+          <div style={{ overflowX: "auto", marginBottom: 14 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 840 }}>
+              <thead><tr>
+                <th style={th}>วันที่</th><th style={th}>อายุ</th><th style={{ ...th, textAlign: "right" }}>จำนวนไก่</th><th style={th}>วัคซีน</th><th style={th}>ป้องกันโรค</th><th style={th}>ชนิด</th><th style={th}>วิธีใช้</th><th style={th}>ขวด · โด๊ส</th><th style={th}>Lot · หมดอายุ</th><th style={th}>ผู้ทำ</th><th style={th}></th>
+              </tr></thead>
+              <tbody>
+                {sorted.map((r, i) => {
+                  const newDate = i === 0 || sorted[i - 1].date !== r.date;
+                  return (
+                    <tr key={r.id} style={newDate && i > 0 ? { borderTop: "2px solid #e6ddca" } : {}}>
+                      <td style={{ ...td, whiteSpace: "nowrap", fontWeight: 700 }}>{newDate ? toThaiDate(r.date, false) : ""}</td>
+                      <td style={{ ...td, whiteSpace: "nowrap" }}>{newDate ? (r.age || "") : ""}</td>
+                      <td style={{ ...td, textAlign: "right" }}>{newDate && r.birds ? fmt(r.birds) : ""}</td>
+                      <td style={{ ...td, fontWeight: 700 }}>{r.name}</td>
+                      <td style={td}>{r.against}</td>
+                      <td style={{ ...td, whiteSpace: "nowrap", color: r.kind === "เชื้อเป็น" ? "#15803D" : r.kind === "เชื้อตาย" ? "#B45309" : "#6b6358", fontWeight: 600 }}>{r.kind}</td>
+                      <td style={td}>{r.method}</td>
+                      <td style={{ ...td, whiteSpace: "nowrap" }}>{[r.bottles, r.dose].filter(Boolean).join(" × ") || "-"}{r.doseSize ? <div style={{ color: "#9b9384", fontSize: 11 }}>{r.doseSize}</div> : null}</td>
+                      <td style={{ ...td, whiteSpace: "nowrap" }}>{r.lot || "-"}{r.expiry ? <div style={{ color: "#9b9384", fontSize: 11 }}>หมดอายุ {r.expiry}</div> : null}</td>
+                      <td style={{ ...td, whiteSpace: "nowrap" }}>{r.by}</td>
+                      <td style={td}><button title="ลบรายการ (กรอกผิด)" onClick={() => { if (window.confirm(`ลบรายการวัคซีน "${r.name}" วันที่ ${toThaiDate(r.date, false)}?`)) onDelete(houseId, r.id); }}
+                        style={{ border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 7, padding: "1px 7px", cursor: "pointer", fontWeight: 800, fontSize: 11 }}>✕</button></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div style={{ background: "#FBF8F2", border: "1px solid #efe7d8", borderRadius: 12, padding: "12px 14px" }}>
+          <div style={{ fontWeight: 800, color: ACCENT_DK, fontSize: 13, marginBottom: 8 }}>＋ บันทึกวัคซีนใหม่ <span style={{ color: "#9b8e78", fontWeight: 600 }}>· กด Enter ไปช่องถัดไป · บันทึกแล้วคงวันที่/อายุไว้ให้ทำตัวถัดไปวันเดียวกัน</span></div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 10 }}>
+            <div><label style={lbl}>วันที่</label><ThaiDateField value={f.date} onChange={(v) => setF((p) => ({ ...p, date: v }))} style={{ ...inp }} long={false} inputRef={(el) => { refs.current[0] = el; }} onKeyDown={onKey(0)} /></div>
+            <div><label style={lbl}>อายุไก่ (เช่น 18 wks)</label><input style={inp} {...chain(1)} value={f.age} onChange={up("age")} /></div>
+            <div><label style={lbl}>จำนวนไก่ (ตัว)</label><input style={inp} {...chain(2)} inputMode="numeric" value={f.birds} onChange={(e) => setF((p) => ({ ...p, birds: e.target.value.replace(/[^0-9]/g, "") }))} /></div>
+            <div><label style={lbl}>ชื่อวัคซีน / การค้า</label><input style={inp} {...chain(3)} value={f.name} onChange={up("name")} placeholder="เช่น OLVAC เข็ม4" /></div>
+            <div><label style={lbl}>ป้องกันโรค</label><input style={inp} {...chain(4)} value={f.against} onChange={up("against")} /></div>
+            <div><label style={lbl}>ชนิดวัคซีน</label><select style={inp} {...chain(5)} value={f.kind} onChange={up("kind")}><option>เชื้อเป็น</option><option>เชื้อตาย</option><option>แบบผง</option></select></div>
+            <div><label style={lbl}>วิธีการใช้</label><input style={inp} {...chain(6)} value={f.method} onChange={up("method")} placeholder="เช่น หยอดตาซ้าย" /></div>
+            <div><label style={lbl}>วัคซีนที่ใช้ (ขวด)</label><input style={inp} {...chain(7)} value={f.bottles} onChange={up("bottles")} /></div>
+            <div><label style={lbl}>โด๊สที่ใช้</label><input style={inp} {...chain(8)} value={f.dose} onChange={up("dose")} placeholder="เช่น 0.5 ml" /></div>
+            <div><label style={lbl}>ขนาดโด๊ส</label><input style={inp} {...chain(9)} value={f.doseSize} onChange={up("doseSize")} placeholder="เช่น 1000 โด๊ส" /></div>
+            <div><label style={lbl}>Lot No.</label><input style={inp} {...chain(10)} value={f.lot} onChange={up("lot")} /></div>
+            <div><label style={lbl}>วันหมดอายุ</label><input style={inp} {...chain(11)} value={f.expiry} onChange={up("expiry")} placeholder="เช่น 09-2027" /></div>
+            <div><label style={lbl}>สัตวบาลผู้ทำ</label><input style={inp} {...chain(12)} value={f.by} onChange={up("by")} /></div>
+          </div>
+          <button ref={saveRef} disabled={!valid} onClick={submit} style={{ ...S.primaryBtn, width: "auto", padding: "9px 20px", opacity: valid ? 1 : 0.5 }}>บันทึกวัคซีน</button>
+        </div>
       </div>
     </div>
   );
@@ -4785,7 +4908,7 @@ function CostView({ expenses = [], addExpense, deleteExpense, production = {}, m
   );
 }
 
-function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, production = {}, medTrials = [], medStock = [], medInfo = {} }) {
+function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, production = {}, medTrials = [], medStock = [], medInfo = {}, vaccines = {}, addVaccine, deleteVaccine }) {
   const prodDates = Object.keys(production).sort();
   const houseIds = [...new Set([...(production[prodDates[prodDates.length - 1]] || []).map((h) => h.id), ...HOUSE_IDS])];   // รวมหลังใหม่ที่ยังไม่มีผลผลิต (เช่น H7)
   const rearDates = Object.keys(rearingByDate).sort();
@@ -4794,6 +4917,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
   const [day, setDay] = useState(() => rearDates[rearDates.length - 1] || prodDates[prodDates.length - 1] || isoFromTs(Date.now()));
   const [editHouse, setEditHouse] = useState(null);   // {hid, date} ที่กำลังกรอก
   const [flockHouse, setFlockHouse] = useState(null); // houseId ที่กำลังตั้งค่ารุ่น
+  const [vacHouse, setVacHouse] = useState(null);     // houseId ที่กำลังเปิดสมุดวัคซีน
   const [afterFlock, setAfterFlock] = useState(null); // วันแรกของรุ่น: เซฟหน้ารุ่นเสร็จ → เปิดหน้ากรอกรายวันต่อทันที ({hid,date})
   // เกณฑ์เตือนอาหารใกล้หมด (กก./ไซโล) — จัดการในแท็บ "อาหารไก่" ; ที่นี่ใช้ไฮไลต์ในตาราง + ส่งให้ฟอร์มกรอก
   const [feedMin] = useState(() => { const v = parseFloat(localStorage.getItem("eggFeedAlertMin")); return isNaN(v) ? 4000 : v; });
@@ -4934,6 +5058,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
             {statCard("ตายสะสม", fmt(cumAll.dead) + (fl?.startCount ? ` (${((cumAll.dead / fl.startCount) * 100).toFixed(2)}%)` : ""), cumAll.dead > 0 ? "#B91C1C" : undefined)}
             {statCard("ไก่คงเหลือ", remainNow != null ? fmt(remainNow) + " ตัว" : "ตั้งรุ่นก่อน", "#15803D")}
             <button onClick={() => setFlockHouse(selHouse)} style={{ alignSelf: "center", border: "1px solid #d8cdb6", background: "#fff", color: "#7a6f5c", borderRadius: 10, padding: "10px 14px", cursor: "pointer", fontSize: 13, fontWeight: 800, fontFamily: "inherit" }}>✎ ตั้งค่ารุ่น</button>
+            <button onClick={() => setVacHouse(selHouse)} style={{ alignSelf: "center", border: "1px solid #d8cdb6", background: "#fff", color: "#7a6f5c", borderRadius: 10, padding: "10px 14px", cursor: "pointer", fontSize: 13, fontWeight: 800, fontFamily: "inherit" }}>💉 วัคซีน{(vaccines[selHouse] || []).length > 0 ? ` · ${(vaccines[selHouse] || []).length}` : ""}</button>
           </div>
           {/* ปุ่มกรอกวันถัดไป */}
           <div style={{ marginBottom: 12 }}>
@@ -5073,6 +5198,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                   {x.hid}
                   <button onClick={() => setEditHouse({ hid: x.hid, date: day })} title="กรอก/แก้ไขการเลี้ยงวันนี้" style={{ marginLeft: 6, border: "1px solid #E8943A55", background: "#FFF7EC", color: ACCENT_DK, borderRadius: 7, padding: "2px 7px", cursor: "pointer" }}><Pencil size={12} /></button>
                   <button onClick={() => setFlockHouse(x.hid)} title="ตั้งค่ารุ่นการเลี้ยง" style={{ marginLeft: 4, border: "1px solid #d8cdb6", background: "#fff", color: "#7a6f5c", borderRadius: 7, padding: "2px 7px", cursor: "pointer", fontSize: 11.5, fontWeight: 700 }}>รุ่น</button>
+                  <button onClick={() => setVacHouse(x.hid)} title="สมุดวัคซีนของหลังนี้" style={{ marginLeft: 3, border: "1px solid #d8cdb6", background: "#fff", color: "#7a6f5c", borderRadius: 7, padding: "2px 7px", cursor: "pointer", fontSize: 11.5, fontWeight: 700 }}>💉</button>
                 </td>
                 <td style={td}>{x.fl?.gen ? `${x.fl.gen}${x.fl.flock ? "/" + x.fl.flock : ""}` : <span style={{ color: "#c9c0ad" }}>—</span>}</td>
                 <td style={td}>{x.ageWk != null ? x.ageWk : <span style={{ color: "#c9c0ad" }}>—</span>}</td>
@@ -5148,6 +5274,10 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
             }
           }}
           onClose={() => { setFlockHouse(null); setAfterFlock(null); }} />
+      )}
+      {vacHouse && (
+        <VaccineModal houseId={vacHouse} rows={vaccines[vacHouse] || []} info={VACCINE_INFO[vacHouse]}
+          onAdd={addVaccine} onDelete={deleteVaccine} onClose={() => setVacHouse(null)} />
       )}
     </div>
   );
