@@ -6531,6 +6531,7 @@ function PlanBoard({ bookings, production, planEstimates, setPlanEstimate }) {
           <button onClick={() => setDate(shiftDayISO(date, -1))} style={S.ghostBtn}><ChevronLeft size={16} /></button>
           <ThaiDateField value={date} onChange={setDate} style={{ minWidth: 180 }} />
           <button onClick={() => setDate(shiftDayISO(date, 1))} style={S.ghostBtn}><ChevronRight size={16} /></button>
+          <button onClick={() => window.print()} style={{ ...S.primaryBtn, width: "auto", padding: "8px 16px", display: "inline-flex", alignItems: "center", gap: 6 }}><Printer size={15} /> ปริ้นใบจัดของ</button>
         </div>
       </div>
       <div style={{ fontSize: 12.5, color: "#9b8e78", margin: "2px 2px 12px" }}>
@@ -6553,13 +6554,20 @@ function PlanBoard({ bookings, production, planEstimates, setPlanEstimate }) {
         <SummaryCard icon={<ClipboardCheck size={18} />} label="จองแล้วรวม" value={totDemand} tone="amber" sub={`${dayBookings.length} ใบจอง`} />
         <SummaryCard icon={<Package size={18} />} label={totLeft >= 0 ? "เหลือขายได้อีก" : "จองเกินของที่มี"} value={Math.abs(totLeft)} tone={totLeft >= 0 ? "blue" : "red"} sub={totLeft >= 0 ? "แผง" : "แผง — ต้องเพิ่มไข่/ลดจอง"} />
       </div>
+      <div id="plan-print">
+        {/* หัวใบจัดของ — วันที่เด่น สำหรับปริ้นให้พนักงานจัดของ */}
+        <div style={{ textAlign: "center", padding: "2px 0 10px" }}>
+          <div style={{ fontSize: 16.5, fontWeight: 800, color: INK }}>🥚 {COMPANY.name} — ใบจัดของประจำวัน</div>
+          <div style={{ fontSize: 15.5, fontWeight: 800, color: ACCENT_DK, marginTop: 2 }}>📅 วันที่ {toThaiDate(date)}</div>
+          <div className="no-print" style={{ fontSize: 11.5, color: "#9b8e78", marginTop: 2 }}>จองรวม {fmt(totDemand)} แผง · {custCols.length} ราย{base ? ` · ประมาณการจากผลผลิต ${toThaiDate(base, false)}` : ""}</div>
+        </div>
       {custCols.length === 0 && shownIds.length === 0 ? (
         <div style={S.emptyState}><Calendar size={34} color="#d1d5db" /><div>ยังไม่มีใครจองวันนี้ — ไปที่ “🛒 รับจอง” เพื่อเพิ่ม (ตารางจะแยกให้เห็นรายลูกค้าเอง)</div></div>
       ) : (
         <>
           {/* ตารางวางแผนแยกรายลูกค้า: แถว = ชนิดไข่ · คอลัมน์ = ลูกค้าแต่ละราย + ประมาณการ/จองรวม/เหลือ */}
-          <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflowX: "auto" }}>
-            <table style={{ borderCollapse: "collapse", minWidth: 460 + custCols.length * 92 }}>
+          <div className="plan-scroll" style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflowX: "auto" }}>
+            <table className="plan-table" style={{ borderCollapse: "collapse", minWidth: 460 + custCols.length * 92 }}>
               <thead><tr>
                 <th style={{ ...th, textAlign: "left", position: "sticky", left: 0, background: "#F6F1E7", zIndex: 1 }}>ชนิดไข่</th>
                 <th style={{ ...th, color: "#15803D" }}>ประมาณการ</th>
@@ -6607,6 +6615,7 @@ function PlanBoard({ bookings, production, planEstimates, setPlanEstimate }) {
           )}
         </>
       )}
+      </div>
     </div>
   );
 }
@@ -6953,6 +6962,24 @@ const CSS = `
     .mainNav button { flex: 0 0 auto; padding: 8px 11px !important; }
   }
   @media (min-width: 901px) { .salesStickyBar { display: none !important; } }
+  /* ตารางวางแผน/ใบจัดของ: เส้นแบ่งชนิดไข่หนา + เส้นแนวตั้งแยกทุกคอลัมน์ (กันอ่านผิดบรรทัด) */
+  .plan-table th, .plan-table td { border-right: 1.5px solid #d8cdb6; }
+  .plan-table th:last-child, .plan-table td:last-child { border-right: none; }
+  .plan-table tbody td { border-bottom: 2px solid #cdbf9f !important; }
+  .print-only { display: none; }
+  /* ปริ้นใบจัดของ: โชว์เฉพาะกล่อง #plan-print · บีบตารางให้พอดี 1 หน้า (แนวนอน) ไม่ว่าลูกค้าเยอะแค่ไหน */
+  @media print {
+    @page { size: A4 landscape; margin: 7mm; }
+    body * { visibility: hidden !important; }
+    #plan-print, #plan-print * { visibility: visible !important; }
+    #plan-print { position: absolute; left: 0; top: 0; width: 100%; }
+    #plan-print .no-print { display: none !important; }
+    #plan-print .print-only { display: block !important; }
+    #plan-print .plan-table { width: 100% !important; min-width: 0 !important; table-layout: fixed; font-size: 9.5px !important; }
+    #plan-print .plan-table th, #plan-print .plan-table td { padding: 2px 2px !important; white-space: normal !important; word-break: break-word; }
+    #plan-print .plan-table input { border: none !important; background: transparent !important; padding: 0 !important; width: 100% !important; font-size: 9.5px !important; text-align: right; }
+    #plan-print .plan-scroll { overflow: visible !important; border: none !important; }
+  }
 `;
 
 
