@@ -3108,13 +3108,13 @@ function toThaiDate(v, long = true) {
 }
 
 // ช่องเลือกวันที่ที่ "แสดงเป็นไทยเสมอ" — โชว์ข้อความไทย ทับปฏิทิน native (opacity 0) ไว้ให้กดเลือก ; onChange คืนค่า ISO เหมือน input[type=date]
-function ThaiDateField({ value, onChange, style, long = true, inputRef, onKeyDown }) {
+function ThaiDateField({ value, onChange, style, long = true, inputRef, onKeyDown, min }) {
   const [focused, setFocused] = useState(false);   // ช่อง input จริงซ่อนอยู่ — โชว์กรอบเมื่อโฟกัสด้วยคีย์บอร์ด (Enter-chain)
   const box = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "9px 10px", border: "1.5px solid #e3ddd0", borderRadius: 9, background: "#fff", fontSize: 14.5, fontFamily: "inherit", color: value ? INK : "#9b9384", width: "100%", ...(style || {}), ...(focused ? { borderColor: ACCENT_DK, boxShadow: `0 0 0 2px ${ACCENT}44` } : {}) };
   return (
     <div style={{ position: "relative", width: (style && style.width) || "100%" }}>
       <div style={box}><span>{value ? toThaiDate(value, long) : "เลือกวันที่"}</span><Calendar size={15} color={ACCENT_DK} /></div>
-      <input type="date" value={value || ""} lang="th" ref={inputRef} onKeyDown={onKeyDown}
+      <input type="date" value={value || ""} lang="th" ref={inputRef} onKeyDown={onKeyDown} min={min}
         onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
         onChange={(e) => onChange(e.target.value)}
         onClick={(e) => { try { e.target.showPicker(); } catch (err) {} }}
@@ -6375,13 +6375,22 @@ function BookingPlanView({ bookings = [], addBooking, updateBooking, deleteBooki
 
 /* 🛒 หน้ารับจอง — ลูกค้า (หรือเรา) เลือกลูกค้า + วันส่ง แล้วใส่จำนวนไข่แต่ละชนิด */
 function BookingEntry({ bookings, addBooking, updateBooking, deleteBooking, production = {}, planEstimates = {} }) {
-  const tmr = shiftDayISO(isoFromTs(Date.now()), 1);
+  // cutoff: จองรอบส่งได้ถึง 08:00 ของวันส่ง · เลย 08:00 → วันส่งเร็วสุดเลื่อนเป็นวันถัดไป
+  const now = new Date();
+  const todayISO = isoFromTs(now.getTime());
+  const minDate = now.getHours() < 8 ? todayISO : shiftDayISO(todayISO, 1);
   const [customerId, setCustomerId] = useState("");
-  const [date, setDate] = useState(tmr);
+  const [date, setDate] = useState(minDate);
   const [items, setItems] = useState({});
   const [note, setNote] = useState("");
   const [editId, setEditId] = useState(null);
   const custName = (id) => CUSTOMERS.find((c) => c.id === id)?.name || "—";
+  const setDateClamped = (v) => setDate(v && v < minDate ? minDate : v);   // เลือกก่อน cutoff ไม่ได้ → เด้งเป็นวันส่งเร็วสุด
+  // Enter เลื่อนช่องถัดไป: ลูกค้า(0) → วันที่(1) → ช่องจำนวนตามลำดับ(2..) → หมายเหตุ → ปุ่มบันทึก
+  const refs = React.useRef([]); const saveRef = React.useRef(null);
+  const onKey = (i) => (e) => { if (e.key !== "Enter") return; e.preventDefault(); const n = refs.current[i + 1]; if (n) n.focus(); else if (saveRef.current) saveRef.current.focus(); };
+  const qIdx = {}; BOOKING_IDS.forEach((id, i) => { qIdx[id] = 2 + i; });
+  const NOTE_IDX = 2 + BOOKING_IDS.length;
   // ประมาณการไข่วันนั้น (ต่อชนิด) + ยอดจองเดิมของลูกค้าอื่น → เตือนถ้าจองรวมเกินสต๊อกที่คาด
   const { est: autoEst } = useMemo(() => autoEstimate(production, date), [production, date]);
   const estOf = (pid) => { const o = (planEstimates[date] || {})[pid]; return o != null && o !== "" ? (parseInt(o) || 0) : (autoEst[pid] || 0); };
@@ -6414,15 +6423,16 @@ function BookingEntry({ bookings, addBooking, updateBooking, deleteBooking, prod
     <div style={S.trayWrap}>
       <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, padding: "14px 16px", marginBottom: 16 }}>
         <div style={{ fontWeight: 800, color: ACCENT_DK, marginBottom: 10 }}>{editId ? "✎ แก้ไขใบจอง" : "＋ รับจองไข่ใหม่"}</div>
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 8 }}>
           <div style={{ flex: "1 1 200px" }}><label style={lbl}>ลูกค้า</label>
-            <select style={{ ...inp, textAlign: "left" }} value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
+            <select ref={(el) => { refs.current[0] = el; }} onKeyDown={onKey(0)} style={{ ...inp, textAlign: "left" }} value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
               <option value="">— เลือกลูกค้า —</option>
               {CUSTOMERS.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
-          <div style={{ flex: "1 1 170px" }}><label style={lbl}>วันที่ส่ง / รับไข่</label><ThaiDateField value={date} onChange={setDate} style={{ ...inp, textAlign: "left" }} /></div>
+          <div style={{ flex: "1 1 170px" }}><label style={lbl}>วันที่ส่ง / รับไข่</label><ThaiDateField value={date} onChange={setDateClamped} min={minDate} inputRef={(el) => { refs.current[1] = el; }} onKeyDown={onKey(1)} style={{ ...inp, textAlign: "left" }} /></div>
         </div>
+        <div style={{ fontSize: 11.5, color: "#6b6358", margin: "0 2px 10px", background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 8, padding: "6px 10px" }}>⏰ รับจองรอบส่งได้ถึง <b>08:00 น. ของวันส่ง</b> · เลย 08:00 ระบบเลื่อนวันส่งเป็นวันถัดไปให้อัตโนมัติ {editId ? "" : <span style={{ color: "#9b8e78" }}>· วันส่งเร็วสุดตอนนี้ = <b style={{ color: ACCENT_DK }}>{toThaiDate(minDate, false)}</b></span>}</div>
         <div style={{ fontSize: 12, color: "#B45309", fontWeight: 700, margin: "0 2px 8px", background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 8, padding: "6px 10px" }}>📦 จองเป็นหน่วยละ 10 แผง เท่านั้น (10, 20, 30 …) — เลขที่ไม่ลงตัว 10 จะขึ้นแดงและบันทึกไม่ได้</div>
         {BOOKING_GROUPS.map((g) => (
           <div key={g.group} style={{ marginBottom: 10 }}>
@@ -6432,14 +6442,14 @@ function BookingEntry({ bookings, addBooking, updateBooking, deleteBooking, prod
                 const on = !!items[p.id], bad = on && (parseInt(items[p.id]) || 0) % STEP !== 0;
                 return (
                   <div key={p.id}><label style={lbl}>{p.name}</label>
-                    <input style={{ ...inp, ...(on ? { borderColor: bad ? "#B91C1C" : ACCENT, background: bad ? "#FEF2F2" : "#FFFBF3", color: bad ? "#B91C1C" : INK, fontWeight: bad ? 800 : 400 } : {}) }} inputMode="numeric" placeholder="0" value={items[p.id] || ""} onChange={(e) => setQty(p.id, e.target.value)} />
+                    <input ref={(el) => { refs.current[qIdx[p.id]] = el; }} onKeyDown={onKey(qIdx[p.id])} onFocus={(e) => { try { e.target.select(); } catch (err) {} }} style={{ ...inp, ...(on ? { borderColor: bad ? "#B91C1C" : ACCENT, background: bad ? "#FEF2F2" : "#FFFBF3", color: bad ? "#B91C1C" : INK, fontWeight: bad ? 800 : 400 } : {}) }} inputMode="numeric" placeholder="0" value={items[p.id] || ""} onChange={(e) => setQty(p.id, e.target.value)} />
                   </div>
                 );
               })}
             </div>
           </div>
         ))}
-        <div style={{ marginBottom: 12 }}><label style={lbl}>หมายเหตุ</label><input style={{ ...inp, textAlign: "left" }} value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น รับ 09.00 · ส่งสาขา" /></div>
+        <div style={{ marginBottom: 12 }}><label style={lbl}>หมายเหตุ</label><input ref={(el) => { refs.current[NOTE_IDX] = el; }} onKeyDown={onKey(NOTE_IDX)} style={{ ...inp, textAlign: "left" }} value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น รับ 09.00 · ส่งสาขา" /></div>
         {overBooked.length > 0 && (
           <div style={{ background: "#FEF2F2", border: "1.5px solid #FCA5A5", borderRadius: 10, padding: "10px 13px", marginBottom: 12 }}>
             <div style={{ fontWeight: 800, color: "#B91C1C", fontSize: 13, marginBottom: 5 }}>⚠️ จองรวมของวัน {toThaiDate(date, false)} เกินไข่ที่คาดว่าจะได้:</div>
@@ -6456,7 +6466,7 @@ function BookingEntry({ bookings, addBooking, updateBooking, deleteBooking, prod
           {badTypes > 0 && <span style={{ fontSize: 12.5, fontWeight: 800, color: "#B91C1C" }}>⛔ มี {badTypes} ช่องไม่เป็นหลักสิบ — แก้ให้ลงตัว 10 ก่อนถึงบันทึกได้</span>}
           <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
             {editId && <button onClick={reset} style={{ ...S.ghostBtn, padding: "9px 16px" }}>ยกเลิกแก้ไข</button>}
-            <button disabled={!canSave} onClick={save} style={{ ...S.primaryBtn, width: "auto", padding: "9px 22px", opacity: canSave ? 1 : 0.5, cursor: canSave ? "pointer" : "not-allowed" }}>{editId ? "บันทึกการแก้ไข" : "บันทึกใบจอง"}</button>
+            <button ref={saveRef} disabled={!canSave} onClick={save} style={{ ...S.primaryBtn, width: "auto", padding: "9px 22px", opacity: canSave ? 1 : 0.5, cursor: canSave ? "pointer" : "not-allowed" }}>{editId ? "บันทึกการแก้ไข" : "บันทึกใบจอง"}</button>
           </div>
         </div>
       </div>
