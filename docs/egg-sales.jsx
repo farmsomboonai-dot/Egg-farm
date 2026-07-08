@@ -6339,8 +6339,11 @@ const BOOKING_GROUPS = [
   { group: "พิเศษ", items: PRODUCTS["พิเศษ"] || [] },
 ];
 const BOOKING_IDS = BOOKING_GROUPS.flatMap((g) => g.items.map((p) => p.id));
+// ไข่คละ (ตามน้ำหนัก) — โชว์ในช่องจอง/ตารางเฉพาะเมื่อมีในประมาณการสต๊อกของวันนั้น
+const CLA_GROUP = { group: "ไข่คละ (ตามน้ำหนัก)", items: PRODUCTS["คละ"] || [] };
+const CLA_IDS = (PRODUCTS["คละ"] || []).map((p) => p.id);
 // ป้ายชนิดไข่แบบสั้น — โชว์จางๆ ข้างหน้าตัวเลขจอง กันหลงบรรทัดตอนปริ้นจัดของ
-const BOOKING_SHORT = { n0: "0#", n1: "1#", n2: "2#", n3: "3#", n4: "4#", n5: "5#", s_white: "ขาว", g_nuan: "นวล", g_sand: "ทราย", g_pueanmak: "ป.มาก", g_pueannoi: "ป.น้อย", g_bub: "บุบ", g_jiw: "จิ๋ว", g_tok: "ตอก", g_toklew: "ตล", g_tokdaeng: "ตด", s_jumbo: "จบ" };
+const BOOKING_SHORT = { n0: "0#", n1: "1#", n2: "2#", n3: "3#", n4: "4#", n5: "5#", s_white: "ขาว", g_nuan: "นวล", g_sand: "ทราย", g_pueanmak: "ป.มาก", g_pueannoi: "ป.น้อย", g_bub: "บุบ", g_jiw: "จิ๋ว", g_tok: "ตอก", g_toklew: "ตล", g_tokdaeng: "ตด", s_jumbo: "จบ", w18: "18+", w19: "19+", w20: "20+", w21: "21+", w22: "22+", w23: "23+" };
 // ประมาณการไข่ (แผง) ต่อชนิด สำหรับวันที่ระบุ = ใช้ "วันผลิตล่าสุด (≤ วันนั้น)" เป็นตัวตั้ง
 // เบอร์เก็บเป็นฟอง → ÷30 เป็นแผง ; ตกเกรดเก็บเป็นแผงอยู่แล้ว
 function autoEstimate(production, dateISO) {
@@ -6388,11 +6391,15 @@ function BookingEntry({ bookings, addBooking, updateBooking, deleteBooking, prod
   const [editId, setEditId] = useState(null);
   const custName = (id) => CUSTOMERS.find((c) => c.id === id)?.name || "—";
   const setDateClamped = (v) => setDate(v && v < minDate ? minDate : v);   // เลือกก่อน cutoff ไม่ได้ → เด้งเป็นวันส่งเร็วสุด
-  // Enter เลื่อนช่องถัดไป: ลูกค้า(0) → วันที่(1) → ช่องจำนวนตามลำดับ(2..) → หมายเหตุ → ปุ่มบันทึก
+  // ไข่คละ: โชว์ช่องจองเฉพาะเมื่อมีในประมาณการสต๊อกของวันนั้น (ตั้งในหน้าวางแผน) หรือกำลังแก้ใบที่จองคละไว้
+  const showClaGroup = CLA_IDS.some((id) => (parseInt((planEstimates[date] || {})[id]) || 0) > 0) || CLA_IDS.some((id) => items[id]);
+  const visibleGroups = showClaGroup ? [...BOOKING_GROUPS, CLA_GROUP] : BOOKING_GROUPS;
+  const visiblePids = visibleGroups.flatMap((g) => g.items.map((p) => p.id));
+  // Enter เลื่อนช่องถัดไป: ลูกค้า(0) → วันที่(1) → ช่องจำนวนตามลำดับที่โชว์(2..) → หมายเหตุ → ปุ่มบันทึก
   const refs = React.useRef([]); const saveRef = React.useRef(null);
   const onKey = (i) => (e) => { if (e.key !== "Enter") return; e.preventDefault(); const n = refs.current[i + 1]; if (n) n.focus(); else if (saveRef.current) saveRef.current.focus(); };
-  const qIdx = {}; BOOKING_IDS.forEach((id, i) => { qIdx[id] = 2 + i; });
-  const NOTE_IDX = 2 + BOOKING_IDS.length;
+  const qIdx = {}; visiblePids.forEach((id, i) => { qIdx[id] = 2 + i; });
+  const NOTE_IDX = 2 + visiblePids.length;
   // ประมาณการไข่วันนั้น (ต่อชนิด) + ยอดจองเดิมของลูกค้าอื่น → เตือนถ้าจองรวมเกินสต๊อกที่คาด
   const { est: autoEst } = useMemo(() => autoEstimate(production, date), [production, date]);
   const estOf = (pid) => { const o = (planEstimates[date] || {})[pid]; return o != null && o !== "" ? (parseInt(o) || 0) : (autoEst[pid] || 0); };
@@ -6403,7 +6410,7 @@ function BookingEntry({ bookings, addBooking, updateBooking, deleteBooking, prod
   const badTypes = Object.entries(items).filter(([, v]) => (parseInt(v) || 0) % STEP !== 0).length;   // ช่องที่ไม่ลงตัว 10 → บันทึกไม่ได้
   const canSave = customerId && total > 0 && badTypes === 0;
   // ชนิด/เบอร์ที่ใบจองนี้ (รวมกับที่คนอื่นจองวันเดียวกัน) ทำให้เกินไข่ที่คาดว่าจะได้
-  const overBooked = BOOKING_IDS.map((pid) => {
+  const overBooked = [...BOOKING_IDS, ...CLA_IDS].map((pid) => {
     const q = parseInt(items[pid]) || 0; if (!q) return null;
     const est = estOf(pid), all = otherDemand(pid) + q;
     return all > est ? { pid, name: PRODUCT_BY_ID[pid]?.name || pid, over: all - est, all, est } : null;
@@ -6436,7 +6443,7 @@ function BookingEntry({ bookings, addBooking, updateBooking, deleteBooking, prod
         </div>
         <div style={{ fontSize: 11.5, color: "#6b6358", margin: "0 2px 10px", background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 8, padding: "6px 10px" }}>⏰ รับจองรอบส่งได้ถึง <b>08:00 น. ของวันส่ง</b> · เลย 08:00 ระบบเลื่อนวันส่งเป็นวันถัดไปให้อัตโนมัติ {editId ? "" : <span style={{ color: "#9b8e78" }}>· วันส่งเร็วสุดตอนนี้ = <b style={{ color: ACCENT_DK }}>{toThaiDate(minDate, false)}</b></span>}</div>
         <div style={{ fontSize: 12, color: "#B45309", fontWeight: 700, margin: "0 2px 8px", background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 8, padding: "6px 10px" }}>📦 จองเป็นหน่วยละ 10 แผง เท่านั้น (10, 20, 30 …) — เลขที่ไม่ลงตัว 10 จะขึ้นแดงและบันทึกไม่ได้</div>
-        {BOOKING_GROUPS.map((g) => (
+        {visibleGroups.map((g) => (
           <div key={g.group} style={{ marginBottom: 10 }}>
             <div style={{ fontSize: 12, fontWeight: 800, color: "#9b8e78", marginBottom: 5 }}>{g.group}</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 8 }}>
@@ -6528,8 +6535,11 @@ function PlanBoard({ bookings, production, planEstimates, setPlanEstimate }) {
     return Object.values(map).sort((a, b) => custCode(a.customerId).localeCompare(custCode(b.customerId), undefined, { numeric: true }) || custRank(a.customerId) - custRank(b.customerId));
   }, [dayBookings]);
   const demandOf = (pid) => custCols.reduce((s, c) => s + (c.items[pid] || 0), 0);
-  // เฉพาะชนิดที่มี ประมาณการ หรือ ยอดจอง (ไม่โชว์แถวว่างเปล่า)
-  const shownIds = BOOKING_IDS.filter((pid) => estOf(pid) > 0 || demandOf(pid) > 0);
+  // ไข่คละ: โชว์แถวเมื่อกดปุ่มเพิ่ม หรือมีประมาณการ/ยอดจองแล้ว (เปิดให้ตั้งประมาณการ แล้วจะไปโผล่ในช่องรับจองเอง)
+  const [showCla, setShowCla] = useState(false);
+  const claRows = CLA_IDS.filter((pid) => showCla || estOf(pid) > 0 || demandOf(pid) > 0);
+  // เฉพาะชนิดที่มี ประมาณการ หรือ ยอดจอง (ไม่โชว์แถวว่างเปล่า) + ไข่คละตามเงื่อนไข
+  const shownIds = [...BOOKING_IDS.filter((pid) => estOf(pid) > 0 || demandOf(pid) > 0), ...claRows];
   const totEst = shownIds.reduce((s, pid) => s + estOf(pid), 0);
   const totDemand = shownIds.reduce((s, pid) => s + demandOf(pid), 0);
   const totLeft = totEst - totDemand;
@@ -6549,8 +6559,14 @@ function PlanBoard({ bookings, production, planEstimates, setPlanEstimate }) {
           <button onClick={() => window.print()} style={{ ...S.primaryBtn, width: "auto", padding: "8px 16px", display: "inline-flex", alignItems: "center", gap: 6 }}><Printer size={15} /> ปริ้นใบจัดของ</button>
         </div>
       </div>
-      <div style={{ fontSize: 12.5, color: "#9b8e78", margin: "2px 2px 12px" }}>
+      <div style={{ fontSize: 12.5, color: "#9b8e78", margin: "2px 2px 8px" }}>
         {base ? <>ประมาณการไข่จากผลผลิตวันล่าสุด <b>{toThaiDate(base, false)}</b> (แก้ตัวเลขได้ตามที่คาด) · เทียบกับยอดจองของวันที่วางแผน</> : "ยังไม่มีข้อมูลผลผลิตให้ประมาณการ — ใส่ตัวเลขคาดการณ์เองได้"}
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <button onClick={() => setShowCla((v) => !v)} style={{ ...S.ghostBtn, padding: "6px 13px", fontSize: 12.5, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 5 }}>
+          {showCla ? "− ซ่อนช่องไข่คละที่ยังไม่มียอด" : "＋ เพิ่มไข่คละในประมาณการ"}
+        </button>
+        <span style={{ fontSize: 11.5, color: "#9b8e78", marginLeft: 8 }}>ถ้ามีไข่คละในสต๊อก ใส่ประมาณการที่แถวไข่คละ แล้วช่องรับจองจะโชว์ไข่คละให้เอง</span>
       </div>
       {overTypes.length > 0 && (
         <div style={{ background: "#FEF2F2", border: "1.5px solid #FCA5A5", borderRadius: 12, padding: "11px 14px", marginBottom: 12 }}>
