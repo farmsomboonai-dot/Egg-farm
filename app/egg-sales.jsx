@@ -855,6 +855,16 @@ export default function App() {
   useEffect(() => { try { localStorage.setItem("eggLabTests", JSON.stringify(labTests)); } catch {} }, [labTests]);
   const addLabTest = (hid, row) => setLabTests((p) => ({ ...p, [hid]: [...(p[hid] || []), { ...row, id: "LT" + Date.now() }] }));
   const deleteLabTest = (hid, id) => setLabTests((p) => ({ ...p, [hid]: (p[hid] || []).filter((r) => r.id !== id) }));
+  // ใบจองไข่ล่วงหน้า (ลูกค้าจอง / เราวางแผน) [{id, customerId, date(ISO วันส่ง), items:{pid:qty}, note, ts}]
+  const [bookings, setBookings] = useState(() => { try { return JSON.parse(localStorage.getItem("eggBookings") || "[]"); } catch { return []; } });
+  useEffect(() => { try { localStorage.setItem("eggBookings", JSON.stringify(bookings)); } catch {} }, [bookings]);
+  const addBooking = (b) => setBookings((prev) => [{ ...b, id: "BK" + Date.now(), ts: Date.now() }, ...prev]);
+  const updateBooking = (id, patch) => setBookings((prev) => prev.map((b) => b.id === id ? { ...b, ...patch } : b));
+  const deleteBooking = (id) => setBookings((prev) => prev.filter((b) => b.id !== id));
+  // ยอดประมาณการไข่ต่อวัน (แก้ทับค่าที่ระบบเดาได้) {dateISO: {pid: qtyแผง}}
+  const [planEstimates, setPlanEstimates] = useState(() => { try { return JSON.parse(localStorage.getItem("eggPlanEstimates") || "{}"); } catch { return {}; } });
+  useEffect(() => { try { localStorage.setItem("eggPlanEstimates", JSON.stringify(planEstimates)); } catch {} }, [planEstimates]);
+  const setPlanEstimate = (dateISO, pid, qty) => setPlanEstimates((p) => ({ ...p, [dateISO]: { ...(p[dateISO] || {}), [pid]: qty } }));
   // รับยาเข้าสต๊อก [{id, date, medId, qty, by}]
   const [medReceipts, setMedReceipts] = useState(() => { try { return JSON.parse(localStorage.getItem("eggMedReceipts") || "[]"); } catch { return []; } });
   useEffect(() => { try { localStorage.setItem("eggMedReceipts", JSON.stringify(medReceipts)); } catch {} }, [medReceipts]);
@@ -1032,6 +1042,7 @@ export default function App() {
             { id: "account", icon: <Wallet size={16} />, label: "บัญชีลูกหนี้" },
             { id: "dash", icon: <LayoutDashboard size={16} />, label: "แดชบอร์ด" },
             { id: "stockprod", icon: <Warehouse size={16} />, label: "คลัง·ผลผลิต" },
+            { id: "book", icon: <Calendar size={16} />, label: "จอง·วางแผน" },
             { id: "tray", icon: <RotateCcw size={16} />, label: "บัญชีแผงไข่" },
             { id: "rear", icon: <ClipboardCheck size={16} />, label: "เก็บสถิติการเลี้ยง" },
             { id: "feed", icon: <Wheat size={16} />, label: "อาหารไก่" },
@@ -1061,6 +1072,7 @@ export default function App() {
       {view === "med" && <MedView medTrials={medTrials} addMedTrial={addMedTrial} deleteMedTrial={deleteMedTrial} rearingByDate={rearingByDate} production={productionByDate} medStock={medStock} medInfo={medInfo} medReceipts={medReceipts} addMedItem={addMedItem} updateMedItem={updateMedItem} addMedReceipt={addMedReceipt} medCostByMonth={medCostByMonth} />}
       {view === "cost" && <CostView expenses={expenses} addExpense={addExpense} deleteExpense={deleteExpense} production={productionByDate} medCostByMonth={medCostByMonth} feedCostByMonth={feedCostByMonth} feedPrice={feedPrice} bills={bills} />}
       {view === "tray" && <PanelTrayView trayStock={trayStock} setTrayStock={setTrayStock} bills={bills} trayRecords={trayRecords} setTrayRecords={setTrayRecords} trayEvents={trayEvents} addTrayEvent={addTrayEvent} deleteTrayEvent={deleteTrayEvent} />}
+      {view === "book" && <BookingPlanView bookings={bookings} addBooking={addBooking} updateBooking={updateBooking} deleteBooking={deleteBooking} production={productionByDate} planEstimates={planEstimates} setPlanEstimate={setPlanEstimate} />}
     </div>
   );
 }
@@ -6312,6 +6324,227 @@ function NewReturnModal({ onClose, onAdd, bills = [], trays = [], trayEvents = [
         </div>
         <button style={{ ...S.primaryBtn, marginTop: 4, ...(valid ? {} : S.confirmBtnDisabled) }} disabled={!valid}
           onClick={() => onAdd(customerId, rN, recvDateTH)}>บันทึกรับคืน → รอคัด</button>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   จอง·วางแผน — ลูกค้าจองไข่ล่วงหน้า + วางแผนขายเทียบไข่ที่คาดว่าจะได้พรุ่งนี้
+============================================================ */
+// ชนิดไข่ที่ให้จอง (เบอร์ + ตกเกรด + พิเศษ ; ข้ามคละที่คิดตามน้ำหนัก)
+const BOOKING_GROUPS = [
+  { group: "เบอร์", items: PRODUCTS["เบอร์"] || [] },
+  { group: "ตกเกรด", items: PRODUCTS["ตกเกรด"] || [] },
+  { group: "พิเศษ", items: PRODUCTS["พิเศษ"] || [] },
+];
+const BOOKING_IDS = BOOKING_GROUPS.flatMap((g) => g.items.map((p) => p.id));
+// ประมาณการไข่ (แผง) ต่อชนิด สำหรับวันที่ระบุ = ใช้ "วันผลิตล่าสุด (≤ วันนั้น)" เป็นตัวตั้ง
+// เบอร์เก็บเป็นฟอง → ÷30 เป็นแผง ; ตกเกรดเก็บเป็นแผงอยู่แล้ว
+function autoEstimate(production, dateISO) {
+  const dates = Object.keys(production || {}).sort();
+  if (!dates.length) return { base: null, est: {} };
+  const base = dates.filter((d) => d <= dateISO).pop() || dates[dates.length - 1];
+  const est = {};
+  (production[base] || []).forEach((h) => {
+    BER_KEYS.forEach((k) => { est["n" + k] = (est["n" + k] || 0) + Math.round((h.grade?.เบอร์?.[k] || 0) / PER_PRADANG); });
+    OFF_KEYS.forEach((k) => { const pid = OFF_TO_PID[k]; if (pid) est[pid] = (est[pid] || 0) + (h.grade?.ตกเกรด?.[k] || 0); });
+  });
+  return { base, est };
+}
+const bookingTotal = (items) => Object.values(items || {}).reduce((s, v) => s + (parseInt(v) || 0), 0);
+
+function BookingPlanView({ bookings = [], addBooking, updateBooking, deleteBooking, production = {}, planEstimates = {}, setPlanEstimate }) {
+  const [mode, setMode] = useState("plan");   // plan | book
+  const chip = (on) => ({ border: `1.5px solid ${on ? ACCENT_DK : "#e3ddd0"}`, background: on ? ACCENT_DK : "#fff", color: on ? "#fff" : "#7a6f5c", borderRadius: 999, padding: "7px 15px", cursor: "pointer", fontWeight: 800, fontSize: 13, fontFamily: "inherit" });
+  return (
+    <div style={S.wide}>
+      <div style={S.subBar}>
+        <span style={S.subBarTitle}>จองไข่ล่วงหน้า · วางแผนการขาย</span>
+        <div style={{ display: "flex", gap: 7 }}>
+          <button style={chip(mode === "book")} onClick={() => setMode("book")}>🛒 รับจอง (ลูกค้า)</button>
+          <button style={chip(mode === "plan")} onClick={() => setMode("plan")}>📊 วางแผนพรุ่งนี้</button>
+        </div>
+      </div>
+      {mode === "book"
+        ? <BookingEntry bookings={bookings} addBooking={addBooking} updateBooking={updateBooking} deleteBooking={deleteBooking} />
+        : <PlanBoard bookings={bookings} production={production} planEstimates={planEstimates} setPlanEstimate={setPlanEstimate} />}
+    </div>
+  );
+}
+
+/* 🛒 หน้ารับจอง — ลูกค้า (หรือเรา) เลือกลูกค้า + วันส่ง แล้วใส่จำนวนไข่แต่ละชนิด */
+function BookingEntry({ bookings, addBooking, updateBooking, deleteBooking }) {
+  const tmr = shiftDayISO(isoFromTs(Date.now()), 1);
+  const [customerId, setCustomerId] = useState("");
+  const [date, setDate] = useState(tmr);
+  const [items, setItems] = useState({});
+  const [note, setNote] = useState("");
+  const [editId, setEditId] = useState(null);
+  const custName = (id) => CUSTOMERS.find((c) => c.id === id)?.name || "—";
+  const setQty = (pid, v) => setItems((p) => { const n = { ...p }; const q = v.replace(/[^0-9]/g, ""); if (q) n[pid] = q; else delete n[pid]; return n; });
+  const total = bookingTotal(items);
+  const reset = () => { setCustomerId(""); setItems({}); setNote(""); setEditId(null); };
+  const save = () => {
+    if (!customerId || total <= 0) return;
+    const clean = {}; Object.entries(items).forEach(([k, v]) => { if (parseInt(v) > 0) clean[k] = parseInt(v); });
+    if (editId) updateBooking(editId, { customerId, date, items: clean, note: note.trim() });
+    else addBooking({ customerId, date, items: clean, note: note.trim() });
+    reset();
+  };
+  const edit = (b) => { setEditId(b.id); setCustomerId(b.customerId); setDate(b.date); setItems(Object.fromEntries(Object.entries(b.items || {}).map(([k, v]) => [k, String(v)]))); setNote(b.note || ""); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  const dayBookings = bookings.filter((b) => b.date === date).sort((a, b) => custName(a.customerId).localeCompare(custName(b.customerId), "th"));
+  const inp = { width: "100%", padding: "8px 9px", border: "1.5px solid #e3ddd0", borderRadius: 8, fontSize: 14, fontFamily: "inherit", outline: "none", boxSizing: "border-box", textAlign: "right", background: "#fff" };
+  const lbl = { display: "block", fontSize: 11.5, fontWeight: 700, color: "#7a6f5c", marginBottom: 3 };
+  return (
+    <div style={S.trayWrap}>
+      <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, padding: "14px 16px", marginBottom: 16 }}>
+        <div style={{ fontWeight: 800, color: ACCENT_DK, marginBottom: 10 }}>{editId ? "✎ แก้ไขใบจอง" : "＋ รับจองไข่ใหม่"}</div>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+          <div style={{ flex: "1 1 200px" }}><label style={lbl}>ลูกค้า</label>
+            <select style={{ ...inp, textAlign: "left" }} value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
+              <option value="">— เลือกลูกค้า —</option>
+              {CUSTOMERS.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <div style={{ flex: "1 1 170px" }}><label style={lbl}>วันที่ส่ง / รับไข่</label><ThaiDateField value={date} onChange={setDate} style={{ ...inp, textAlign: "left" }} /></div>
+        </div>
+        {BOOKING_GROUPS.map((g) => (
+          <div key={g.group} style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: "#9b8e78", marginBottom: 5 }}>{g.group}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 8 }}>
+              {g.items.map((p) => (
+                <div key={p.id}><label style={lbl}>{p.name}</label>
+                  <input style={{ ...inp, ...(items[p.id] ? { borderColor: ACCENT, background: "#FFFBF3" } : {}) }} inputMode="numeric" placeholder="0" value={items[p.id] || ""} onChange={(e) => setQty(p.id, e.target.value)} /></div>
+              ))}
+            </div>
+          </div>
+        ))}
+        <div style={{ marginBottom: 12 }}><label style={lbl}>หมายเหตุ</label><input style={{ ...inp, textAlign: "left" }} value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น รับ 09.00 · ส่งสาขา" /></div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 15, fontWeight: 800, color: INK }}>รวมจอง <span style={{ color: ACCENT_DK, fontSize: 20 }}>{fmt(total)}</span> แผง</div>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+            {editId && <button onClick={reset} style={{ ...S.ghostBtn, padding: "9px 16px" }}>ยกเลิกแก้ไข</button>}
+            <button disabled={!customerId || total <= 0} onClick={save} style={{ ...S.primaryBtn, width: "auto", padding: "9px 22px", opacity: (customerId && total > 0) ? 1 : 0.5 }}>{editId ? "บันทึกการแก้ไข" : "บันทึกใบจอง"}</button>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
+        <span style={{ fontWeight: 800, color: INK, fontSize: 15 }}>ใบจองวันที่ {toThaiDate(date, false)}</span>
+        <span style={{ fontSize: 13, color: "#9b8e78" }}>{dayBookings.length} ราย · รวม {fmt(dayBookings.reduce((s, b) => s + bookingTotal(b.items), 0))} แผง</span>
+      </div>
+      {dayBookings.length === 0 ? (
+        <div style={S.emptyState}><Calendar size={34} color="#d1d5db" /><div>ยังไม่มีใบจองของวันนี้ — กรอกด้านบนแล้วบันทึก</div></div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {dayBookings.map((b) => (
+            <div key={b.id} style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 12, padding: "11px 14px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                <User size={15} color={ACCENT_DK} /><span style={{ fontWeight: 800, color: INK }}>{custName(b.customerId)}</span>
+                <span style={{ fontWeight: 800, color: ACCENT_DK }}>· {fmt(bookingTotal(b.items))} แผง</span>
+                {b.note ? <span style={{ fontSize: 12, color: "#9b8e78" }}>· {b.note}</span> : null}
+                <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+                  <button onClick={() => edit(b)} style={{ border: "1px solid #d8cdb6", background: "#fff", color: "#7a6f5c", borderRadius: 7, padding: "2px 9px", cursor: "pointer", fontWeight: 700, fontSize: 12 }}>✎ แก้</button>
+                  <button onClick={() => { if (window.confirm(`ลบใบจองของ ${custName(b.customerId)}?`)) deleteBooking(b.id); }} style={{ border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 7, padding: "2px 8px", cursor: "pointer", fontWeight: 800, fontSize: 12 }}>✕</button>
+                </span>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {Object.entries(b.items || {}).map(([pid, q]) => (
+                  <span key={pid} style={{ fontSize: 12.5, background: "#F6F1E7", borderRadius: 8, padding: "3px 9px", color: "#5b5347", fontWeight: 600 }}>{PRODUCT_BY_ID[pid]?.name || pid} <b style={{ color: INK }}>{fmt(q)}</b></span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* 📊 กระดานวางแผน — ประมาณการไข่พรุ่งนี้ (แก้ได้) vs ยอดจองรวม → เหลือขายได้อีกเท่าไร ต่อชนิด */
+function PlanBoard({ bookings, production, planEstimates, setPlanEstimate }) {
+  const tmr = shiftDayISO(isoFromTs(Date.now()), 1);
+  const [date, setDate] = useState(tmr);
+  const custName = (id) => CUSTOMERS.find((c) => c.id === id)?.name || "—";
+  const { base, est: auto } = useMemo(() => autoEstimate(production, date), [production, date]);
+  const override = planEstimates[date] || {};
+  const estOf = (pid) => { const o = override[pid]; return o != null && o !== "" ? (parseInt(o) || 0) : (auto[pid] || 0); };
+  const dayBookings = bookings.filter((b) => b.date === date);
+  const demandOf = (pid) => dayBookings.reduce((s, b) => s + (parseInt(b.items?.[pid]) || 0), 0);
+  // เฉพาะชนิดที่มี ประมาณการ หรือ ยอดจอง (ไม่โชว์แถวว่างเปล่า)
+  const shownIds = BOOKING_IDS.filter((pid) => estOf(pid) > 0 || demandOf(pid) > 0);
+  const totEst = shownIds.reduce((s, pid) => s + estOf(pid), 0);
+  const totDemand = shownIds.reduce((s, pid) => s + demandOf(pid), 0);
+  const totLeft = totEst - totDemand;
+  const th = { padding: "9px 10px", fontSize: 12.5, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", textAlign: "right", whiteSpace: "nowrap" };
+  const td = { padding: "7px 10px", fontSize: 13.5, borderBottom: "1px solid #f3eee2", textAlign: "right" };
+  const estInp = { width: 78, padding: "5px 7px", border: "1.5px solid #e3ddd0", borderRadius: 7, fontSize: 13.5, fontFamily: "inherit", textAlign: "right", outline: "none", background: "#fff" };
+  return (
+    <div style={S.trayWrap}>
+      <div style={S.subBar}>
+        <span style={{ fontSize: 13, color: "#7a6f5c", fontWeight: 700 }}>วางแผนขายวันที่</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button onClick={() => setDate(shiftDayISO(date, -1))} style={S.ghostBtn}><ChevronLeft size={16} /></button>
+          <ThaiDateField value={date} onChange={setDate} style={{ minWidth: 180 }} />
+          <button onClick={() => setDate(shiftDayISO(date, 1))} style={S.ghostBtn}><ChevronRight size={16} /></button>
+        </div>
+      </div>
+      <div style={{ fontSize: 12.5, color: "#9b8e78", margin: "2px 2px 12px" }}>
+        {base ? <>ประมาณการไข่จากผลผลิตวันล่าสุด <b>{toThaiDate(base, false)}</b> (แก้ตัวเลขได้ตามที่คาด) · เทียบกับยอดจองของวันที่วางแผน</> : "ยังไม่มีข้อมูลผลผลิตให้ประมาณการ — ใส่ตัวเลขคาดการณ์เองได้"}
+      </div>
+      <div style={S.summaryGrid}>
+        <SummaryCard icon={<Egg size={18} />} label="ประมาณการไข่รวม" value={totEst} tone="green" sub="แผงที่คาดว่าจะได้" />
+        <SummaryCard icon={<ClipboardCheck size={18} />} label="จองแล้วรวม" value={totDemand} tone="amber" sub={`${dayBookings.length} ใบจอง`} />
+        <SummaryCard icon={<Package size={18} />} label={totLeft >= 0 ? "เหลือขายได้อีก" : "จองเกินของที่มี"} value={Math.abs(totLeft)} tone={totLeft >= 0 ? "blue" : "red"} sub={totLeft >= 0 ? "แผง" : "แผง — ต้องเพิ่มไข่/ลดจอง"} />
+      </div>
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
+        <div style={{ flex: "1 1 420px", background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflow: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 380 }}>
+            <thead><tr>
+              <th style={{ ...th, textAlign: "left" }}>ชนิดไข่</th>
+              <th style={{ ...th, color: "#15803D" }}>ประมาณการ</th>
+              <th style={{ ...th, color: "#B45309" }}>จองแล้ว</th>
+              <th style={th}>เหลือขายได้</th>
+            </tr></thead>
+            <tbody>
+              {shownIds.length === 0 && <tr><td colSpan={4} style={{ ...td, textAlign: "center", color: "#9b8e78", padding: "22px" }}>ยังไม่มีประมาณการหรือยอดจองของวันนี้</td></tr>}
+              {shownIds.map((pid) => {
+                const e = estOf(pid), d = demandOf(pid), left = e - d;
+                return (
+                  <tr key={pid}>
+                    <td style={{ ...td, textAlign: "left", fontWeight: 600 }}>{PRODUCT_BY_ID[pid]?.name || pid}</td>
+                    <td style={td}><input style={estInp} inputMode="numeric" value={override[pid] != null && override[pid] !== "" ? override[pid] : (auto[pid] || 0)} onChange={(ev) => setPlanEstimate(date, pid, ev.target.value.replace(/[^0-9]/g, ""))} /></td>
+                    <td style={{ ...td, color: d > 0 ? "#B45309" : "#c9bfad", fontWeight: 700 }}>{d > 0 ? fmt(d) : "-"}</td>
+                    <td style={{ ...td, fontWeight: 800, color: left < 0 ? "#B91C1C" : left === 0 ? "#15803D" : "#1D4ED8" }}>{left < 0 ? `ขาด ${fmt(-left)}` : fmt(left)}</td>
+                  </tr>
+                );
+              })}
+              <tr>
+                <td style={{ ...td, ...S.tfoot, textAlign: "left" }}>รวม</td>
+                <td style={{ ...td, ...S.tfoot, color: "#15803D" }}>{fmt(totEst)}</td>
+                <td style={{ ...td, ...S.tfoot, color: "#B45309" }}>{fmt(totDemand)}</td>
+                <td style={{ ...td, ...S.tfoot, color: totLeft < 0 ? "#B91C1C" : "#1D4ED8" }}>{totLeft < 0 ? `ขาด ${fmt(-totLeft)}` : fmt(totLeft)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div style={{ flex: "1 1 300px" }}>
+          <div style={{ fontWeight: 800, color: INK, marginBottom: 8 }}>ลูกค้าที่จองไว้ ({dayBookings.length})</div>
+          {dayBookings.length === 0 ? (
+            <div style={{ fontSize: 13, color: "#9b8e78", background: "#fff", border: "1px dashed #d8cdb6", borderRadius: 12, padding: "18px", textAlign: "center" }}>ยังไม่มีใครจองวันนี้ — ไปที่ “🛒 รับจอง” เพื่อเพิ่ม</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+              {dayBookings.slice().sort((a, b) => bookingTotal(b.items) - bookingTotal(a.items)).map((b) => (
+                <div key={b.id} style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 10, padding: "9px 12px", display: "flex", alignItems: "center", gap: 8 }}>
+                  <User size={14} color={ACCENT_DK} /><span style={{ fontWeight: 700, color: INK }}>{custName(b.customerId)}</span>
+                  {b.note ? <span style={{ fontSize: 11.5, color: "#9b8e78" }}>· {b.note}</span> : null}
+                  <span style={{ marginLeft: "auto", fontWeight: 800, color: ACCENT_DK }}>{fmt(bookingTotal(b.items))} แผง</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
