@@ -850,6 +850,11 @@ export default function App() {
   useEffect(() => { try { localStorage.setItem("eggVaccines", JSON.stringify(vaccines)); } catch {} }, [vaccines]);
   const addVaccine = (hid, row) => setVaccines((p) => ({ ...p, [hid]: [...(p[hid] || []), { ...row, id: "VC" + Date.now(), src: "ฟาร์มเรา" }] }));   // รายการที่ฟาร์มเราทำเอง (seed = ฟาร์มต้นทาง)
   const deleteVaccine = (hid, id) => setVaccines((p) => ({ ...p, [hid]: (p[hid] || []).filter((r) => r.id !== id) }));
+  // สมุดผลตรวจแล็บประจำหลัง {houseId: [rows]} — เจาะเลือด (serology) / เก็บซาก (necropsy) ส่งตรวจ
+  const [labTests, setLabTests] = useState(() => { try { return JSON.parse(localStorage.getItem("eggLabTests") || "{}"); } catch { return {}; } });
+  useEffect(() => { try { localStorage.setItem("eggLabTests", JSON.stringify(labTests)); } catch {} }, [labTests]);
+  const addLabTest = (hid, row) => setLabTests((p) => ({ ...p, [hid]: [...(p[hid] || []), { ...row, id: "LT" + Date.now() }] }));
+  const deleteLabTest = (hid, id) => setLabTests((p) => ({ ...p, [hid]: (p[hid] || []).filter((r) => r.id !== id) }));
   // รับยาเข้าสต๊อก [{id, date, medId, qty, by}]
   const [medReceipts, setMedReceipts] = useState(() => { try { return JSON.parse(localStorage.getItem("eggMedReceipts") || "[]"); } catch { return []; } });
   useEffect(() => { try { localStorage.setItem("eggMedReceipts", JSON.stringify(medReceipts)); } catch {} }, [medReceipts]);
@@ -1051,7 +1056,7 @@ export default function App() {
       {view === "stockprod" && <StockProdView
         stockProps={{ salesByDay, productionByDate, defaultDay: stockDay, stockCounts, closeMeta, refPrices, onCloseDay: closeDay, onReopenDay: reopenDay }}
         prodProps={{ houses, setHouses, prodDate, setProdDate, production: productionByDate }} />}
-      {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={saveRearing} flocks={flocks} saveFlock={saveFlock} production={productionByDate} medTrials={medTrials} medStock={medStock} medInfo={medInfo} vaccines={vaccines} addVaccine={addVaccine} deleteVaccine={deleteVaccine} />}
+      {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={saveRearing} flocks={flocks} saveFlock={saveFlock} production={productionByDate} medTrials={medTrials} medStock={medStock} medInfo={medInfo} vaccines={vaccines} addVaccine={addVaccine} deleteVaccine={deleteVaccine} labTests={labTests} addLabTest={addLabTest} deleteLabTest={deleteLabTest} />}
       {view === "feed" && <FeedView rearingByDate={rearingByDate} flocks={flocks} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} feedPrice={feedPrice} setFeedPrice={setFeedPrice} feedUseByMonth={feedUseByMonth} />}
       {view === "med" && <MedView medTrials={medTrials} addMedTrial={addMedTrial} deleteMedTrial={deleteMedTrial} rearingByDate={rearingByDate} production={productionByDate} medStock={medStock} medInfo={medInfo} medReceipts={medReceipts} addMedItem={addMedItem} updateMedItem={updateMedItem} addMedReceipt={addMedReceipt} medCostByMonth={medCostByMonth} />}
       {view === "cost" && <CostView expenses={expenses} addExpense={addExpense} deleteExpense={deleteExpense} production={productionByDate} medCostByMonth={medCostByMonth} feedCostByMonth={feedCostByMonth} feedPrice={feedPrice} bills={bills} />}
@@ -3738,6 +3743,81 @@ function VaccineModal({ houseId, rows = [], info, onAdd, onDelete, onClose }) {
   );
 }
 
+/* 🧪 สมุดผลตรวจแล็บประจำหลัง — เจาะเลือด (serology/titer) · เก็บซาก (ผ่าซาก necropsy) · อื่นๆ ส่งตรวจ */
+const LAB_TYPES = {
+  เลือด: { label: "🩸 เจาะเลือด (serology)", bg: "#FEE2E2", c: "#B91C1C" },
+  ซาก: { label: "🔬 เก็บซาก (ผ่าซาก)", bg: "#F3E8FF", c: "#7C3AED" },
+  อื่นๆ: { label: "🧫 อื่นๆ", bg: "#E0E7FF", c: "#4338CA" },
+};
+function LabTestModal({ houseId, rows = [], onAdd, onDelete, onClose }) {
+  const empty = { date: isoFromTs(Date.now()), type: "เลือด", age: "", samples: "", lab: "", result: "", recommend: "", by: "" };
+  const [f, setF] = useState(empty);
+  const up = (k) => (e) => setF((p) => ({ ...p, [k]: e.target.value }));
+  const sorted = rows.slice().sort((a, b) => (b.date || "").localeCompare(a.date || "") || String(b.id).localeCompare(String(a.id)));   // ใหม่→เก่า
+  const inp = { width: "100%", padding: "8px 9px", border: "1.5px solid #e3ddd0", borderRadius: 8, fontSize: 13.5, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: "#fff" };
+  const lbl = { display: "block", fontSize: 11, fontWeight: 700, color: "#7a6f5c", marginBottom: 2 };
+  const valid = f.date && f.result.trim();
+  const submit = () => { if (!valid) return; onAdd(houseId, { ...f, result: f.result.trim(), recommend: f.recommend.trim(), lab: f.lab.trim(), by: f.by.trim(), samples: f.samples ? parseInt(f.samples) : "" }); setF({ ...empty, date: f.date, type: f.type, age: f.age, lab: f.lab, by: f.by }); };
+  const nBlood = rows.filter((r) => r.type === "เลือด").length, nCarcass = rows.filter((r) => r.type === "ซาก").length;
+  return (
+    <div style={S.modalOverlay} onClick={onClose}>
+      <div style={{ ...S.modal, maxWidth: 640, maxHeight: "92vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <div style={S.modalHead}>
+          <div>
+            <div style={S.modalTitle}>🧪 สมุดผลตรวจ · โรงเรือน {houseId}</div>
+            <div style={S.modalSub}>ผลเจาะเลือด (serology) · ผลผ่าซาก (necropsy) · เก็บเป็นประวัติสุขภาพประจำหลัง{rows.length > 0 ? ` · 🩸 เลือด ${nBlood} · 🔬 ซาก ${nCarcass}` : ""}</div>
+          </div>
+          <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
+        </div>
+        {sorted.length === 0 ? (
+          <div style={{ padding: "24px 16px", textAlign: "center", color: "#9b8e78", fontWeight: 600, marginBottom: 12 }}>ยังไม่มีผลตรวจของหลังนี้ — บันทึกผลแรกด้านล่าง</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 9, marginBottom: 14 }}>
+            {sorted.map((r) => {
+              const t = LAB_TYPES[r.type] || LAB_TYPES["อื่นๆ"];
+              return (
+                <div key={r.id} style={{ border: "1px solid #eee3cd", borderLeft: `4px solid ${t.c}`, borderRadius: 10, padding: "10px 12px", background: "#fff" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 9px", borderRadius: 9, background: t.bg, color: t.c }}>{t.label}</span>
+                    <span style={{ fontWeight: 800, color: INK, fontSize: 13.5 }}>{toThaiDate(r.date, false)}</span>
+                    {r.age ? <span style={{ fontSize: 12, color: "#7a6f5c" }}>· อายุ {r.age}</span> : null}
+                    {r.samples ? <span style={{ fontSize: 12, color: "#7a6f5c" }}>· {fmt(r.samples)} ตัวอย่าง</span> : null}
+                    {r.lab ? <span style={{ fontSize: 12, color: "#7a6f5c" }}>· {r.lab}</span> : null}
+                    <button title="ลบผลตรวจนี้" onClick={() => { if (window.confirm(`ลบผลตรวจ ${toThaiDate(r.date, false)}?`)) onDelete(houseId, r.id); }}
+                      style={{ marginLeft: "auto", border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 7, padding: "1px 7px", cursor: "pointer", fontWeight: 800, fontSize: 11 }}>✕</button>
+                  </div>
+                  <div style={{ fontSize: 13, color: "#3a352c", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{r.result}</div>
+                  {r.recommend ? <div style={{ marginTop: 6, fontSize: 12.5, color: "#7A4F16", background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 8, padding: "6px 9px", whiteSpace: "pre-wrap" }}>💡 คำแนะนำ/ทำต่อ: {r.recommend}</div> : null}
+                  {r.by ? <div style={{ marginTop: 5, fontSize: 11.5, color: "#9b8e78" }}>ผู้บันทึก: {r.by}</div> : null}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <div style={{ background: "#FBF8F2", border: "1px solid #efe7d8", borderRadius: 12, padding: "12px 14px" }}>
+          <div style={{ fontWeight: 800, color: ACCENT_DK, fontSize: 13, marginBottom: 8 }}>＋ บันทึกผลตรวจใหม่</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+            <div><label style={lbl}>วันที่ส่งตรวจ / รับผล</label><ThaiDateField value={f.date} onChange={(v) => setF((p) => ({ ...p, date: v }))} style={{ ...inp }} long={false} /></div>
+            <div><label style={lbl}>ประเภทการตรวจ</label><select style={inp} value={f.type} onChange={up("type")}><option value="เลือด">🩸 เจาะเลือด (serology)</option><option value="ซาก">🔬 เก็บซาก (ผ่าซาก)</option><option value="อื่นๆ">🧫 อื่นๆ</option></select></div>
+            <div><label style={lbl}>อายุไก่ (เช่น 18 wks)</label><input style={inp} value={f.age} onChange={up("age")} /></div>
+            <div><label style={lbl}>จำนวนตัวอย่าง</label><input style={inp} inputMode="numeric" value={f.samples} onChange={(e) => setF((p) => ({ ...p, samples: e.target.value.replace(/[^0-9]/g, "") }))} /></div>
+            <div style={{ gridColumn: "1 / -1" }}><label style={lbl}>แล็บ / หน่วยตรวจ</label><input style={inp} value={f.lab} onChange={up("lab")} placeholder="เช่น แล็บบริษัท / ปศุสัตว์จังหวัด / มหาวิทยาลัย" /></div>
+          </div>
+          <div style={{ marginBottom: 8 }}><label style={lbl}>ผลตรวจ *</label>
+            <textarea style={{ ...inp, minHeight: 72, resize: "vertical", textAlign: "left" }} value={f.result} onChange={up("result")}
+              placeholder={f.type === "เลือด" ? "เช่น ND HI titer เฉลี่ย 6.5 (สม่ำเสมอ) · IB titer ต่ำ · AI H5 titer 5 …" : f.type === "ซาก" ? "เช่น ผ่าซาก 3 ตัว — พบหลอดลมอักเสบเล็กน้อย · ลำไส้ปกติ · ไม่พบรอยโรค ND …" : "บันทึกผลตรวจ"} /></div>
+          <div style={{ marginBottom: 8 }}><label style={lbl}>คำแนะนำ / สิ่งที่ต้องทำต่อ</label>
+            <textarea style={{ ...inp, minHeight: 46, resize: "vertical", textAlign: "left" }} value={f.recommend} onChange={up("recommend")} placeholder="เช่น กระตุ้น ND live ละลายน้ำ · เฝ้าระวังหลอดลม" /></div>
+          <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+            <div style={{ flex: 1 }}><label style={lbl}>ผู้บันทึก / สัตวบาล</label><input style={inp} value={f.by} onChange={up("by")} /></div>
+            <button disabled={!valid} onClick={submit} style={{ ...S.primaryBtn, width: "auto", padding: "9px 20px", opacity: valid ? 1 : 0.5 }}>บันทึกผลตรวจ</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* กรอกข้อมูลการเลี้ยงประจำวัน ต่อโรงเรือน (ครบทุกช่องตามฟอร์มกระดาษ)
    birds = ไก่คงเหลือต้นวัน (จากรุ่นการเลี้ยง หรือยอดไก่หน้าผลผลิต) — ใช้คิดกินเฉลี่ย/ตัวแบบสด */
 function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, feedMin = 4000, medStock = [], medInfo = {}, seqLabel = null, onSkip = null, onSave, onClose }) {
@@ -4909,7 +4989,7 @@ function CostView({ expenses = [], addExpense, deleteExpense, production = {}, m
   );
 }
 
-function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, production = {}, medTrials = [], medStock = [], medInfo = {}, vaccines = {}, addVaccine, deleteVaccine }) {
+function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, production = {}, medTrials = [], medStock = [], medInfo = {}, vaccines = {}, addVaccine, deleteVaccine, labTests = {}, addLabTest, deleteLabTest }) {
   const prodDates = Object.keys(production).sort();
   const houseIds = [...new Set([...(production[prodDates[prodDates.length - 1]] || []).map((h) => h.id), ...HOUSE_IDS])];   // รวมหลังใหม่ที่ยังไม่มีผลผลิต (เช่น H7)
   const rearDates = Object.keys(rearingByDate).sort();
@@ -4919,6 +4999,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
   const [editHouse, setEditHouse] = useState(null);   // {hid, date} ที่กำลังกรอก
   const [flockHouse, setFlockHouse] = useState(null); // houseId ที่กำลังตั้งค่ารุ่น
   const [vacHouse, setVacHouse] = useState(null);     // houseId ที่กำลังเปิดสมุดวัคซีน
+  const [labHouse, setLabHouse] = useState(null);     // houseId ที่กำลังเปิดสมุดผลตรวจแล็บ
   const [afterFlock, setAfterFlock] = useState(null); // วันแรกของรุ่น: เซฟหน้ารุ่นเสร็จ → เปิดหน้ากรอกรายวันต่อทันที ({hid,date})
   // เกณฑ์เตือนอาหารใกล้หมด (กก./ไซโล) — จัดการในแท็บ "อาหารไก่" ; ที่นี่ใช้ไฮไลต์ในตาราง + ส่งให้ฟอร์มกรอก
   const [feedMin] = useState(() => { const v = parseFloat(localStorage.getItem("eggFeedAlertMin")); return isNaN(v) ? 4000 : v; });
@@ -5060,6 +5141,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
             {statCard("ไก่คงเหลือ", remainNow != null ? fmt(remainNow) + " ตัว" : "ตั้งรุ่นก่อน", "#15803D")}
             <button onClick={() => setFlockHouse(selHouse)} style={{ alignSelf: "center", border: "1px solid #d8cdb6", background: "#fff", color: "#7a6f5c", borderRadius: 10, padding: "10px 14px", cursor: "pointer", fontSize: 13, fontWeight: 800, fontFamily: "inherit" }}>✎ ตั้งค่ารุ่น</button>
             <button onClick={() => setVacHouse(selHouse)} style={{ alignSelf: "center", border: "1px solid #d8cdb6", background: "#fff", color: "#7a6f5c", borderRadius: 10, padding: "10px 14px", cursor: "pointer", fontSize: 13, fontWeight: 800, fontFamily: "inherit" }}>💉 วัคซีน{(vaccines[selHouse] || []).length > 0 ? ` · ${(vaccines[selHouse] || []).length}` : ""}</button>
+            <button onClick={() => setLabHouse(selHouse)} style={{ alignSelf: "center", border: "1px solid #d8cdb6", background: "#fff", color: "#7a6f5c", borderRadius: 10, padding: "10px 14px", cursor: "pointer", fontSize: 13, fontWeight: 800, fontFamily: "inherit" }}>🧪 ผลตรวจ{(labTests[selHouse] || []).length > 0 ? ` · ${(labTests[selHouse] || []).length}` : ""}</button>
           </div>
           {/* ปุ่มกรอกวันถัดไป */}
           <div style={{ marginBottom: 12 }}>
@@ -5200,6 +5282,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                   <button onClick={() => setEditHouse({ hid: x.hid, date: day })} title="กรอก/แก้ไขการเลี้ยงวันนี้" style={{ marginLeft: 6, border: "1px solid #E8943A55", background: "#FFF7EC", color: ACCENT_DK, borderRadius: 7, padding: "2px 7px", cursor: "pointer" }}><Pencil size={12} /></button>
                   <button onClick={() => setFlockHouse(x.hid)} title="ตั้งค่ารุ่นการเลี้ยง" style={{ marginLeft: 4, border: "1px solid #d8cdb6", background: "#fff", color: "#7a6f5c", borderRadius: 7, padding: "2px 7px", cursor: "pointer", fontSize: 11.5, fontWeight: 700 }}>รุ่น</button>
                   <button onClick={() => setVacHouse(x.hid)} title="สมุดวัคซีนของหลังนี้" style={{ marginLeft: 3, border: "1px solid #d8cdb6", background: "#fff", color: "#7a6f5c", borderRadius: 7, padding: "2px 7px", cursor: "pointer", fontSize: 11.5, fontWeight: 700 }}>💉</button>
+                  <button onClick={() => setLabHouse(x.hid)} title="สมุดผลตรวจแล็บของหลังนี้" style={{ marginLeft: 3, border: "1px solid #d8cdb6", background: "#fff", color: "#7a6f5c", borderRadius: 7, padding: "2px 7px", cursor: "pointer", fontSize: 11.5, fontWeight: 700 }}>🧪</button>
                 </td>
                 <td style={td}>{x.fl?.gen ? `${x.fl.gen}${x.fl.flock ? "/" + x.fl.flock : ""}` : <span style={{ color: "#c9c0ad" }}>—</span>}</td>
                 <td style={td}>{x.ageWk != null ? x.ageWk : <span style={{ color: "#c9c0ad" }}>—</span>}</td>
@@ -5279,6 +5362,10 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
       {vacHouse && (
         <VaccineModal houseId={vacHouse} rows={vaccines[vacHouse] || []} info={VACCINE_INFO[vacHouse]}
           onAdd={addVaccine} onDelete={deleteVaccine} onClose={() => setVacHouse(null)} />
+      )}
+      {labHouse && (
+        <LabTestModal houseId={labHouse} rows={labTests[labHouse] || []}
+          onAdd={addLabTest} onDelete={deleteLabTest} onClose={() => setLabHouse(null)} />
       )}
     </div>
   );
