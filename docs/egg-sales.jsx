@@ -1113,7 +1113,8 @@ export default function App() {
             { id: "bills", icon: <FileText size={16} />, label: "ประวัติบิล" },
             { id: "account", icon: <Wallet size={16} />, label: "บัญชีลูกหนี้" },
             { id: "tray", icon: <RotateCcw size={16} />, label: "บัญชีแผงไข่" },
-            { id: "stockprod", icon: <Warehouse size={16} />, label: "คลัง·ผลผลิต" },
+            { id: "stock", icon: <Warehouse size={16} />, label: "สต๊อคไข่ประจำวัน" },
+            { id: "production", icon: <Egg size={16} />, label: "รายการผลผลิตไข่" },
             { id: "dash", icon: <LayoutDashboard size={16} />, label: "แดชบอร์ด" },
             { id: "book", icon: <Calendar size={16} />, label: "จอง·วางแผน" },
             { id: "rear", icon: <ClipboardCheck size={16} />, label: "เก็บข้อมูลการเลี้ยง" },
@@ -1136,9 +1137,8 @@ export default function App() {
       {view === "bills" && <BillHistoryView bills={bills} payments={payments} />}
       {view === "account" && <AccountView bills={bills} payments={payments} recordPayment={recordPayment} />}
       {view === "dash" && <DashboardView bills={bills} payments={payments} production={productionByDate} rearingByDate={rearingByDate} flocks={flocks} />}
-      {view === "stockprod" && <StockProdView
-        stockProps={{ salesByDay, productionByDate, defaultDay: stockDay, stockCounts, closeMeta, refPrices, onCloseDay: closeDay, onReopenDay: reopenDay }}
-        prodProps={{ houses, setHouses, prodDate, setProdDate, production: productionByDate, flocks }} />}
+      {view === "stock" && <StockView salesByDay={salesByDay} productionByDate={productionByDate} defaultDay={stockDay} stockCounts={stockCounts} closeMeta={closeMeta} refPrices={refPrices} onCloseDay={closeDay} onReopenDay={reopenDay} />}
+      {view === "production" && <ProductionView houses={houses} setHouses={setHouses} prodDate={prodDate} setProdDate={setProdDate} production={productionByDate} flocks={flocks} />}
       {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={saveRearing} flocks={flocks} saveFlock={saveFlock} production={productionByDate} medTrials={medTrials} medStock={medStock} medInfo={medInfo} vaccines={vaccines} addVaccine={addVaccine} deleteVaccine={deleteVaccine} labTests={labTests} addLabTest={addLabTest} deleteLabTest={deleteLabTest} />}
       {view === "feed" && <FeedView rearingByDate={rearingByDate} flocks={flocks} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} feedPrice={feedPrice} setFeedPrice={setFeedPrice} feedUseByMonth={feedUseByMonth} />}
       {view === "med" && <MedView medTrials={medTrials} addMedTrial={addMedTrial} deleteMedTrial={deleteMedTrial} rearingByDate={rearingByDate} production={productionByDate} medStock={medStock} medInfo={medInfo} medReceipts={medReceipts} addMedItem={addMedItem} updateMedItem={updateMedItem} addMedReceipt={addMedReceipt} medCostByMonth={medCostByMonth} />}
@@ -3120,7 +3120,7 @@ function CloseHistoryModal({ stockCounts = {}, closeMeta = {}, productionByDate 
         </div>
         <div style={{ maxHeight: "48vh", overflowY: "auto", border: "1px solid #F0EADD", borderRadius: 10 }}>
           {rows.length === 0 ? (
-            <div style={{ padding: 28, textAlign: "center", color: "#9b9384", fontSize: 13.5 }}>ยังไม่มีการปิดยอด — เลิกงานกด "🔒 ปิดยอดสิ้นวัน" ในหน้าคลังรายวัน</div>
+            <div style={{ padding: 28, textAlign: "center", color: "#9b9384", fontSize: 13.5 }}>ยังไม่มีการปิดยอด — เลิกงานกด "🔒 ปิดยอดสิ้นวัน" ในหน้าสต๊อคไข่ประจำวัน</div>
           ) : (
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead><tr>
@@ -3145,7 +3145,7 @@ function CloseHistoryModal({ stockCounts = {}, closeMeta = {}, productionByDate 
             </table>
           )}
         </div>
-        <div style={{ fontSize: 12, color: "#9b9384", marginTop: 10 }}>แตะแถวเพื่อไปดูรายละเอียดวันนั้นในคลังรายวัน</div>
+        <div style={{ fontSize: 12, color: "#9b9384", marginTop: 10 }}>แตะแถวเพื่อไปดูรายละเอียดวันนั้นในสต๊อคไข่ประจำวัน</div>
       </div>
     </div>
   );
@@ -4485,7 +4485,7 @@ function TrialResultModal({ trial, production, rearingByDate, onBack = null, onC
         </div>
         {base.s.days === 0 && target.s.days === 0 ? (
           <div style={{ background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 10, padding: "12px 14px", fontSize: 13, color: "#B91C1C", fontWeight: 700, marginBottom: 12 }}>
-            ยังไม่มีข้อมูลผลผลิตของ {trial.houseId} ในช่วงที่เลือก — กรอกผลผลิตรายวัน (แท็บคลัง·ผลผลิต) ให้ครอบคลุมช่วงที่จะเทียบก่อน แล้วผลจะคำนวณให้อัตโนมัติ
+            ยังไม่มีข้อมูลผลผลิตของ {trial.houseId} ในช่วงที่เลือก — กรอกผลผลิตรายวัน (แท็บรายการผลผลิตไข่) ให้ครอบคลุมช่วงที่จะเทียบก่อน แล้วผลจะคำนวณให้อัตโนมัติ
           </div>
         ) : (
           <>
@@ -4583,23 +4583,6 @@ function FeedDeliveryModal({ houseIds, defaultDate, deliveries, onAdd, onDelete,
           </div>
         ))}
       </div>
-    </div>
-  );
-}
-
-/* ============================================================
-   หน้าจอ: คลัง·ผลผลิต — ยุบ คลังรายวัน + ผลผลิต เป็นแท็บเดียว (สลับด้วยชิปย่อย)
-============================================================ */
-function StockProdView({ stockProps, prodProps }) {
-  const [sub, setSub] = useState("stock");
-  const chip = (a) => ({ padding: "8px 20px", borderRadius: 999, border: `1.5px solid ${a ? ACCENT_DK : "#e0d7c3"}`, background: a ? ACCENT_DK : "#fff", color: a ? "#fff" : "#7a6f5c", fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" });
-  return (
-    <div>
-      <div style={{ display: "flex", gap: 10, justifyContent: "center", padding: "16px 22px 0" }}>
-        <button style={chip(sub === "stock")} onClick={() => setSub("stock")}>🏬 คลังรายวัน</button>
-        <button style={chip(sub === "prod")} onClick={() => setSub("prod")}>🥚 ผลผลิต</button>
-      </div>
-      {sub === "stock" ? <StockView {...stockProps} /> : <ProductionView {...prodProps} />}
     </div>
   );
 }
