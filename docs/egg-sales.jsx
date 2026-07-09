@@ -3202,6 +3202,7 @@ function exportCloseDayExcel(day, dayTH, rows, meta, refPrices = {}) {
 // ข้อมูลจริง 1/7/69 (เบอร์ 0-5 กระจายตามสัดส่วน ให้ผลรวม = "รายการไข่ดี" ในรายงาน ; ตกเกรดหน่วยแผง)
 const OFF_KEYS = ["จัมโบ้", "บุบ", "ตอก", "จิ๋ว", "เปลือกขาว", "หัวทราย", "นวล", "เปื้อนมาก", "เปื้อนน้อย"];
 const BER_KEYS = [0, 1, 2, 3, 4, 5];
+const isBerPid = (pid) => /^n[0-5]$/.test(pid);   // ไข่ดีแยกเบอร์ (n0-n5) — ไม่ต้องเตือนจองเกิน (ปรับ/สับเบอร์ได้ยืดหยุ่น)
 // สีหมวดหมู่ในตารางผลผลิต: ตกเกรด(ส้ม) · ไข่ดี(เขียว) · สรุป(ฟ้า) — D = เข้มขึ้นสำหรับช่อง %
 const PROD_C = { off: "#F7C57C", offD: "#FBE1C2", good: "#93E1AC", sum: "#95BAF6", sumD: "#D2E1FB" };
 // ผลผลิตไข่รายหลัง — ข้อมูลจริงวันที่ 3/7/69 (ตกเกรด+ยอดไก่จากรายงานผลผลิต;
@@ -6726,6 +6727,7 @@ function BookingEntry({ bookings, addBooking, updateBooking, deleteBooking, prod
   const canSave = customerId && total > 0 && badTypes === 0;
   // ชนิด/เบอร์ที่ใบจองนี้ (รวมกับที่คนอื่นจองวันเดียวกัน) ทำให้เกินไข่ที่คาดว่าจะได้
   const overBooked = [...BOOKING_IDS, ...CLA_IDS].map((pid) => {
+    if (isBerPid(pid)) return null;   // ไข่ดีแยกเบอร์ — ไม่เตือนจองเกิน
     const q = parseInt(items[pid]) || 0; if (!q) return null;
     const est = estOf(pid), all = otherDemand(pid) + q;
     return all > est ? { pid, name: PRODUCT_BY_ID[pid]?.name || pid, over: all - est, all, est } : null;
@@ -6859,7 +6861,7 @@ function PlanBoard({ bookings, production, planEstimates, setPlanEstimate }) {
   const totDemand = shownIds.reduce((s, pid) => s + demandOf(pid), 0);
   const totLeft = totEst - totDemand;
   // ชนิด/เบอร์ที่จองรวมเกินไข่ที่คาดว่าจะได้ → ขึ้นเตือน
-  const overTypes = shownIds.map((pid) => { const short = demandOf(pid) - estOf(pid); return short > 0 ? { pid, short, name: PRODUCT_BY_ID[pid]?.name || pid } : null; }).filter(Boolean).sort((a, b) => b.short - a.short);
+  const overTypes = shownIds.map((pid) => { const short = demandOf(pid) - estOf(pid); return short > 0 && !isBerPid(pid) ? { pid, short, name: PRODUCT_BY_ID[pid]?.name || pid } : null; }).filter(Boolean).sort((a, b) => b.short - a.short);   // ไข่ดีแยกเบอร์ ไม่นับว่าเกิน
   const th = { padding: "9px 10px", fontSize: 12.5, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", textAlign: "right", whiteSpace: "nowrap" };
   const td = { padding: "7px 10px", fontSize: 13.5, borderBottom: "1px solid #f3eee2", textAlign: "right" };
   const estInp = { width: 78, padding: "5px 7px", border: "1.5px solid #e3ddd0", borderRadius: 7, fontSize: 13.5, fontFamily: "inherit", textAlign: "right", outline: "none", background: "#fff" };
@@ -6930,13 +6932,14 @@ function PlanBoard({ bookings, production, planEstimates, setPlanEstimate }) {
               <tbody>
                 {shownIds.map((pid) => {
                   const e = estOf(pid), d = demandOf(pid), left = e - d;
+                  const over = left < 0 && !isBerPid(pid);   // ไข่ดีแยกเบอร์ — ไม่เตือนแม้จองเกิน (ไม่แดง/ไม่ ⚠️)
                   return (
-                    <tr key={pid} style={left < 0 ? { background: "#FEF2F2" } : {}}>
-                      <td style={{ ...td, textAlign: "left", fontWeight: 600, position: "sticky", left: 0, background: left < 0 ? "#FEF2F2" : "#fff", zIndex: 1 }}>{left < 0 ? "⚠️ " : ""}{PRODUCT_BY_ID[pid]?.name || pid}</td>
+                    <tr key={pid} style={over ? { background: "#FEF2F2" } : {}}>
+                      <td style={{ ...td, textAlign: "left", fontWeight: 600, position: "sticky", left: 0, background: over ? "#FEF2F2" : "#fff", zIndex: 1 }}>{over ? "⚠️ " : ""}{PRODUCT_BY_ID[pid]?.name || pid}</td>
                       <td style={td}><input style={estInp} inputMode="numeric" value={override[pid] != null && override[pid] !== "" ? override[pid] : (auto[pid] || 0)} onChange={(ev) => setPlanEstimate(date, pid, ev.target.value.replace(/[^0-9]/g, ""))} /></td>
                       {custCols.map((c, ci) => <td key={c.customerId} style={{ ...td, color: c.items[pid] ? CUST_COLORS[ci % CUST_COLORS.length] : "#d5cdbd", fontWeight: c.items[pid] ? 800 : 400 }}>{c.items[pid] ? <><span style={{ fontSize: 11, fontWeight: 600, color: "#b8ab90" }}>{BOOKING_SHORT[pid] || ""}</span> {fmt(c.items[pid])}</> : "-"}</td>)}
                       <td style={{ ...td, color: d > 0 ? "#B45309" : "#c9bfad", fontWeight: 700 }}>{d > 0 ? <><span style={{ fontSize: 11, fontWeight: 600, color: "#d0a878" }}>{BOOKING_SHORT[pid] || ""}</span> {fmt(d)}</> : "-"}</td>
-                      <td style={{ ...td, fontWeight: 800, color: left < 0 ? "#B91C1C" : left === 0 ? "#15803D" : "#1D4ED8" }}>{left < 0 ? `ขาด ${fmt(-left)}` : fmt(left)}</td>
+                      <td style={{ ...td, fontWeight: 800, color: over ? "#B91C1C" : left === 0 ? "#15803D" : left > 0 ? "#1D4ED8" : "#9b8e78" }}>{left < 0 ? (isBerPid(pid) ? fmt(left) : `ขาด ${fmt(-left)}`) : fmt(left)}</td>
                     </tr>
                   );
                 })}
