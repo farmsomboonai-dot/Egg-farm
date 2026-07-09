@@ -637,6 +637,17 @@ function trayQty(big, small) {
 }
 const trayQtyO = (o) => trayQty(o?.ใหญ่, o?.เล็ก);
 
+// "ตั้งค่าเริ่มต้นใหม่" ต่อลูกค้า — เหตุการณ์ type "baseline": ตัดประวัติแผงก่อนหน้า (ตาม ts) แล้วตั้งยอดเปิดใหม่
+//   owedBig/owedSmall = ค้างคืน (แผงที่ลูกค้าต้องคืน) · brokenBig/brokenSmall = แผงชำรุดที่ฟาร์มถือรอส่งคืน
+//   (ข้อมูลเดิมไม่ถูกลบ — ลบเหตุการณ์ baseline = ประวัติกลับมาคิดเหมือนเดิม)
+function trayBaselineOf(customerId, trayEvents) {
+  let bl = null;
+  (trayEvents || []).forEach((e) => {
+    if (e.type === "baseline" && e.customerId === customerId && (!bl || (e.ts || 0) > (bl.ts || 0))) bl = e;
+  });
+  return bl;
+}
+
 // บัญชีแผงต่อลูกค้า: รวมยอดจากบิล (รับไป/คืนตอนซื้อ) + RT (คืนภายหลัง/คัดชำรุด) + สมุดเหตุการณ์ (events)
 // กติกา 2026-07-07 (ตามหน้างานจริง): "แผงทุกใบที่ลูกค้าคืนต้องผ่านการคัดก่อน — แม้แต่แผงทดแทน"
 //   - แผงทดแทนไม่มีทางเข้าแยกแล้ว: บันทึกเป็น รับแผงคืน → คัดแยก เหมือนแผงคืนปกติ
@@ -644,6 +655,8 @@ const trayQtyO = (o) => trayQty(o?.ใหญ่, o?.เล็ก);
 //   - แผงชำรุดตัวจริงที่ฟาร์มรอส่งคืนลูกค้า → เหตุการณ์ "brokenBack" · เหตุการณ์ "replace" = ข้อมูลเก่า (legacy) ยังคิดให้ถูก
 // excludeBillNo: ใช้ตอนออกบิล เพื่อไม่นับบิลที่กำลังทำอยู่ (ยังไม่บันทึก)
 function trayAccountOf(customerId, bills, trayRecords, excludeBillNo, trayEvents) {
+  const bl = trayBaselineOf(customerId, trayEvents);
+  const cutoff = bl ? (bl.ts || 0) : -1;   // ตั้งค่าเริ่มต้นใหม่: ตัดบิล/RT/เหตุการณ์ ที่ ts <= cutoff
   let billSent = 0, billReturned = 0, rtReturned = 0, brokenOwed = 0, brokenAtFarm = 0;
   let blackSent = 0, blackReturned = 0, orangeSent = 0, orangeReturned = 0;  // แยกชนิด เพื่อคิดมูลค่ามัดจำ
   let chargedShort = 0, carriedShort = 0, chargedDeposit = 0;                // คืนขาด: คิดเงิน vs ยกค้างคืน
@@ -652,6 +665,7 @@ function trayAccountOf(customerId, bills, trayRecords, excludeBillNo, trayEvents
   let brokenAtFarmBig = 0, brokenAtFarmSmall = 0;
   (bills || []).forEach((b) => {
     if (b.customerId !== customerId || (excludeBillNo && b.no === excludeBillNo)) return;
+    if (bl && (b.ts || 0) <= cutoff) return;   // บิลก่อนตั้งค่าเริ่มต้นใหม่ — ไม่นับ
     const ts = b.traySummary; if (!ts) return;
     const sentAll = (ts.blackSent || 0) + (ts.orangeSent || 0);
     const retAll = (ts.blackReturned || 0) + (ts.orangeReturned || 0);
@@ -670,6 +684,7 @@ function trayAccountOf(customerId, bills, trayRecords, excludeBillNo, trayEvents
   const sortedRounds = [];   // รอบคัดตามเวลา — ใช้คิดค้างทดแทนแบบหักแผงดีอัตโนมัติ (แยกใหญ่/เล็ก: แทนข้ามขนาดไม่ได้)
   (trayRecords || []).forEach((t) => {
     if (t.customerId !== customerId) return;
+    if (bl && (t.ts || 0) <= cutoff) return;   // ใบรับคืนก่อนตั้งค่าเริ่มต้นใหม่ — ไม่นับ
     if (!t.fromBill) { rtReturned += sumTray(t.received); retBig += t.received?.ใหญ่ || 0; retSmall += t.received?.เล็ก || 0; }   // ใบจากบิลนับยอดคืนใน billReturned แล้ว → ไม่นับซ้ำ
     if (t.sorted) {
       brokenOwed += Math.max(0, sumTray(t.sorted.broken) - sumTray(t.replacedGood));   // ชำรุดสะสม (หัก legacy ทดแทนต่อใบสมัยเก่า)
@@ -686,18 +701,24 @@ function trayAccountOf(customerId, bills, trayRecords, excludeBillNo, trayEvents
   // สมุดเหตุการณ์ระดับลูกค้า: รับแผงดีทดแทน (ตัดค้าง) / คืนแผงชำรุดให้ลูกค้า (ตัดกองที่ฟาร์ม)
   let evReplace = 0, evBrokenBack = 0, evBrokenBackBig = 0, evBrokenBackSmall = 0;
   (trayEvents || []).forEach((e) => {
-    if (e.customerId !== customerId) return;
+    if (e.customerId !== customerId || e.type === "baseline") return;
+    if (bl && (e.ts || 0) <= cutoff) return;   // เหตุการณ์ก่อนตั้งค่าเริ่มต้นใหม่ — ไม่นับ
     const q = (e.ใหญ่ || 0) + (e.เล็ก || 0);
     if (e.type === "replace") { evReplace += q; sortedRounds.push({ iso: e.date || "", ts: e.ts || 1, repB: e.ใหญ่ || 0, repS: e.เล็ก || 0 }); }
     else if (e.type === "brokenBack") { evBrokenBack += q; evBrokenBackBig += e.ใหญ่ || 0; evBrokenBackSmall += e.เล็ก || 0; }
   });
+  // ยอดเปิดจาก "ตั้งค่าเริ่มต้นใหม่" (ถ้ามี): ค้างคืน → นับเป็นส่ง (คัดดี 0) · ชำรุด → เข้ากองรอส่งคืนที่ฟาร์ม
+  if (bl) {
+    sentBig += bl.owedBig || 0; sentSmall += bl.owedSmall || 0;
+    brokenAtFarmBig += bl.brokenBig || 0; brokenAtFarmSmall += bl.brokenSmall || 0;
+  }
   const balance = billSent - billReturned - rtReturned; // >0 = ยืมไป/ถืออยู่, <0 = คืนเกินกว่าที่ถือ
   const surplus = Math.max(0, -balance);                // แผงที่คืนเกินกว่าที่ถืออยู่ (ข้อมูลอ้างอิง)
   const rawOwed = Math.max(0, brokenOwed);              // ชำรุดสะสมทั้งหมด (ก่อนหักแผงดี/ทดแทน)
   // ค้างทดแทน — ไล่ตามเวลา (กติกา 2026-07-06): แต่ละรอบคัด "แผงดีที่คัดได้" หักล้างค้างเก่าก่อน แล้วชำรุดใหม่ของรอบนั้นค่อยบวกเข้า
   // (ลูกค้าเอาแผงแลกปนมากับแผงคืน — ระบบหักให้เอง) · เหตุการณ์ "รับแผงดีทดแทน" ก็หักตามเวลาเช่นกัน
   sortedRounds.sort((a, b) => (a.iso || "").localeCompare(b.iso || "") || a.ts - b.ts);
-  let owedB = 0, owedS = 0;   // ค้างทดแทนแยกขนาด — แผงดีใหญ่หักค้างใหญ่ / เล็กหักเล็ก เท่านั้น
+  let owedB = bl ? (bl.owedBig || 0) : 0, owedS = bl ? (bl.owedSmall || 0) : 0;   // ค้างทดแทนแยกขนาด (เริ่มจากยอดเปิด baseline ถ้ามี) — ใหญ่หักใหญ่/เล็กหักเล็ก
   sortedRounds.forEach((v) => {
     if (v.repB != null) { owedB = Math.max(0, owedB - v.repB); owedS = Math.max(0, owedS - v.repS); }
     else { owedB = Math.max(0, owedB - v.goodB) + v.brokenB; owedS = Math.max(0, owedS - v.goodS) + v.brokenS; }
@@ -5711,6 +5732,7 @@ function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], 
   const [reportCust, setReportCust] = useState(null);        // row ลูกค้าที่กำลังออกใบรายงานส่ง LINE
   const [newReturn, setNewReturn] = useState(false);
   const [newReturnCust, setNewReturnCust] = useState("");   // ลูกค้าที่ preselect ตอนกด "รับแผงคืน" จากสมุด
+  const [baselineCust, setBaselineCust] = useState(null);   // row ลูกค้าที่กำลังตั้งค่าเริ่มต้นใหม่
   const [expandSig, setExpandSig] = useState(0);            // กดการ์ด "รอคัดแยก" → กางลูกค้าที่มีใบรอคัด
   const custName = (id) => CUSTOMERS.find((c) => c.id === id)?.name || "—";
   // บันทึกเหตุการณ์ระดับลูกค้า: รับแผงดีทดแทน (แผงดีเข้าฟาร์ม + ตัดค้าง) / คืนแผงชำรุดให้ลูกค้า (ตัดกองชำรุดที่ฟาร์ม)
@@ -5763,6 +5785,8 @@ function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], 
       const sent = (ts.blackSent || 0) + (ts.orangeSent || 0);
       const ret = (ts.blackReturned || 0) + (ts.orangeReturned || 0);
       if (sent === 0 && ret === 0) return;
+      const blB = trayBaselineOf(b.customerId, trayEvents);
+      if (blB && (b.ts || 0) <= (blB.ts || 0)) return;   // บิลก่อนตั้งค่าเริ่มต้นใหม่ — ไม่โชว์ในสมุด
       const m = ensure(b.customerId);
       if (sent > 0) {
         const sB = (ts.blackBig || 0) + (ts.orangeBig || 0), sS = ts.blackSmall || 0;
@@ -5772,6 +5796,8 @@ function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], 
     });
     // รายละเอียดการรับแผงคืนภายหลัง (RT) + คัดแยกดี/ชำรุด (สะสมแยกใหญ่/เล็ก)
     trays.forEach((t) => {
+      const blT = trayBaselineOf(t.customerId, trayEvents);
+      if (blT && (t.ts || 0) <= (blT.ts || 0)) return;   // ใบก่อนตั้งค่าเริ่มต้นใหม่ — ไม่รวม/ไม่โชว์
       const m = ensure(t.customerId);
       if (t.sorted) {
         m.good += sumTray(t.sorted.good); m.broken += sumTray(t.sorted.broken);
@@ -5780,8 +5806,14 @@ function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], 
       }
       m.trays.push(t);
     });
-    // เหตุการณ์ระดับลูกค้า (รับทดแทน/คืนชำรุด)
-    (trayEvents || []).forEach((e) => { ensure(e.customerId).events.push(e); });
+    // เหตุการณ์ระดับลูกค้า (รับทดแทน/คืนชำรุด) + baseline (ตั้งค่าเริ่มต้นใหม่ → เก็บไว้โชว์เป็นบรรทัดยอดเปิด)
+    (trayEvents || []).forEach((e) => {
+      const m = ensure(e.customerId);
+      if (e.type === "baseline") { if (!m.baseline || (e.ts || 0) > (m.baseline.ts || 0)) m.baseline = e; return; }
+      const blE = trayBaselineOf(e.customerId, trayEvents);
+      if (blE && (e.ts || 0) <= (blE.ts || 0)) return;   // เหตุการณ์ก่อนตั้งค่าเริ่มต้นใหม่ — ไม่โชว์
+      m.events.push(e);
+    });
     // ตัวเลขบัญชี (ค้างคืน/ค้างทดแทน/ชำรุดรอส่งคืน) มาจาก helper กลางตัวเดียว
     return Object.values(map)
       .map((m) => { const acc = trayAccountOf(m.customerId, bills, trays, null, trayEvents); return { ...m, ...acc, returnedTotal: acc.billReturned + acc.rtReturned }; })
@@ -5823,7 +5855,7 @@ function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], 
     const maxNo = trays.reduce((m, t) => Math.max(m, parseInt(String(t.id).replace(/\D/g, "")) || 0), 0);
     const no = "RT-" + String(maxNo + 1).padStart(4, "0");
     const today = new Date().toLocaleDateString("th-TH");
-    setTrays((p) => [{ id: no, customerId, date: receivedDate || today, received, status: "รอคัด", sorted: null, sorter: "", sortedDate: "", replacedGood: { ใหญ่: 0, เล็ก: 0 }, replacements: [] }, ...p]);
+    setTrays((p) => [{ id: no, ts: Date.now(), customerId, date: receivedDate || today, received, status: "รอคัด", sorted: null, sorter: "", sortedDate: "", replacedGood: { ใหญ่: 0, เล็ก: 0 }, replacements: [] }, ...p]);
     setNewReturn(false);
   };
   // ลบใบรับคืน (กรอกผิด/บันทึกซ้ำ) — ถ้าใบนั้นคัดแล้ว ถอนแผงดี (และแผงทดแทน legacy) ที่เคยเข้าคลังออกด้วย ให้คลังแผงตรง
@@ -5858,6 +5890,7 @@ function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], 
           onReceive={(cid) => { setNewReturnCust(cid); setNewReturn(true); }}
           onSort={(t) => setSortModal(t)}
           onBrokenBack={(cid) => setCustAction({ mode: "brokenBack", customerId: cid })}
+          onBaseline={(row) => setBaselineCust(row)}
           onReport={(row) => setReportCust(row)}
           onDeleteEvent={(id) => {
             const e = (trayEvents || []).find((x) => x.id === id);
@@ -5872,6 +5905,13 @@ function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], 
         onClose={() => setCustAction(null)}
         onApply={(qty, dateISO, by) => applyCustAction(custAction.mode, custAction.customerId, qty, dateISO, by)} />}
       {reportCust && <TrayCustReportModal row={reportCust} bills={bills} onClose={() => setReportCust(null)} />}
+      {baselineCust && <TrayBaselineModal row={baselineCust} custName={custName(baselineCust.customerId)}
+        onClose={() => setBaselineCust(null)}
+        onApply={(op, dateISO, note) => {
+          addTrayEvent && addTrayEvent({ id: "TE" + Date.now(), type: "baseline", customerId: baselineCust.customerId, date: dateISO, ts: Date.now(),
+            owedBig: op.owedBig, owedSmall: op.owedSmall, brokenBig: op.brokenBig, brokenSmall: op.brokenSmall, note: (note || "").trim() });
+          setBaselineCust(null);
+        }} />}
       {newReturn && <NewReturnModal initialCustomerId={newReturnCust} onClose={() => { setNewReturn(false); setNewReturnCust(""); }} onAdd={addReceive} bills={bills} trays={trays} trayEvents={trayEvents} />}
     </>
   );
@@ -5888,7 +5928,7 @@ function thShortToISO(s) {
 
 /* สมุดแผงต่อลูกค้า — กติกาหน้างานจริง: แผงทุกใบที่ลูกค้าคืน (รวมแผงทดแทน) ต้องผ่านการคัดก่อน
    แผงดีที่คัดได้หักค้างทดแทนเก่าอัตโนมัติ · คืนแผงชำรุดให้ลูกค้า = อีกจังหวะแยกต่างหาก */
-function TrayByCustomer({ rows, onReceive, onSort, onBrokenBack, onReport, onDeleteEvent, onDeleteTray, expandWaitingSignal = 0 }) {
+function TrayByCustomer({ rows, onReceive, onSort, onBrokenBack, onBaseline, onReport, onDeleteEvent, onDeleteTray, expandWaitingSignal = 0 }) {
   const [expanded, setExpanded] = useState(() => new Set());
   // กดการ์ด "รอคัดแยก" ด้านบน → กางทุกลูกค้าที่มีใบรอคัด
   useEffect(() => {
@@ -5959,8 +5999,18 @@ function TrayByCustomer({ rows, onReceive, onSort, onBrokenBack, onReport, onDel
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", padding: "6px 2px 10px", borderBottom: "1px solid #f3f0e9", marginBottom: 8 }}>
                   <button style={actBtn("#B45309", "#FFF7EC")} onClick={(ev) => { ev.stopPropagation(); onReceive && onReceive(r.customerId); }}>📥 รับแผงคืน / แผงทดแทน (เข้าคิวคัด){r.owed > 0 ? ` · ค้าง ${fmt(r.owed)}` : ""}</button>
                   <button style={actBtn("#B91C1C", "#FEF2F2")} onClick={(ev) => { ev.stopPropagation(); onBrokenBack && onBrokenBack(r.customerId); }}>↩ คืนแผงชำรุดให้ลูกค้า{r.brokenPending > 0 ? ` (มี ${fmt(r.brokenPending)})` : ""}</button>
+                  <button style={actBtn("#6B7280", "#F3F4F6")} onClick={(ev) => { ev.stopPropagation(); onBaseline && onBaseline(r); }}>🔄 ตั้งค่าเริ่มต้นใหม่</button>
                   <button style={{ ...actBtn("#1D4ED8", "#EFF6FF"), marginLeft: "auto" }} onClick={(ev) => { ev.stopPropagation(); onReport && onReport(r); }}>📤 รายงานส่งลูกค้า (LINE)</button>
                 </div>
+                {r.baseline && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12, background: "#F3F4F6", border: "1px solid #E5E7EB", borderRadius: 8, padding: "6px 10px", marginBottom: 8 }}>
+                    <span style={{ fontWeight: 800, color: "#4B5563" }}>🔄 ตั้งค่าเริ่มต้นใหม่</span>
+                    <span style={{ color: "#6B7280" }}>{toThaiDate(r.baseline.date, false)} · ค้างคืน {trayQty(r.baseline.owedBig, r.baseline.owedSmall)}{(r.baseline.brokenBig || r.baseline.brokenSmall) ? ` · ชำรุดรอคืน ${trayQty(r.baseline.brokenBig, r.baseline.brokenSmall)}` : ""}</span>
+                    {r.baseline.note ? <span style={{ color: "#9CA3AF" }}>· {r.baseline.note}</span> : null}
+                    <button onClick={(ev) => { ev.stopPropagation(); if (window.confirm("ยกเลิกการตั้งค่าเริ่มต้นใหม่? ประวัติแผงก่อนหน้าจะกลับมาคิดในบัญชีเหมือนเดิม")) onDeleteEvent && onDeleteEvent(r.baseline.id); }}
+                      style={{ marginLeft: "auto", border: "1px solid #D1D5DB", background: "#fff", color: "#6B7280", borderRadius: 7, padding: "3px 10px", cursor: "pointer", fontSize: 11.5, fontWeight: 700, fontFamily: "inherit" }}>ยกเลิก</button>
+                  </div>
+                )}
                 <div style={{ fontSize: 11.5, color: "#9b8e78", margin: "-4px 2px 8px" }}>แผงทุกใบที่ลูกค้าคืนต้องคัดก่อน (รวมแผงทดแทน) — แผงดีที่คัดได้จะหักยอดค้างทดแทนให้อัตโนมัติ</div>
                 {timeline.length === 0 && <div style={{ fontSize: 12.5, color: "#9b9384", padding: "2px 2px 4px" }}>ยังไม่มีรายการ — กด "รับแผงคืน" เมื่อลูกค้าเอาแผงมาคืน</div>}
                 {timeline.length > 0 && (() => {
@@ -6116,6 +6166,52 @@ function TrayCustActionModal({ mode, custName, acc, onClose, onApply }) {
   );
 }
 
+/* 🔄 ตั้งค่าเริ่มต้นใหม่ ต่อลูกค้า — ตั้งยอดค้างคืน/ชำรุดเป็นจุดเริ่มต้น ตัดประวัติแผงก่อนหน้า (ไม่ลบข้อมูล) */
+function TrayBaselineModal({ row, custName, onClose, onApply }) {
+  const curOwedBig = Math.max(0, (row.sentBig || 0) - (row.goodBig || 0));    // ค้างคืนปัจจุบัน (ส่ง − คัดดี) เติมเป็นค่าตั้งต้น
+  const curOwedSmall = Math.max(0, (row.sentSmall || 0) - (row.goodSmall || 0));
+  const [oB, setOB] = useState(String(curOwedBig || ""));
+  const [oS, setOS] = useState(String(curOwedSmall || ""));
+  const [bB, setBB] = useState(String(row.brokenPendingBig || ""));
+  const [bS, setBS] = useState(String(row.brokenPendingSmall || ""));
+  const [date, setDate] = useState(isoFromTs(Date.now()));
+  const [note, setNote] = useState("");
+  const inp = { width: "100%", padding: "9px 10px", border: "1.5px solid #e3ddd0", borderRadius: 9, fontSize: 15, fontFamily: "inherit", outline: "none", textAlign: "right", boxSizing: "border-box" };
+  const lbl = { display: "block", fontSize: 12, fontWeight: 700, color: INK, marginBottom: 3 };
+  const num = (v, set) => <input style={inp} inputMode="numeric" placeholder="0" value={v} onChange={(e) => set(e.target.value.replace(/\D/g, ""))} />;
+  const total = (parseInt(oB) || 0) + (parseInt(oS) || 0) + (parseInt(bB) || 0) + (parseInt(bS) || 0);
+  return (
+    <div style={S.modalOverlay} onClick={onClose}>
+      <div style={{ ...S.modal, maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
+        <div style={S.modalHead}>
+          <div>
+            <div style={S.modalTitle}>🔄 ตั้งค่าเริ่มต้นใหม่</div>
+            <div style={S.modalSub}>{custName} — ตั้งยอดค้างเริ่มต้นใหม่</div>
+          </div>
+          <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
+        </div>
+        <div style={{ fontSize: 12.5, color: "#6B7280", background: "#F9FAFB", border: "1px solid #eee3cd", borderRadius: 9, padding: "9px 11px", marginBottom: 12, lineHeight: 1.7 }}>
+          ยอดที่ใส่จะเป็น <b>จุดเริ่มต้นใหม่</b> ของลูกค้ารายนี้ — บิล / ใบรับคืน / เหตุการณ์ที่เกิด<b>ก่อนวันนี้</b> จะไม่ถูกนำมาคิดในบัญชีแผงอีก (ข้อมูลไม่ถูกลบ · กด “ยกเลิก” ภายหลังเพื่อคืนค่าได้) · ใส่ 0 ทั้งหมด = เริ่มนับใหม่จากศูนย์
+        </div>
+        <div style={{ marginBottom: 10 }}><label style={lbl}>วันที่เริ่มต้นใหม่</label><ThaiDateField value={date} onChange={setDate} style={{ ...inp, textAlign: "left" }} /></div>
+        <label style={{ ...lbl, color: "#B91C1C" }}>ค้างคืน (แผงที่ลูกค้าต้องคืน)</label>
+        <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+          <div style={{ flex: 1 }}><label style={lbl}>ใหญ่</label>{num(oB, setOB)}</div>
+          <div style={{ flex: 1 }}><label style={lbl}>เล็ก</label>{num(oS, setOS)}</div>
+        </div>
+        <label style={{ ...lbl, color: "#B45309" }}>ชำรุดที่ฟาร์มถือรอคืนลูกค้า (ถ้ามี)</label>
+        <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+          <div style={{ flex: 1 }}><label style={lbl}>ใหญ่</label>{num(bB, setBB)}</div>
+          <div style={{ flex: 1 }}><label style={lbl}>เล็ก</label>{num(bS, setBS)}</div>
+        </div>
+        <div style={{ marginBottom: 12 }}><label style={lbl}>หมายเหตุ</label><input style={{ ...inp, textAlign: "left" }} value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น ยกยอดจากสมุดเก่า" /></div>
+        <button onClick={() => onApply({ owedBig: parseInt(oB) || 0, owedSmall: parseInt(oS) || 0, brokenBig: parseInt(bB) || 0, brokenSmall: parseInt(bS) || 0 }, date, note)}
+          style={{ ...S.primaryBtn }}>บันทึกตั้งค่าเริ่มต้นใหม่{total > 0 ? ` · ค้างคืน ${fmt((parseInt(oB) || 0) + (parseInt(oS) || 0))} · ชำรุด ${fmt((parseInt(bB) || 0) + (parseInt(bS) || 0))}` : " (เริ่มจากศูนย์)"}</button>
+      </div>
+    </div>
+  );
+}
+
 /* 📤 ใบรายงานแผงต่อลูกค้า — เซฟเป็นรูปส่ง LINE หรือคัดลอกข้อความ */
 function TrayCustReportModal({ row, bills = [], onClose }) {
   const [saving, setSaving] = useState(false);
@@ -6134,7 +6230,9 @@ function TrayCustReportModal({ row, bills = [], onClose }) {
   // ต่อท้าย 2 ยอดสะสม: ถือแผง (บวกส่ง ลบคืน → เห็นเกิน/ขาด/พอดี) + ค้างทดแทน
   const timeline = (() => {
     const items = [
-      ...(bills || []).filter((b) => b.customerId === row.customerId && b.traySummary && ((b.traySummary.blackSent || 0) + (b.traySummary.orangeSent || 0)) > 0)
+      ...(row.baseline ? [{ iso: row.baseline.date || "", ts: -2, kind: "baseline", e: row.baseline }] : []),   // ยอดเปิด (ตั้งค่าเริ่มต้นใหม่) — มาก่อนสุดของวันนั้น
+      ...(bills || []).filter((b) => b.customerId === row.customerId && b.traySummary && ((b.traySummary.blackSent || 0) + (b.traySummary.orangeSent || 0)) > 0
+          && !(row.baseline && (b.ts || 0) <= (row.baseline.ts || 0)))   // บิลก่อนตั้งค่าเริ่มต้นใหม่ — ไม่คิด
         .map((b) => {
           const ts2 = b.traySummary, sent = (ts2.blackSent || 0) + (ts2.orangeSent || 0);
           const sB = (ts2.blackBig || 0) + (ts2.orangeBig || 0), sS = ts2.blackSmall || 0;
@@ -6149,6 +6247,10 @@ function TrayCustReportModal({ row, bills = [], onClose }) {
     const holdTxt = () => hold > 0 ? `ค้างคืน ${fmt(hold)}` : hold < 0 ? `คืนเกิน ${fmt(-hold)}` : "คืนครบ";
     const out = items.map((x) => {
       const d = toThaiDate(x.iso, false) || "";
+      if (x.kind === "baseline") {
+        hold += (x.e.owedBig || 0) + (x.e.owedSmall || 0);
+        return { text: `${d} · 🔄 ตั้งค่าเริ่มต้นใหม่ · ค้างคืน ${trayQty(x.e.owedBig, x.e.owedSmall)}${(x.e.brokenBig || x.e.brokenSmall) ? ` · ชำรุดรอคืน ${trayQty(x.e.brokenBig, x.e.brokenSmall)}` : ""}`, tail: holdTxt() };
+      }
       if (x.kind === "bill") {
         hold += x.sent;
         return { text: `${d} · 📤 ฟาร์มส่งแผงพร้อมไข่ ${trayQty(x.big, x.small)}`, tail: holdTxt(), blue: true };
