@@ -4148,17 +4148,24 @@ function TrialListModal({ trials, houseIds, defaultHouse, rearingByDate = {}, on
   );
 }
 
-/* 📊 ผลการทดลอง: เทียบก่อนให้ vs ช่วงให้ — เลือกเมตริกที่อยากเปรียบเทียบได้ */
+/* 📊 ผลการทดลอง: เลือกเปรียบเทียบเองได้ — 3 ช่วง (ก่อนให้ / ช่วงให้ / หลังให้) + เลือกเมตริก + แก้วันที่ */
 function TrialResultModal({ trial, production, rearingByDate, onBack = null, onClose }) {
   const len = Math.max(1, Math.round((new Date(trial.endDate) - new Date(trial.startDate)) / 86400000) + 1);
   const [aFrom, setAFrom] = useState(shiftDayISO(trial.startDate, -len));
   const [aTo, setATo] = useState(shiftDayISO(trial.startDate, -1));
   const [bFrom, setBFrom] = useState(trial.startDate);
   const [bTo, setBTo] = useState(trial.endDate);
+  const [cFrom, setCFrom] = useState(shiftDayISO(trial.endDate, 1));    // ช่วงหลังให้ (default 7 วันหลังให้ยา)
+  const [cTo, setCTo] = useState(shiftDayISO(trial.endDate, 7));
+  const [baseSel, setBaseSel] = useState("A");   // เทียบจากช่วง (ตั้งต้น = ก่อนให้)
+  const [targetSel, setTargetSel] = useState("C"); // ไปดูผลที่ช่วง (ตั้งต้น = หลังให้)
   const [unsel, setUnsel] = useState(() => new Set());   // เมตริกที่ผู้ใช้ "เอาออก" (ค่าเริ่มต้น = เทียบทุกตัว)
   const A = trialStats(production, rearingByDate, trial.houseId, aFrom, aTo);
   const B = trialStats(production, rearingByDate, trial.houseId, bFrom, bTo);
-  const offKeys = [...new Set([...Object.keys(A.offT), ...Object.keys(B.offT)])];
+  const C = trialStats(production, rearingByDate, trial.houseId, cFrom, cTo);
+  const P = { A: { s: A, label: "ก่อนให้", bg: "#F6F1E7" }, B: { s: B, label: "ช่วงให้", bg: "#FFEDD5" }, C: { s: C, label: "หลังให้", bg: "#E0F2FE" } };
+  const base = P[baseSel], target = P[targetSel];
+  const offKeys = [...new Set([...Object.keys(A.offT), ...Object.keys(B.offT), ...Object.keys(C.offT)])];
   const pctFm = (v) => v == null ? "—" : v.toFixed(2) + "%";
   const metrics = [
     { key: "pctTotal", label: "%ผลผลิตรวม (ไข่รวม ÷ ไก่)", better: "up", get: (s) => s.pctTotal, fm: pctFm, unit: " จุด" },
@@ -4169,7 +4176,7 @@ function TrialResultModal({ trial, production, rearingByDate, onBack = null, onC
   ];
   const toggle = (k) => setUnsel((p) => { const n = new Set(p); n.has(k) ? n.delete(k) : n.add(k); return n; });
   const trend = (m) => {
-    const va = m.get(A), vb = m.get(B);
+    const va = m.get(base.s), vb = m.get(target.s);
     if (va == null || vb == null) return null;
     const d = vb - va;
     return { va, vb, d, flat: Math.abs(d) < 0.005, good: m.better === "up" ? d > 0 : d < 0 };
@@ -4180,37 +4187,48 @@ function TrialResultModal({ trial, production, rearingByDate, onBack = null, onC
   const dateInp = { padding: "6px 9px", border: "1.5px solid #e3ddd0", borderRadius: 8, fontSize: 12.5, fontFamily: "inherit" };
   const th2 = { padding: "7px 8px", fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", textAlign: "right", whiteSpace: "nowrap" };
   const td2 = { padding: "7px 8px", fontSize: 13, textAlign: "right", borderBottom: "1px solid #eee7d8", whiteSpace: "nowrap" };
+  const selSty = { padding: "5px 9px", border: `1.5px solid ${ACCENT_DK}`, borderRadius: 8, fontSize: 13, fontFamily: "inherit", fontWeight: 800, color: ACCENT_DK, background: "#fff", cursor: "pointer" };
+  const periodBox = (label, bg, from, setFrom, to, setTo, s) => (
+    <div style={{ flex: 1, minWidth: 210, background: bg, borderRadius: 10, padding: "8px 10px" }}>
+      <b>{label}:</b> <ThaiDateField value={from} onChange={setFrom} style={dateInp} long={false} /> – <ThaiDateField value={to} onChange={setTo} style={dateInp} long={false} />
+      <div style={{ color: "#9b8e78", marginTop: 3 }}>มีข้อมูลผลผลิต {s.days} วัน · การเลี้ยง {s.deadDays} วัน</div>
+    </div>
+  );
   return (
     <div style={S.modalOverlay} onClick={onClose}>
-      <div style={{ ...S.modal, maxWidth: 640, maxHeight: "92vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ ...S.modal, maxWidth: 680, maxHeight: "92vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
         <div style={S.modalHead}>
           <div>
             <div style={S.modalTitle}>{onBack ? <button onClick={onBack} title="กลับรายการทดลอง" style={{ border: "1px solid #e0d7c3", background: "#fff", color: "#7a6f5c", borderRadius: 8, padding: "3px 10px", cursor: "pointer", fontWeight: 800, fontSize: 13, marginRight: 8, fontFamily: "inherit", verticalAlign: "middle" }}>← กลับ</button> : null}📊 ผลการให้ {trial.name} · {trial.houseId}</div>
-            <div style={S.modalSub}>ให้ {toThaiDate(trial.startDate, false)} – {toThaiDate(trial.endDate, false)}{trial.note ? " · " + trial.note : ""}</div>
+            <div style={S.modalSub}>ให้ {toThaiDate(trial.startDate, false)} – {toThaiDate(trial.endDate, false)}{trial.note ? " · " + trial.note : ""} · เลือกช่วง+เมตริกที่อยากดูได้เอง</div>
           </div>
           <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
         </div>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12, fontSize: 12.5 }}>
-          <div style={{ flex: 1, minWidth: 240, background: "#F6F1E7", borderRadius: 10, padding: "8px 10px" }}>
-            <b>ช่วงก่อนให้:</b> <ThaiDateField value={aFrom} onChange={setAFrom} style={dateInp} long={false} /> – <ThaiDateField value={aTo} onChange={setATo} style={dateInp} long={false} />
-            <div style={{ color: "#9b8e78", marginTop: 3 }}>มีข้อมูลผลผลิต {A.days} วัน · การเลี้ยง {A.deadDays} วัน</div>
-          </div>
-          <div style={{ flex: 1, minWidth: 240, background: "#FFEDD5", borderRadius: 10, padding: "8px 10px" }}>
-            <b>ช่วงให้ยา:</b> <ThaiDateField value={bFrom} onChange={setBFrom} style={dateInp} long={false} /> – <ThaiDateField value={bTo} onChange={setBTo} style={dateInp} long={false} />
-            <div style={{ color: "#9b8e78", marginTop: 3 }}>มีข้อมูลผลผลิต {B.days} วัน · การเลี้ยง {B.deadDays} วัน</div>
-          </div>
+        {/* 3 ช่วงเวลา แก้วันที่ได้อิสระ */}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10, fontSize: 12.5 }}>
+          {periodBox("ก่อนให้", "#F6F1E7", aFrom, setAFrom, aTo, setATo, A)}
+          {periodBox("ช่วงให้", "#FFEDD5", bFrom, setBFrom, bTo, setBTo, B)}
+          {periodBox("หลังให้", "#E0F2FE", cFrom, setCFrom, cTo, setCTo, C)}
         </div>
-        {A.days === 0 && B.days === 0 ? (
+        {/* เลือกเปรียบเทียบช่วงไหน กับ ช่วงไหน */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12, background: "#FBF8F2", border: "1px solid #efe7d8", borderRadius: 10, padding: "9px 12px" }}>
+          <span style={{ fontSize: 13, fontWeight: 800, color: INK }}>📊 เปรียบเทียบ:</span>
+          <select style={selSty} value={baseSel} onChange={(e) => setBaseSel(e.target.value)}><option value="A">ก่อนให้</option><option value="B">ช่วงให้</option><option value="C">หลังให้</option></select>
+          <span style={{ fontWeight: 800, color: "#9b8e78" }}>→</span>
+          <select style={selSty} value={targetSel} onChange={(e) => setTargetSel(e.target.value)}><option value="A">ก่อนให้</option><option value="B">ช่วงให้</option><option value="C">หลังให้</option></select>
+          <span style={{ fontSize: 11.5, color: "#9b8e78", fontWeight: 600 }}>ดูว่า “{target.label}” เปลี่ยนจาก “{base.label}” ยังไง (ติ๊กเลือกเฉพาะตัวเลขที่อยากดูได้)</span>
+        </div>
+        {base.s.days === 0 && target.s.days === 0 ? (
           <div style={{ background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 10, padding: "12px 14px", fontSize: 13, color: "#B91C1C", fontWeight: 700, marginBottom: 12 }}>
-            ยังไม่มีข้อมูลผลผลิตของ {trial.houseId} ในช่วงวันที่เลือก — กรอกผลผลิตรายวัน (แท็บผลผลิต) ให้ครอบคลุมช่วงทดลองก่อน แล้วผลจะคำนวณให้อัตโนมัติ
+            ยังไม่มีข้อมูลผลผลิตของ {trial.houseId} ในช่วงที่เลือก — กรอกผลผลิตรายวัน (แท็บคลัง·ผลผลิต) ให้ครอบคลุมช่วงที่จะเทียบก่อน แล้วผลจะคำนวณให้อัตโนมัติ
           </div>
         ) : (
           <>
             <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 12 }}>
               <thead><tr>
                 <th style={{ ...th2, textAlign: "left" }}>✓ เลือกตัวเลขที่เทียบ</th>
-                <th style={th2}>ก่อนให้</th>
-                <th style={{ ...th2, background: "#FFEDD5" }}>ช่วงให้</th>
+                <th style={th2}>{base.label}</th>
+                <th style={{ ...th2, background: target.bg }}>{target.label}</th>
                 <th style={th2}>เปลี่ยนแปลง</th>
                 <th style={th2}>ผล</th>
               </tr></thead>
@@ -4225,8 +4243,8 @@ function TrialResultModal({ trial, production, rearingByDate, onBack = null, onC
                           <input type="checkbox" checked={on} onChange={() => toggle(m.key)} style={{ accentColor: ACCENT_DK }} />{m.label}
                         </label>
                       </td>
-                      <td style={td2}>{m.fm(m.get(A))}</td>
-                      <td style={{ ...td2, background: "#FFF7EC", fontWeight: 700 }}>{m.fm(m.get(B))}</td>
+                      <td style={td2}>{m.fm(m.get(base.s))}</td>
+                      <td style={{ ...td2, background: target.bg, fontWeight: 700 }}>{m.fm(m.get(target.s))}</td>
                       <td style={{ ...td2, fontWeight: 700 }}>{t ? (t.flat ? "คงที่" : (t.d > 0 ? "▲ +" : "▼ ") + (m.key.startsWith("pct") ? t.d.toFixed(2) : fmt1(t.d))) : "—"}</td>
                       <td style={{ ...td2, fontWeight: 800, color: t ? (t.flat ? "#9b8e78" : t.good ? "#15803D" : "#B91C1C") : "#c9c0ad" }}>{t ? (t.flat ? "—" : t.good ? "🟢 ดีขึ้น" : "🔴 แย่ลง") : "ไม่มีข้อมูล"}</td>
                     </tr>
@@ -4235,7 +4253,7 @@ function TrialResultModal({ trial, production, rearingByDate, onBack = null, onC
               </tbody>
             </table>
             <div style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 10, padding: "10px 13px", fontSize: 13, marginBottom: 8 }}>
-              <div style={{ fontWeight: 800, color: "#15803D", marginBottom: 4 }}>🩺 สรุปวินิจฉัยเบื้องต้น (จากตัวเลขที่เลือก)</div>
+              <div style={{ fontWeight: 800, color: "#15803D", marginBottom: 4 }}>🩺 สรุป: {base.label} → {target.label} (จากตัวเลขที่เลือก)</div>
               {improved.length ? <div style={{ marginBottom: 3 }}>🟢 <b>ดีขึ้น:</b> {improved.map((x) => `${x.m.label.replace(/ \(.*\)/, "")} (${x.t.d > 0 ? "+" : ""}${x.m.key.startsWith("pct") ? x.t.d.toFixed(2) : fmt1(x.t.d)}${x.m.unit})`).join(" · ")}</div> : null}
               {worsened.length ? <div style={{ marginBottom: 3 }}>🔴 <b>แย่ลง:</b> {worsened.map((x) => `${x.m.label.replace(/ \(.*\)/, "")} (${x.t.d > 0 ? "+" : ""}${x.m.key.startsWith("pct") ? x.t.d.toFixed(2) : fmt1(x.t.d)}${x.m.unit})`).join(" · ")}</div> : null}
               {!improved.length && !worsened.length ? <div>ตัวเลขโดยรวมคงที่ — ยังไม่เห็นความแตกต่างชัดเจนในช่วงที่เทียบ</div> : null}
