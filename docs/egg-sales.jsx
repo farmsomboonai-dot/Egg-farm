@@ -1044,7 +1044,7 @@ export default function App() {
             { id: "stockprod", icon: <Warehouse size={16} />, label: "คลัง·ผลผลิต" },
             { id: "book", icon: <Calendar size={16} />, label: "จอง·วางแผน" },
             { id: "tray", icon: <RotateCcw size={16} />, label: "บัญชีแผงไข่" },
-            { id: "rear", icon: <ClipboardCheck size={16} />, label: "เก็บสถิติการเลี้ยง" },
+            { id: "rear", icon: <ClipboardCheck size={16} />, label: "เก็บข้อมูลการเลี้ยง" },
             { id: "feed", icon: <Wheat size={16} />, label: "อาหารไก่" },
             { id: "med", icon: <Pill size={16} />, label: "ยาและวิตามิน" },
             { id: "cost", icon: <Calculator size={16} />, label: "บัญชีต้นทุน" },
@@ -4323,7 +4323,7 @@ function StockProdView({ stockProps, prodProps }) {
 
 /* ============================================================
    หน้าจอ: อาหารไก่ — คงเหลือไซโล + เตือนใกล้หมด + รับอาหาร(เสมียน) + รีเช็ค 2 ฝั่ง
-   (การกรอก "รับ/ใช้" รายวันยังอยู่ในแท็บ เก็บสถิติการเลี้ยง — หน้านี้คือมุมบริหารอาหาร)
+   (การกรอก "รับ/ใช้" รายวันยังอยู่ในแท็บ เก็บข้อมูลการเลี้ยง — หน้านี้คือมุมบริหารอาหาร)
 ============================================================ */
 function FeedView({ rearingByDate = {}, flocks = {}, production = {}, feedDeliveries = [], addFeedDelivery, deleteFeedDelivery, feedPrice = 0, setFeedPrice, feedUseByMonth = {} }) {
   const prodDates = Object.keys(production).sort();
@@ -4515,7 +4515,7 @@ function FeedView({ rearingByDate = {}, flocks = {}, production = {}, feedDelive
           </div>
         ))}
       </div>
-      <div style={S.hint}>คงเหลือ = ยกมา + Σรับ − Σใช้ จากบันทึกรายวันในแท็บ "เก็บสถิติการเลี้ยง" · เตือนเฉพาะไซโลที่เคยบันทึกใช้งาน · รับอาหารเข้า (เสมียน) ใช้รีเช็คกับตัวเลขสัตวบาล 2 ฝั่ง</div>
+      <div style={S.hint}>คงเหลือ = ยกมา + Σรับ − Σใช้ จากบันทึกรายวันในแท็บ "เก็บข้อมูลการเลี้ยง" · เตือนเฉพาะไซโลที่เคยบันทึกใช้งาน · รับอาหารเข้า (เสมียน) ใช้รีเช็คกับตัวเลขสัตวบาล 2 ฝั่ง</div>
 
       {showDelivery && (
         <FeedDeliveryModal houseIds={houseIds} defaultDate={rearDates[rearDates.length - 1] || prodDates[prodDates.length - 1] || isoFromTs(Date.now())}
@@ -4644,7 +4644,7 @@ function MedView({ medTrials = [], addMedTrial, deleteMedTrial, rearingByDate = 
           </tbody>
         </table>
       </div>
-      <div style={{ fontSize: 12, color: "#9b8e78", margin: "-6px 2px 14px" }}>เบิกใช้ = ระบบรวมจากบันทึกให้ยารายวันของสัตวบาล (แท็บ เก็บสถิติการเลี้ยง — พิมพ์ชื่อตรงกับสต๊อก) ตั้งแต่ 7 ก.ค. 69 · คงเหลือ = ยกมา + รับเข้า − เบิกใช้ · ค่ายาเข้าบัญชีต้นทุนหมวด "ค่ายา+วัสดุสิ้นเปลือง" อัตโนมัติ</div>
+      <div style={{ fontSize: 12, color: "#9b8e78", margin: "-6px 2px 14px" }}>เบิกใช้ = ระบบรวมจากบันทึกให้ยารายวันของสัตวบาล (แท็บ เก็บข้อมูลการเลี้ยง — พิมพ์ชื่อตรงกับสต๊อก) ตั้งแต่ 7 ก.ค. 69 · คงเหลือ = ยกมา + รับเข้า − เบิกใช้ · ค่ายาเข้าบัญชีต้นทุนหมวด "ค่ายา+วัสดุสิ้นเปลือง" อัตโนมัติ</div>
 
       {/* 📅 สรุปค่ายารายเดือน (จากบันทึกให้ยา × ราคาสต๊อก) แยกต่อหลัง */}
       {Object.keys(medCostByMonth).length > 0 && (
@@ -4725,7 +4725,7 @@ function MedView({ medTrials = [], addMedTrial, deleteMedTrial, rearingByDate = 
 
       {/* ประวัติการให้ยาจากบันทึกรายวัน */}
       <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, padding: "12px 14px", marginTop: 12 }}>
-        <div style={{ fontWeight: 800, fontSize: 13.5, color: "#7a6f5c", marginBottom: 8 }}>💊 บันทึกการให้ยาล่าสุด (จากแท็บ เก็บสถิติการเลี้ยง)</div>
+        <div style={{ fontWeight: 800, fontSize: 13.5, color: "#7a6f5c", marginBottom: 8 }}>💊 บันทึกการให้ยาล่าสุด (จากแท็บ เก็บข้อมูลการเลี้ยง)</div>
         {medLog.length === 0 ? (
           <div style={{ fontSize: 12.5, color: "#9b8e78" }}>ยังไม่มีบันทึกยา — กรอกในหน้ากรอกรายวัน (ช่อง ยา/สารเสริม) แล้วจะโผล่ที่นี่</div>
         ) : medLog.map((x, i) => (
