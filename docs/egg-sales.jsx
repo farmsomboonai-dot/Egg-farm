@@ -22,6 +22,24 @@ if (supabase) {
   console.log("[Supabase] ยังไม่ตั้งค่า — ใช้ localStorage");
 }
 
+// LINE relay (ผ่าน Edge Function line-bot) — ตั้งค่าใน supabase-config.js: SB_FN_URL + SB_FARM_KEY
+// ไม่มีค่า → LINE_FN = null → ปุ่ม/ส่งอัตโนมัติปิดเงียบ (แอปทำงานปกติ). ดู supabase/LINE-SETUP.md
+const LINE_FN = (typeof window !== "undefined" && window.SB_FN_URL && window.SB_FARM_KEY)
+  ? { url: window.SB_FN_URL.replace(/\/+$/, "") + "/line-bot", key: window.SB_FARM_KEY }
+  : null;
+async function sendLineMessage(text) {
+  if (!LINE_FN) return { ok: false, error: "ยังไม่ได้ตั้งค่า LINE (supabase-config.js)" };
+  try {
+    const r = await fetch(LINE_FN.url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "push", text, key: LINE_FN.key }),
+    });
+    const d = await r.json().catch(() => ({}));
+    return r.ok && d.ok ? { ok: true } : { ok: false, error: d.error || ("HTTP " + r.status) };
+  } catch (e) { return { ok: false, error: (e && e.message) || "network error" }; }
+}
+
 /* =================================================================
    ฟาร์มไข่สมบูรณ์ · บริษัท เอสเจเอฟ ฟาร์ม จำกัด
    ต้นแบบระบบ: ขาย → คลังรายวัน → ผลผลิตรายหลัง
@@ -2576,6 +2594,8 @@ function dailyWorkStatus(production = {}, rearingByDate = {}, bills = [], flocks
 function DashboardView({ bills, payments, production = {}, rearingByDate = {}, flocks = {} }) {
   const [month, setMonth] = useState("");   // "" = ทุกเดือน
   const [copied, setCopied] = useState(false);
+  const [sendState, setSendState] = useState("");   // "" | sending | ok | err:<msg>
+  const lineOn = !!LINE_FN;
   const status = dailyWorkStatus(production, rearingByDate, bills, flocks);
   const months = useMemo(() => [...new Set((bills || []).map(billYM))].sort(), [bills]);
   const viewBills = month ? bills.filter((b) => billYM(b) === month) : bills;
@@ -2628,6 +2648,21 @@ function DashboardView({ bills, payments, production = {}, rearingByDate = {}, f
     return L.join("\n");
   };
   const copySummary = () => { const t = dailySummaryText(); if (navigator.clipboard) navigator.clipboard.writeText(t); setCopied(true); setTimeout(() => setCopied(false), 1800); };
+  const sendLine = async () => {
+    setSendState("sending");
+    const r = await sendLineMessage(dailySummaryText());
+    setSendState(r.ok ? "ok" : "err:" + r.error);
+    setTimeout(() => setSendState(""), r.ok ? 2500 : 6000);
+  };
+  // เลย 19:00 แล้วงานยังไม่ครบ + มีคนเปิดหน้านี้ → ส่งแจ้งเตือนเข้ากลุ่ม LINE อัตโนมัติ (วันละครั้ง)
+  useEffect(() => {
+    if (!lineOn || !status.overdue || status.allDone || status.active.length === 0) return;
+    const k = "eggLineAlert_" + status.today;
+    if (localStorage.getItem(k)) return;
+    localStorage.setItem(k, "1");
+    sendLineMessage("⛔ แจ้งเตือน: เกินกำหนด 19:00 แต่ยังป้อนข้อมูลไม่ครบ\n\n" + dailySummaryText());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lineOn, status.overdue, status.allDone, status.today]);
   const chipSty = (tone) => ({ fontSize: 12, fontWeight: 700, borderRadius: 8, padding: "3px 9px", background: { ok: "#DCFCE7", pend: "#FEF3C7", over: "#FEE2E2" }[tone], color: { ok: "#15803D", pend: "#B45309", over: "#B91C1C" }[tone] });
 
   return (
@@ -2644,8 +2679,14 @@ function DashboardView({ bills, payments, production = {}, rearingByDate = {}, f
               {status.allDone ? "✅ งานวันนี้ครบแล้ว" : status.overdue ? "⛔ เกินกำหนด 19:00 — ยังป้อนไม่ครบ" : "⏳ งานวันนี้ · ต้องป้อนให้ครบก่อน 19:00 น."}
             </span>
             <span style={{ fontSize: 12, color: "#7a6f5c" }}>{toThaiDate(status.today, false)} · ตอนนี้ {String(status.hour).padStart(2, "0")}:00 น.</span>
-            <button onClick={copySummary} style={{ marginLeft: "auto", ...S.primaryBtn, width: "auto", padding: "7px 15px", fontSize: 12.5 }}>{copied ? "✓ คัดลอกแล้ว" : "📋 คัดลอกสรุปวันนี้ (ส่ง LINE)"}</button>
+            <button onClick={copySummary} style={{ marginLeft: "auto", ...S.primaryBtn, width: "auto", padding: "7px 15px", fontSize: 12.5 }}>{copied ? "✓ คัดลอกแล้ว" : lineOn ? "📋 คัดลอกสรุป" : "📋 คัดลอกสรุปวันนี้ (ส่ง LINE)"}</button>
+            {lineOn && (
+              <button onClick={sendLine} disabled={sendState === "sending"} style={{ ...S.primaryBtn, width: "auto", padding: "7px 15px", fontSize: 12.5, background: sendState === "ok" ? "#16A34A" : sendState.startsWith("err") ? "#DC2626" : undefined }}>
+                {sendState === "sending" ? "⏳ กำลังส่ง…" : sendState === "ok" ? "✓ ส่งเข้า LINE แล้ว" : sendState.startsWith("err") ? "✗ ส่งไม่สำเร็จ" : "📤 ส่งเข้า LINE เลย"}
+              </button>
+            )}
           </div>
+          {sendState.startsWith("err") && <div style={{ fontSize: 11.5, color: "#B91C1C", marginBottom: 6 }}>ส่ง LINE ไม่สำเร็จ: {sendState.slice(4)}</div>}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 7 }}>
             {status.houses.map((h) => (
               <div key={h.hid} style={{ display: "flex", alignItems: "center", gap: 5, background: "#fff", border: "1px solid #eee3cd", borderRadius: 9, padding: "6px 9px" }}>
@@ -2655,7 +2696,7 @@ function DashboardView({ bills, payments, production = {}, rearingByDate = {}, f
               </div>
             ))}
           </div>
-          <div style={{ fontSize: 11.5, color: "#9b8e78", marginTop: 7 }}>🥚 = ผลผลิตรายวัน · 🐔 = บันทึกการเลี้ยง · ขายวันนี้ {fmt(status.salesToday)} บิล{status.overdue && !status.allDone ? " · ⚠️ ควรแจ้งผู้บริหาร (ระบบส่ง LINE อัตโนมัติ = เฟสถัดไป)" : ""}</div>
+          <div style={{ fontSize: 11.5, color: "#9b8e78", marginTop: 7 }}>🥚 = ผลผลิตรายวัน · 🐔 = บันทึกการเลี้ยง · ขายวันนี้ {fmt(status.salesToday)} บิล{status.overdue && !status.allDone ? (lineOn ? " · ⚠️ ส่งแจ้งเตือนเข้ากลุ่ม LINE แล้ว" : " · ⚠️ ควรแจ้งผู้บริหาร (ตั้งค่า LINE ที่ supabase/LINE-SETUP.md เพื่อส่งอัตโนมัติ)") : ""}</div>
         </div>
       )}
       <div style={{ padding: "16px 0" }}>
