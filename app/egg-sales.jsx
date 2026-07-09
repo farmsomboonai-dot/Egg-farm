@@ -393,7 +393,7 @@ function NewCustomerModal({ groups, onClose, onAdd, initial }) {
           </div>
           {addingGroup ? (
             <div style={{ display: "flex", gap: 8 }}>
-              <input style={S.fullInput} placeholder="ชื่อกลุ่มใหม่ เช่น ร้านกาแฟ" value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addGroup(); }} autoFocus />
+              <input style={S.fullInput} placeholder="ชื่อกลุ่มใหม่ เช่น ร้านกาแฟ" value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addGroup(); } }} autoFocus />
               <button type="button" onClick={addGroup} disabled={!newGroupName.trim()} style={{ ...S.primarySmBtn, opacity: newGroupName.trim() ? 1 : 0.5, whiteSpace: "nowrap" }}>เพิ่ม</button>
             </div>
           ) : (
@@ -766,6 +766,39 @@ function openingForDay(date, prodByDate, counts) {
 // วันทำงานของสต็อก/คลังรายวัน (ยกมา 2/7 → ผลิต 3/7) — ผลผลิตวันนี้เข้าสต็อกอัตโนมัติ
 const STOCK_DAY = "2026-07-03";
 
+// กด Enter ในช่องกรอกใด ๆ → เลื่อนโฟกัสไปช่องถัดไป (ครอบทุกฟอร์ม/โมดัลอัตโนมัติ)
+// - ข้าม textarea (Enter = ขึ้นบรรทัดใหม่) ; ช่อง/ปุ่มที่จัดการ Enter เองแล้ว (preventDefault) ปล่อยผ่าน
+//   เช่น ตารางกรอกผลผลิต, ใบจอง, ตั้งค่ารุ่น (มี onKey chain เฉพาะ), เพิ่มลงตะกร้า
+// - ขอบเขต: อยู่ในโมดัล (overlay position:fixed) วนเฉพาะช่องในโมดัล ; ไม่ใช่โมดัล = ทั้งหน้า
+// - ช่องสุดท้าย → ปุ่มถัดไป (เช่น ปุ่มบันทึก/คืนแผงชำรุด) กด Enter ซ้ำ = คลิกปุ่มนั้น
+function enterAdvanceFocus(e) {
+  if (e.key !== "Enter" || e.defaultPrevented || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+  if (e.nativeEvent && e.nativeEvent.isComposing) return;   // กำลังพิมพ์ผ่าน IME
+  const t = e.target;
+  if (!t || (t.tagName !== "INPUT" && t.tagName !== "SELECT")) return;
+  const ty = (t.getAttribute("type") || "text").toLowerCase();
+  if (["checkbox", "radio", "button", "submit", "reset", "file", "range"].includes(ty)) return;
+  let scope = t.parentElement;
+  while (scope && scope !== document.body) {
+    if (getComputedStyle(scope).position === "fixed") break;   // โมดัล overlay
+    scope = scope.parentElement;
+  }
+  if (!scope) scope = document.body;
+  const items = Array.prototype.filter.call(
+    scope.querySelectorAll("input, select, textarea, button, [tabindex]"),
+    (el) => !el.disabled && el.tabIndex !== -1 && el.type !== "hidden" && el.offsetParent !== null,
+  );
+  const idx = items.indexOf(t);
+  if (idx === -1 || idx >= items.length - 1) return;
+  e.preventDefault();
+  const next = items[idx + 1];
+  next.focus();
+  const nty = next.tagName === "INPUT" ? (next.getAttribute("type") || "text").toLowerCase() : "";
+  if (next.select && next.tagName === "INPUT" && !["checkbox", "radio", "button", "submit", "reset", "file", "range", "date", "color"].includes(nty)) {
+    try { next.select(); } catch (err) {}
+  }
+}
+
 export default function App() {
   const [view, setView] = useState("sales");
 
@@ -1043,7 +1076,7 @@ export default function App() {
     });
 
   return (
-    <div style={S.app}>
+    <div style={S.app} onKeyDown={enterAdvanceFocus}>
       <style>{CSS}</style>
       <header style={S.header}>
         <div style={S.brand}>
@@ -1753,6 +1786,7 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
                         placeholder="จำนวน"
                         onKeyDown={(e) => {
                           if (e.key === "Enter") {
+                            e.preventDefault();
                             const v = parseInt(e.target.value) || 0;
                             if (v > 0) { addToCart(p, v); e.target.value = ""; }
                           }
@@ -4509,9 +4543,9 @@ function FeedDeliveryModal({ houseIds, defaultDate, deliveries, onAdd, onDelete,
           <div style={{ flex: 1 }}><label style={lbl}>น้ำหนักอาหาร (กก.)</label>
             <input style={{ ...inp, textAlign: "right", fontWeight: 700 }} inputMode="decimal" placeholder="0" autoFocus value={kg}
               onChange={(e) => setKg(e.target.value.replace(/[^0-9.]/g, "").replace(/(\..*)\./g, "$1"))}
-              onKeyDown={(e) => { if (e.key === "Enter") save(); }} /></div>
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); save(); } }} /></div>
           <div style={{ flex: 1 }}><label style={lbl}>ผู้บันทึก (เสมียน)</label>
-            <input style={inp} placeholder="ชื่อผู้รับของ" value={by} onChange={(e) => setBy(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") save(); }} /></div>
+            <input style={inp} placeholder="ชื่อผู้รับของ" value={by} onChange={(e) => setBy(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); save(); } }} /></div>
         </div>
         <button style={{ ...S.primaryBtn, marginBottom: 14, opacity: parseFloat(kg) > 0 ? 1 : 0.5 }} disabled={!(parseFloat(kg) > 0)} onClick={save}>＋ บันทึกรับอาหาร {hid} · ไซโล {silo}{parseFloat(kg) > 0 ? ` · ${fmt1(parseFloat(kg))} กก.` : ""}</button>
         <div style={{ fontSize: 12.5, fontWeight: 800, color: "#7a6f5c", marginBottom: 6 }}>รายการรับของ {toThaiDate(date, false)} · {dayList.length} รายการ</div>
