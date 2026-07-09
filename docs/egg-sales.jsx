@@ -5796,7 +5796,7 @@ function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], 
     // รายละเอียดการรับแผงคืนภายหลัง (RT) + คัดแยกดี/ชำรุด (สะสมแยกใหญ่/เล็ก)
     trays.forEach((t) => {
       const blT = trayBaselineOf(t.customerId, trayEvents);
-      if (blT && (t.ts || 0) <= (blT.ts || 0)) return;   // ใบก่อนตั้งค่าเริ่มต้นใหม่ — ไม่รวม/ไม่โชว์
+      if (blT && (t.ts || 0) <= (blT.ts || 0) && t.sorted) return;   // ซ่อนเฉพาะใบที่ "คัดแล้ว" ก่อน baseline (ประวัติ) — ใบ "รอคัด" ยังโชว์เสมอ ให้คัดต่อได้
       const m = ensure(t.customerId);
       if (t.sorted) {
         m.good += sumTray(t.sorted.good); m.broken += sumTray(t.sorted.broken);
