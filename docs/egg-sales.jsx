@@ -1066,7 +1066,7 @@ export default function App() {
       {view === "dash" && <DashboardView bills={bills} payments={payments} />}
       {view === "stockprod" && <StockProdView
         stockProps={{ salesByDay, productionByDate, defaultDay: stockDay, stockCounts, closeMeta, refPrices, onCloseDay: closeDay, onReopenDay: reopenDay }}
-        prodProps={{ houses, setHouses, prodDate, setProdDate, production: productionByDate }} />}
+        prodProps={{ houses, setHouses, prodDate, setProdDate, production: productionByDate, flocks }} />}
       {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={saveRearing} flocks={flocks} saveFlock={saveFlock} production={productionByDate} medTrials={medTrials} medStock={medStock} medInfo={medInfo} vaccines={vaccines} addVaccine={addVaccine} deleteVaccine={deleteVaccine} labTests={labTests} addLabTest={addLabTest} deleteLabTest={deleteLabTest} />}
       {view === "feed" && <FeedView rearingByDate={rearingByDate} flocks={flocks} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} feedPrice={feedPrice} setFeedPrice={setFeedPrice} feedUseByMonth={feedUseByMonth} />}
       {view === "med" && <MedView medTrials={medTrials} addMedTrial={addMedTrial} deleteMedTrial={deleteMedTrial} rearingByDate={rearingByDate} production={productionByDate} medStock={medStock} medInfo={medInfo} medReceipts={medReceipts} addMedItem={addMedItem} updateMedItem={updateMedItem} addMedReceipt={addMedReceipt} medCostByMonth={medCostByMonth} />}
@@ -3128,7 +3128,7 @@ function ThaiDateField({ value, onChange, style, long = true, inputRef, onKeyDow
    ค่าเริ่มต้น: เปื้อนน้อย > 50 แผง · นวล > 3% ของไข่รวม · ไข่ดี < 60% ของไก่ */
 const ALERT_STORE_KEY = "eggAlertSettings";
 const DEFAULT_ALERT_CFG = {
-  off: { เปื้อนน้อย: { max: 50, pct: null }, นวล: { max: null, pct: 3 } },
+  off: { เปื้อนน้อย: { max: 50, pct: null }, นวล: { max: null, pct: 3 }, หัวทราย: { max: null, pct: 3 }, บุบ: { max: null, pct: 2 } },
   ber: {},
   goodRateMin: 60, totalRateMin: null, offPctMax: null,
 };
@@ -3162,6 +3162,96 @@ function computeHouseAlerts(h, cfg) {
   if (cfg.totalRateMin != null && chickens > 0) { const rate = totalFong / chickens * 100; if (rate < cfg.totalRateMin) out.push({ tag: "rate:total", label: "ไข่รวมต่ำ", detail: `${rate.toFixed(1)}% ของไก่ · ต่ำกว่า ${cfg.totalRateMin}%` }); }
   if (cfg.offPctMax != null && totalFong > 0) { const p = offFong / totalFong * 100; if (p > cfg.offPctMax) out.push({ tag: "rate:offpct", label: "ตกเกรดสูง", detail: `${p.toFixed(1)}% ของไข่รวม · เกิน ${cfg.offPctMax}%` }); }
   return out;
+}
+
+/* ---------- ฐานความรู้คำแนะนำ + มาตรฐานสายพันธุ์ Hy-Line Brown ----------
+   มาตรฐานผลผลิต (% hen-day) ตามอายุ = ค่าประมาณตามเส้นโค้ง Hy-Line Brown — ควรตรวจคู่มือฉบับจริงตามอายุจริง */
+const HYLINE_HD = [[18, 5], [19, 25], [20, 55], [21, 80], [22, 90], [24, 94], [26, 95.5], [30, 96], [35, 95], [40, 93], [45, 91], [50, 89], [55, 87], [60, 85], [65, 82], [70, 79], [75, 76], [80, 72], [90, 64]];
+function hylineHD(wk) {
+  if (wk == null) return null;
+  if (wk <= HYLINE_HD[0][0]) return HYLINE_HD[0][1];
+  const last = HYLINE_HD[HYLINE_HD.length - 1]; if (wk >= last[0]) return last[1];
+  for (let i = 0; i < HYLINE_HD.length - 1; i++) { const [w0, v0] = HYLINE_HD[i], [w1, v1] = HYLINE_HD[i + 1]; if (wk >= w0 && wk <= w1) return v0 + (v1 - v0) * (wk - w0) / (w1 - w0); }
+  return null;
+}
+// คำแนะนำต่อความผิดปกติ (key = ชื่อตกเกรด หรือ _prod/_off) — สาเหตุที่พบบ่อย + สิ่งที่ควรทำ
+const ADVICE_KB = {
+  "นวล": { title: "ไข่นวล (เปลือกซีด/สีจาง)", std: "เกณฑ์ฟาร์มทั่วไป < 2–3% ของไข่รวม · Hy-Line Brown เปลือกควรน้ำตาลสม่ำเสมอ",
+    causes: ["โรคหลอดลมอักเสบ (IB) · นิวคาสเซิล (ND) · โรคไข่ลด (EDS)", "ความเครียดจากความร้อน", "ไก่อายุมาก (เม็ดสีเปลือกลดตามอายุ)", "ยาบางชนิด (ซัลฟา/นิคาร์บาซิน) · พยาธิ"],
+    actions: ["ตรวจสมุดวัคซีน — IB/ND/EDS ครบและถึงรอบกระตุ้นหรือยัง", "อากาศร้อน → เสริมวิตามินซี + อิเล็กโทรไลต์ (มีในสต๊อก) ลดสเตรส", "สังเกตอาการทางเดินหายใจ (จาม/ครืดคราด) — ถ้ามี สงสัย IB → เจาะเลือด/ปรึกษาสัตวแพทย์", "ทบทวนยาที่ให้อยู่ บางตัวทำเปลือกซีด"] },
+  "หัวทราย": { title: "ไข่หัวทราย (เปลือกสาก/เป็นเม็ด)", std: "< 2–3% ของไข่รวม · เน้นแคลเซียม–ฟอสฟอรัส–วิตามิน D3 สมดุล",
+    causes: ["แคลเซียม/ฟอสฟอรัส/วิตามิน D3 ไม่สมดุล", "แคลเซียมไม่พอช่วงสร้างเปลือก (กลางคืน)", "โรค IB", "ไก่สาวเพิ่งเริ่มไข่ · อากาศร้อน"],
+    actions: ["เสริมแคลเซียม + วิตามิน D3 (Calcium+D3 / Miaphos ในสต๊อก) ให้สมดุล Ca:P", "ให้เกล็ดหอย/แคลเซียมเม็ดหยาบช่วงบ่าย–เย็น", "ตรวจ IB (วัคซีน/อาการ)", "ทบทวนสูตรอาหารกับสัตวบาล"] },
+  "บุบ": { title: "ไข่บุบ/ร้าว (เปลือกบาง)", std: "< 2% ของไข่รวม",
+    causes: ["เปลือกบาง — แคลเซียม/D3/แมงกานีส/สังกะสีไม่พอ", "การเก็บ–ขนส่งกระแทก", "ไก่อายุมาก เปลือกบางลง"],
+    actions: ["เสริมแคลเซียม+D3 และแร่ธาตุ (แมงกานีส/สังกะสี)", "เก็บไข่ให้บ่อยขึ้น ใช้ถาดนุ่ม ลดกระแทก", "ตรวจสัดส่วน Ca:P ในอาหาร"] },
+  "เปื้อนมาก": { title: "ไข่เปื้อน", std: "ให้ต่ำที่สุด — เป็นเรื่องการจัดการ ไม่ใช่ยา",
+    causes: ["รังสกปรก/วัสดุรองเปียก", "เก็บไข่ไม่บ่อย", "ไก่ท้องเสีย (มูลเหลว)"],
+    actions: ["เก็บไข่ถี่ขึ้น เปลี่ยนวัสดุรองรังบ่อย คุมความชื้น", "ถ้าท้องเสีย → เสริมโปรไบโอติก (Gut Pro) ตรวจน้ำ/อาหาร", "ปรับรางน้ำกันหก"] },
+  "จิ๋ว": { title: "ไข่จิ๋ว/เล็ก", std: "ปกติในไก่สาวช่วงแรก — จะใหญ่ขึ้นตามอายุ",
+    causes: ["ไก่สาวเพิ่งไข่ (ปกติ)", "โปรตีน/กรดอะมิโน/พลังงานอาหารต่ำ"],
+    actions: ["ถ้าไก่สาว รอโตตามอายุ", "ตรวจโปรตีน/เมทไธโอนีนในอาหารกับสัตวบาล"] },
+  "จัมโบ้": { title: "ไข่จัมโบ้/แฝด", std: "สัดส่วนน้อย — ระวังไข่ 2 ฟองในไก่สาว",
+    causes: ["ไก่สาวช่วงเริ่มไข่ · โปรแกรมแสงเร็วเกินไป", "พันธุกรรม"],
+    actions: ["คุมโปรแกรมแสง/อาหารช่วงเลี้ยงสาว", "เฝ้าระวังไก่เบ่ง/ท่อไข่ทะลัก"] },
+  "_prod": { title: "ผลผลิตต่ำกว่าเกณฑ์", std: "เทียบกับมาตรฐาน Hy-Line ตามอายุ (แสดงด้านบนต่อหลัง)",
+    causes: ["อายุไก่ (ก่อน peak หรือหลัง peak ลดตามธรรมชาติ)", "โรค (ND/IB/EDS/ILT) · ปรสิต", "อาหาร/น้ำ/แสงไม่พอ · ความเครียด–ความร้อน"],
+    actions: ["เทียบ %ผลผลิต กับมาตรฐาน Hy-Line ตามอายุ — ต่ำกว่ามากผิดปกติค่อยกังวล", "ตรวจโปรแกรมแสง (ชม./วัน) · คุณภาพอาหาร–น้ำ", "ถ้าตกเฉียบพลัน → เจาะเลือด/ตรวจโรค/ทบทวนวัคซีน", "เสริมวิตามินรวม+อิเล็กโทรไลต์ช่วงเครียด"] },
+  "_off": { title: "ตกเกรดรวมสูง", std: "รวมทุกชนิด ควร < ~8–10% ของไข่รวม",
+    causes: ["ดูชนิดตกเกรดที่เด่นสุด (นวล/หัวทราย/เปื้อน/บุบ) เป็นตัวนำ"],
+    actions: ["เปิดดูตัวที่เกินเกณฑ์เป็นรายชนิด แล้วทำตามคำแนะนำของชนิดนั้น"] },
+};
+ADVICE_KB["เปื้อนน้อย"] = ADVICE_KB["เปื้อนมาก"];
+// จับคู่ tag แจ้งเตือน → คำแนะนำ
+function adviceForTag(tag) {
+  if (!tag) return null;
+  if (tag.startsWith("off:")) return ADVICE_KB[tag.slice(4)] || null;
+  if (tag === "rate:good" || tag === "rate:total") return ADVICE_KB._prod;
+  if (tag === "rate:offpct") return ADVICE_KB._off;
+  return null;
+}
+
+/* 🩺 คำแนะนำการดูแล — จากความผิดปกติที่ตรวจพบในข้อมูลรายวัน + มาตรฐาน Hy-Line ตามอายุ */
+function HealthAdviceModal({ houses, alertMap, flocks = {}, prodDate, onClose }) {
+  const ageOf = (hid) => { const f = flocks[hid]; if (!f || !f.startDate || f.startAgeWk == null) return null; const days = Math.floor((new Date(prodDate) - new Date(f.startDate)) / 86400000); return days < 0 ? f.startAgeWk : f.startAgeWk + Math.floor(days / 7); };
+  const rows = houses.filter((h) => (alertMap[h.id] || []).length);
+  return (
+    <div style={S.modalOverlay} onClick={onClose}>
+      <div style={{ ...S.modal, maxWidth: 640, maxHeight: "92vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <div style={S.modalHead}>
+          <div><div style={S.modalTitle}>🩺 คำแนะนำการดูแล · {toThaiDate(prodDate, false)}</div><div style={S.modalSub}>จากความผิดปกติที่ตรวจพบในข้อมูลรายวัน + มาตรฐานสายพันธุ์ Hy-Line Brown</div></div>
+          <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
+        </div>
+        {rows.length === 0 ? (
+          <div style={{ padding: "26px 16px", textAlign: "center", color: "#15803D", fontWeight: 700 }}>✅ ทุกหลังผ่านเกณฑ์ที่ตั้งไว้ — ไม่มีคำแนะนำเพิ่มเติมวันนี้</div>
+        ) : rows.map((h) => {
+          const age = ageOf(h.id), hd = hylineHD(age);
+          // รวมคำแนะนำไม่ซ้ำ (นวลอาจเตือนทั้ง max และ %) + เก็บ detail ไว้โชว์
+          const seen = new Set(); const cards = [];
+          (alertMap[h.id] || []).forEach((a) => { const ad = adviceForTag(a.tag); if (!ad || seen.has(ad.title)) { if (ad) { const c = cards.find((x) => x.ad.title === ad.title); if (c) c.details.push(`${a.label} ${a.detail}`); } return; } seen.add(ad.title); cards.push({ ad, details: [`${a.label} ${a.detail}`] }); });
+          return (
+            <div key={h.id} style={{ border: "1px solid #eee3cd", borderRadius: 12, padding: "12px 14px", marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap", marginBottom: 8, paddingBottom: 8, borderBottom: "1px solid #f3eee2" }}>
+                <span style={{ fontSize: 15, fontWeight: 800, color: ACCENT_DK }}>โรงเรือน {h.id}</span>
+                {age != null ? <span style={{ fontSize: 12.5, color: "#7a6f5c" }}>อายุ ~{age} สัปดาห์</span> : <span style={{ fontSize: 12, color: "#c2410c" }}>· ตั้งค่ารุ่นเพื่อดูมาตรฐานตามอายุ</span>}
+                {hd != null ? <span style={{ fontSize: 12.5, fontWeight: 700, color: "#15803D" }}>· มาตรฐาน Hy-Line ผลผลิต ~{hd.toFixed(0)}%</span> : null}
+              </div>
+              {cards.map((c, i) => (
+                <div key={i} style={{ marginBottom: 10 }}>
+                  <div style={{ fontWeight: 800, color: "#B91C1C", fontSize: 13.5 }}>🔴 {c.ad.title} <span style={{ fontWeight: 600, color: "#9b8e78", fontSize: 12 }}>— พบ: {c.details.join(" · ")}</span></div>
+                  <div style={{ fontSize: 12.5, color: "#7A4F16", background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 8, padding: "5px 9px", margin: "4px 0" }}>📏 มาตรฐาน/เป้า: {c.ad.std}</div>
+                  <div style={{ fontSize: 12.5, color: "#5b5347", marginBottom: 2 }}>🔍 <b>สาเหตุที่พบบ่อย:</b> {c.ad.causes.join(" · ")}</div>
+                  <div style={{ fontSize: 12.5, color: "#15803D" }}>💡 <b>แนะนำให้ทำ:</b></div>
+                  <ul style={{ margin: "2px 0 0", paddingLeft: 20, fontSize: 12.5, color: "#3a352c" }}>{c.ad.actions.map((x, j) => <li key={j} style={{ marginBottom: 1 }}>{x}</li>)}</ul>
+                </div>
+              ))}
+            </div>
+          );
+        })}
+        <div style={{ fontSize: 11.5, color: "#9b8e78", background: "#FBF8F2", border: "1px solid #efe7d8", borderRadius: 8, padding: "8px 11px" }}>⚠️ คำแนะนำนี้เป็นแนวทางเบื้องต้นจากตัวเลข + เกณฑ์ทั่วไป — <b>ควรยืนยันกับสัตวแพทย์ผู้ควบคุมฟาร์มก่อนให้ยา/วัคซีนจริงทุกครั้ง</b> · มาตรฐาน Hy-Line เป็นค่าประมาณตามอายุ ให้อ้างอิงคู่มือฉบับจริง</div>
+      </div>
+    </div>
+  );
 }
 
 // กล่องตั้งค่าเกณฑ์แจ้งเตือน — ปรับได้ทุกตัวเลข (ตกเกรดแยกชนิด · ไข่ดีแยกเบอร์ · ภาพรวม)
@@ -3247,8 +3337,9 @@ function AlertSettingsModal({ cfg, onSave, onClose }) {
   );
 }
 
-function ProductionView({ houses = [], setHouses, prodDate, setProdDate, production = {} }) {
+function ProductionView({ houses = [], setHouses, prodDate, setProdDate, production = {}, flocks = {} }) {
   const [editHouse, setEditHouse] = useState(null);
+  const [showAdvice, setShowAdvice] = useState(false);   // โมดัลคำแนะนำการดูแล
   const [undoStack, setUndoStack] = useState([]);  // ประวัติค่าก่อนแก้ (undo ได้หลายชั้น)
   useEffect(() => { setUndoStack([]); }, [prodDate]);   // เปลี่ยนวัน → ล้างประวัติย้อนกลับ
   // เกณฑ์แจ้งเตือนคุณภาพ (บันทึกลง localStorage — ปรับได้ที่ปุ่ม "เกณฑ์เตือน")
@@ -3345,7 +3436,10 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
               <b style={{ color: "#991B1B", fontSize: 14.5 }}>แจ้งเตือนคุณภาพผลผลิต · {prodDateTH}</b>
               <span style={S.alertCount}>{totalAlerts} รายการ</span>
             </span>
-            <button onClick={() => setShowAlertCfg(true)} style={S.alertCfgBtn}><Settings size={13} /> ปรับเกณฑ์</button>
+            <span style={{ display: "inline-flex", gap: 7 }}>
+              <button onClick={() => setShowAdvice(true)} style={{ ...S.alertCfgBtn, borderColor: "#15803D", color: "#15803D", background: "#F0FDF4" }}>🩺 คำแนะนำการดูแล</button>
+              <button onClick={() => setShowAlertCfg(true)} style={S.alertCfgBtn}><Settings size={13} /> ปรับเกณฑ์</button>
+            </span>
           </div>
           <div style={S.alertList}>
             {housesAll.filter((h) => alertMap[h.id] && alertMap[h.id].length).map((h) => (
@@ -3450,6 +3544,7 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
       <div style={S.hint}>กด ✎ ที่ชื่อหลังเพื่อ "กรอก/แก้ไข" จำนวนไข่วันนี้ (เบอร์ 0-5 + ตกเกรด) · <b style={{ color: "#15803D" }}>ผลผลิตเข้าสต็อกคลังของวันนั้นอัตโนมัติ</b> (ไม่ต้องกดรับเข้า) · <b>แก้ผิด?</b> กด "↩ ย้อนการแก้" (มุมขวาบน) เพื่อคืนค่าเดิม · <b style={{ color: "#B91C1C" }}>ช่องแดง</b> = เกินเกณฑ์ที่ตั้งไว้ (กด <b>🔔 เกณฑ์เตือน</b> เพื่อปรับตัวเลข) · %ไข่ตกเกรด = ตกเกรด(ฟอง) ÷ ไข่รวม · %ไข่รวม = ไข่รวม ÷ ยอดไก่</div>
       {editHouse && <HouseEditModal key={editHouse.id} house={editHouse} defaultDate={prodDate} onClose={() => setEditHouse(null)} onSave={saveHouse} />}
       {showAlertCfg && <AlertSettingsModal cfg={alertCfgRaw} onSave={setAlertCfgRaw} onClose={() => setShowAlertCfg(false)} />}
+      {showAdvice && <HealthAdviceModal houses={housesAll} alertMap={alertMap} flocks={flocks} prodDate={prodDate} onClose={() => setShowAdvice(false)} />}
     </div>
   );
 }
