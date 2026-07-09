@@ -1063,7 +1063,7 @@ export default function App() {
       {view === "sales" && <SalesView stock={stock} addBill={addBill} bills={bills} payments={payments} trayStock={trayStock} setTrayStock={setTrayStock} trayRecords={trayRecords} trayEvents={trayEvents} drafts={drafts} setDrafts={setDrafts} />}
       {view === "bills" && <BillHistoryView bills={bills} payments={payments} />}
       {view === "account" && <AccountView bills={bills} payments={payments} recordPayment={recordPayment} />}
-      {view === "dash" && <DashboardView bills={bills} payments={payments} />}
+      {view === "dash" && <DashboardView bills={bills} payments={payments} production={productionByDate} rearingByDate={rearingByDate} flocks={flocks} />}
       {view === "stockprod" && <StockProdView
         stockProps={{ salesByDay, productionByDate, defaultDay: stockDay, stockCounts, closeMeta, refPrices, onCloseDay: closeDay, onReopenDay: reopenDay }}
         prodProps={{ houses, setHouses, prodDate, setProdDate, production: productionByDate, flocks }} />}
@@ -2552,8 +2552,31 @@ function PaymentModal({ bill, current, onClose, onPay }) {
 /* ============================================================
    หน้าจอ: แดชบอร์ดภาพรวม
 ============================================================ */
-function DashboardView({ bills, payments }) {
+// เช็คงานที่ต้องป้อนให้ครบในแต่ละวัน (ผลผลิต + การเลี้ยง ต่อหลังที่ยังเลี้ยงอยู่) · เดดไลน์ 19:00
+const DEADLINE_HOUR = 19;
+function dailyWorkStatus(production = {}, rearingByDate = {}, bills = [], flocks = {}) {
+  const today = isoFromTs(Date.now());
+  const hour = new Date().getHours();
+  // หลังที่ "ยังเลี้ยงอยู่" = ตั้งรุ่นไว้ หรือมีไก่ (chickens>0) ในผลผลิต 7 วันล่าสุด (กันกรณีวันนี้ป้อนมาแค่บางหลัง)
+  const recentDates = Object.keys(production).sort().slice(-7);
+  const active = HOUSE_IDS.filter((hid) => flocks[hid] || recentDates.some((d) => (production[d] || []).some((h) => h.id === hid && (h.chickens || 0) > 0)));
+  const prodToday = production[today] || [];
+  const rearToday = rearingByDate[today] || {};
+  const houses = active.map((hid) => {
+    const pe = prodToday.find((x) => x.id === hid);
+    const prodDone = !!pe && ((pe.chickens || 0) > 0 || Object.values(pe.grade?.เบอร์ || {}).some((v) => v > 0) || Object.values(pe.grade?.ตกเกรด || {}).some((v) => v > 0));
+    return { hid, prodDone, rearDone: !!rearToday[hid] };
+  });
+  const salesToday = (bills || []).filter((b) => (b.workDay || isoFromTs(b.ts || 0)) === today).length;
+  const missingProd = houses.filter((h) => !h.prodDone).map((h) => h.hid);
+  const missingRear = houses.filter((h) => !h.rearDone).map((h) => h.hid);
+  return { today, hour, overdue: hour >= DEADLINE_HOUR, active, houses, salesToday, missingProd, missingRear, allDone: missingProd.length === 0 && missingRear.length === 0 };
+}
+
+function DashboardView({ bills, payments, production = {}, rearingByDate = {}, flocks = {} }) {
   const [month, setMonth] = useState("");   // "" = ทุกเดือน
+  const [copied, setCopied] = useState(false);
+  const status = dailyWorkStatus(production, rearingByDate, bills, flocks);
   const months = useMemo(() => [...new Set((bills || []).map(billYM))].sort(), [bills]);
   const viewBills = month ? bills.filter((b) => billYM(b) === month) : bills;
 
@@ -2579,12 +2602,62 @@ function DashboardView({ bills, payments }) {
   viewBills.forEach((b) => { byCust[b.customer.name] = (byCust[b.customer.name] || 0) + b.total; });
   const custRows = Object.entries(byCust).sort((a, b) => b[1] - a[1]).slice(0, 5);
 
+  // ---------- สรุปประจำวัน (คัดลอกส่ง LINE) ----------
+  const dailySummaryText = () => {
+    const today = status.today;
+    const L = [`📋 สรุปประจำวัน ${toThaiDate(today)}`, COMPANY.name, ``];
+    const tb = (bills || []).filter((b) => (b.workDay || isoFromTs(b.ts || 0)) === today);
+    L.push(`💰 ขายไข่: ${fmt(tb.length)} บิล · ${fmt(tb.reduce((s, b) => s + (b.totalPrang || 0), 0))} แผง · ${fmt(tb.reduce((s, b) => s + b.total, 0))} บาท`);
+    L.push(``, `🥚 ผลผลิตรายหลัง:`);
+    status.active.forEach((hid) => {
+      const pe = (production[today] || []).find((x) => x.id === hid);
+      if (!pe) { L.push(`  ${hid}: — ยังไม่ป้อน`); return; }
+      const good = Object.values(pe.grade?.เบอร์ || {}).reduce((s, v) => s + (v || 0), 0);
+      const off = Object.values(pe.grade?.ตกเกรด || {}).reduce((s, v) => s + (v || 0), 0);
+      L.push(`  ${hid}: ไข่ดี ${fmt(Math.round(good / PER_PRADANG))} + ตกเกรด ${fmt(off)} = ${fmt(Math.round(good / PER_PRADANG) + off)} แผง`);
+    });
+    L.push(``, `🐔 การเลี้ยง:`);
+    status.active.forEach((hid) => {
+      const r = (rearingByDate[today] || {})[hid];
+      if (!r) { L.push(`  ${hid}: — ยังไม่ป้อน`); return; }
+      const dead = nf(r.loss?.deadAm) + nf(r.loss?.deadPm), feed = nf(r.feed?.s1used) + nf(r.feed?.s2used);
+      L.push(`  ${hid}: ตาย ${fmt(dead)} ตัว · อาหาร ${fmt1(feed)} กก.`);
+    });
+    L.push(``);
+    L.push(status.allDone ? `✅ ป้อนข้อมูลครบทุกหลังแล้ว` : `⚠️ ยังขาด: ${[status.missingProd.length ? "ผลผลิต " + status.missingProd.join(",") : "", status.missingRear.length ? "การเลี้ยง " + status.missingRear.join(",") : ""].filter(Boolean).join(" · ")}`);
+    return L.join("\n");
+  };
+  const copySummary = () => { const t = dailySummaryText(); if (navigator.clipboard) navigator.clipboard.writeText(t); setCopied(true); setTimeout(() => setCopied(false), 1800); };
+  const chipSty = (tone) => ({ fontSize: 12, fontWeight: 700, borderRadius: 8, padding: "3px 9px", background: { ok: "#DCFCE7", pend: "#FEF3C7", over: "#FEE2E2" }[tone], color: { ok: "#15803D", pend: "#B45309", over: "#B91C1C" }[tone] });
+
   return (
     <div style={S.wide}>
       <div style={S.subBar}>
         <span style={S.subBarTitle}>แดชบอร์ดภาพรวม{month ? <span style={{ fontSize: 13, fontWeight: 700, color: ACCENT_DK }}> · {ymTH(month)}</span> : null}</span>
         <MonthBar months={months} value={month} onChange={setMonth} />
       </div>
+      {/* งานวันนี้ต้องป้อนให้ครบก่อน 19:00 */}
+      {status.active.length > 0 && (
+        <div style={{ background: status.allDone ? "#F0FDF4" : status.overdue ? "#FEF2F2" : "#FFFBEB", border: `1.5px solid ${status.allDone ? "#BBF7D0" : status.overdue ? "#FCA5A5" : "#FDE68A"}`, borderRadius: 14, padding: "12px 15px", marginBottom: 4 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+            <span style={{ fontWeight: 800, color: status.allDone ? "#15803D" : status.overdue ? "#B91C1C" : "#B45309", fontSize: 14.5 }}>
+              {status.allDone ? "✅ งานวันนี้ครบแล้ว" : status.overdue ? "⛔ เกินกำหนด 19:00 — ยังป้อนไม่ครบ" : "⏳ งานวันนี้ · ต้องป้อนให้ครบก่อน 19:00 น."}
+            </span>
+            <span style={{ fontSize: 12, color: "#7a6f5c" }}>{toThaiDate(status.today, false)} · ตอนนี้ {String(status.hour).padStart(2, "0")}:00 น.</span>
+            <button onClick={copySummary} style={{ marginLeft: "auto", ...S.primaryBtn, width: "auto", padding: "7px 15px", fontSize: 12.5 }}>{copied ? "✓ คัดลอกแล้ว" : "📋 คัดลอกสรุปวันนี้ (ส่ง LINE)"}</button>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 7 }}>
+            {status.houses.map((h) => (
+              <div key={h.hid} style={{ display: "flex", alignItems: "center", gap: 5, background: "#fff", border: "1px solid #eee3cd", borderRadius: 9, padding: "6px 9px" }}>
+                <b style={{ color: ACCENT_DK, fontSize: 13 }}>{h.hid}</b>
+                <span style={chipSty(h.prodDone ? "ok" : status.overdue ? "over" : "pend")}>{h.prodDone ? "🥚 ✓" : "🥚 ขาด"}</span>
+                <span style={chipSty(h.rearDone ? "ok" : status.overdue ? "over" : "pend")}>{h.rearDone ? "🐔 ✓" : "🐔 ขาด"}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 11.5, color: "#9b8e78", marginTop: 7 }}>🥚 = ผลผลิตรายวัน · 🐔 = บันทึกการเลี้ยง · ขายวันนี้ {fmt(status.salesToday)} บิล{status.overdue && !status.allDone ? " · ⚠️ ควรแจ้งผู้บริหาร (ระบบส่ง LINE อัตโนมัติ = เฟสถัดไป)" : ""}</div>
+        </div>
+      )}
       <div style={{ padding: "16px 0" }}>
         {viewBills.length === 0 ? (
           <div style={S.emptyState}>
