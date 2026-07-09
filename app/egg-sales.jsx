@@ -5732,7 +5732,6 @@ function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], 
   const [reportCust, setReportCust] = useState(null);        // row ลูกค้าที่กำลังออกใบรายงานส่ง LINE
   const [newReturn, setNewReturn] = useState(false);
   const [newReturnCust, setNewReturnCust] = useState("");   // ลูกค้าที่ preselect ตอนกด "รับแผงคืน" จากสมุด
-  const [baselineCust, setBaselineCust] = useState(null);   // row ลูกค้าที่กำลังตั้งค่าเริ่มต้นใหม่
   const [expandSig, setExpandSig] = useState(0);            // กดการ์ด "รอคัดแยก" → กางลูกค้าที่มีใบรอคัด
   const custName = (id) => CUSTOMERS.find((c) => c.id === id)?.name || "—";
   // บันทึกเหตุการณ์ระดับลูกค้า: รับแผงดีทดแทน (แผงดีเข้าฟาร์ม + ตัดค้าง) / คืนแผงชำรุดให้ลูกค้า (ตัดกองชำรุดที่ฟาร์ม)
@@ -5890,7 +5889,10 @@ function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], 
           onReceive={(cid) => { setNewReturnCust(cid); setNewReturn(true); }}
           onSort={(t) => setSortModal(t)}
           onBrokenBack={(cid) => setCustAction({ mode: "brokenBack", customerId: cid })}
-          onBaseline={(row) => setBaselineCust(row)}
+          onBaseline={(row) => {
+            if (!window.confirm(`เริ่มนับบัญชีแผงของ "${custName(row.customerId)}" ใหม่จาก 0 ?\n(ประวัติแผงเดิมจะไม่ถูกนำมาคิด · ข้อมูลไม่ถูกลบ · กด “ยกเลิก” ภายหลังเพื่อคืนค่าได้)`)) return;
+            addTrayEvent && addTrayEvent({ id: "TE" + Date.now(), type: "baseline", customerId: row.customerId, date: isoFromTs(Date.now()), ts: Date.now(), owedBig: 0, owedSmall: 0, brokenBig: 0, brokenSmall: 0, note: "" });
+          }}
           onReport={(row) => setReportCust(row)}
           onDeleteEvent={(id) => {
             const e = (trayEvents || []).find((x) => x.id === id);
@@ -5905,13 +5907,6 @@ function PanelTrayView({ trayStock, setTrayStock, bills = [], trayRecords = [], 
         onClose={() => setCustAction(null)}
         onApply={(qty, dateISO, by) => applyCustAction(custAction.mode, custAction.customerId, qty, dateISO, by)} />}
       {reportCust && <TrayCustReportModal row={reportCust} bills={bills} onClose={() => setReportCust(null)} />}
-      {baselineCust && <TrayBaselineModal row={baselineCust} custName={custName(baselineCust.customerId)}
-        onClose={() => setBaselineCust(null)}
-        onApply={(op, dateISO, note) => {
-          addTrayEvent && addTrayEvent({ id: "TE" + Date.now(), type: "baseline", customerId: baselineCust.customerId, date: dateISO, ts: Date.now(),
-            owedBig: op.owedBig, owedSmall: op.owedSmall, brokenBig: op.brokenBig, brokenSmall: op.brokenSmall, note: (note || "").trim() });
-          setBaselineCust(null);
-        }} />}
       {newReturn && <NewReturnModal initialCustomerId={newReturnCust} onClose={() => { setNewReturn(false); setNewReturnCust(""); }} onAdd={addReceive} bills={bills} trays={trays} trayEvents={trayEvents} />}
     </>
   );
@@ -5999,13 +5994,13 @@ function TrayByCustomer({ rows, onReceive, onSort, onBrokenBack, onBaseline, onR
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", padding: "6px 2px 10px", borderBottom: "1px solid #f3f0e9", marginBottom: 8 }}>
                   <button style={actBtn("#B45309", "#FFF7EC")} onClick={(ev) => { ev.stopPropagation(); onReceive && onReceive(r.customerId); }}>📥 รับแผงคืน / แผงทดแทน (เข้าคิวคัด){r.owed > 0 ? ` · ค้าง ${fmt(r.owed)}` : ""}</button>
                   <button style={actBtn("#B91C1C", "#FEF2F2")} onClick={(ev) => { ev.stopPropagation(); onBrokenBack && onBrokenBack(r.customerId); }}>↩ คืนแผงชำรุดให้ลูกค้า{r.brokenPending > 0 ? ` (มี ${fmt(r.brokenPending)})` : ""}</button>
-                  <button style={actBtn("#6B7280", "#F3F4F6")} onClick={(ev) => { ev.stopPropagation(); onBaseline && onBaseline(r); }}>🔄 ตั้งค่าเริ่มต้นใหม่</button>
+                  <button style={actBtn("#6B7280", "#F3F4F6")} onClick={(ev) => { ev.stopPropagation(); onBaseline && onBaseline(r); }}>🔄 ตั้งค่าเริ่มต้นใหม่ (เริ่มจาก 0)</button>
                   <button style={{ ...actBtn("#1D4ED8", "#EFF6FF"), marginLeft: "auto" }} onClick={(ev) => { ev.stopPropagation(); onReport && onReport(r); }}>📤 รายงานส่งลูกค้า (LINE)</button>
                 </div>
                 {r.baseline && (
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12, background: "#F3F4F6", border: "1px solid #E5E7EB", borderRadius: 8, padding: "6px 10px", marginBottom: 8 }}>
                     <span style={{ fontWeight: 800, color: "#4B5563" }}>🔄 ตั้งค่าเริ่มต้นใหม่</span>
-                    <span style={{ color: "#6B7280" }}>{toThaiDate(r.baseline.date, false)} · ค้างคืน {trayQty(r.baseline.owedBig, r.baseline.owedSmall)}{(r.baseline.brokenBig || r.baseline.brokenSmall) ? ` · ชำรุดรอคืน ${trayQty(r.baseline.brokenBig, r.baseline.brokenSmall)}` : ""}</span>
+                    <span style={{ color: "#6B7280" }}>{toThaiDate(r.baseline.date, false)}{(r.baseline.owedBig || r.baseline.owedSmall || r.baseline.brokenBig || r.baseline.brokenSmall) ? ` · ค้างคืน ${trayQty(r.baseline.owedBig, r.baseline.owedSmall)}${(r.baseline.brokenBig || r.baseline.brokenSmall) ? ` · ชำรุดรอคืน ${trayQty(r.baseline.brokenBig, r.baseline.brokenSmall)}` : ""}` : " · เริ่มนับใหม่จาก 0"}</span>
                     {r.baseline.note ? <span style={{ color: "#9CA3AF" }}>· {r.baseline.note}</span> : null}
                     <button onClick={(ev) => { ev.stopPropagation(); if (window.confirm("ยกเลิกการตั้งค่าเริ่มต้นใหม่? ประวัติแผงก่อนหน้าจะกลับมาคิดในบัญชีเหมือนเดิม")) onDeleteEvent && onDeleteEvent(r.baseline.id); }}
                       style={{ marginLeft: "auto", border: "1px solid #D1D5DB", background: "#fff", color: "#6B7280", borderRadius: 7, padding: "3px 10px", cursor: "pointer", fontSize: 11.5, fontWeight: 700, fontFamily: "inherit" }}>ยกเลิก</button>
@@ -6166,52 +6161,6 @@ function TrayCustActionModal({ mode, custName, acc, onClose, onApply }) {
   );
 }
 
-/* 🔄 ตั้งค่าเริ่มต้นใหม่ ต่อลูกค้า — ตั้งยอดค้างคืน/ชำรุดเป็นจุดเริ่มต้น ตัดประวัติแผงก่อนหน้า (ไม่ลบข้อมูล) */
-function TrayBaselineModal({ row, custName, onClose, onApply }) {
-  const curOwedBig = Math.max(0, (row.sentBig || 0) - (row.goodBig || 0));    // ค้างคืนปัจจุบัน (ส่ง − คัดดี) เติมเป็นค่าตั้งต้น
-  const curOwedSmall = Math.max(0, (row.sentSmall || 0) - (row.goodSmall || 0));
-  const [oB, setOB] = useState(String(curOwedBig || ""));
-  const [oS, setOS] = useState(String(curOwedSmall || ""));
-  const [bB, setBB] = useState(String(row.brokenPendingBig || ""));
-  const [bS, setBS] = useState(String(row.brokenPendingSmall || ""));
-  const [date, setDate] = useState(isoFromTs(Date.now()));
-  const [note, setNote] = useState("");
-  const inp = { width: "100%", padding: "9px 10px", border: "1.5px solid #e3ddd0", borderRadius: 9, fontSize: 15, fontFamily: "inherit", outline: "none", textAlign: "right", boxSizing: "border-box" };
-  const lbl = { display: "block", fontSize: 12, fontWeight: 700, color: INK, marginBottom: 3 };
-  const num = (v, set) => <input style={inp} inputMode="numeric" placeholder="0" value={v} onChange={(e) => set(e.target.value.replace(/\D/g, ""))} />;
-  const total = (parseInt(oB) || 0) + (parseInt(oS) || 0) + (parseInt(bB) || 0) + (parseInt(bS) || 0);
-  return (
-    <div style={S.modalOverlay} onClick={onClose}>
-      <div style={{ ...S.modal, maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
-        <div style={S.modalHead}>
-          <div>
-            <div style={S.modalTitle}>🔄 ตั้งค่าเริ่มต้นใหม่</div>
-            <div style={S.modalSub}>{custName} — ตั้งยอดค้างเริ่มต้นใหม่</div>
-          </div>
-          <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
-        </div>
-        <div style={{ fontSize: 12.5, color: "#6B7280", background: "#F9FAFB", border: "1px solid #eee3cd", borderRadius: 9, padding: "9px 11px", marginBottom: 12, lineHeight: 1.7 }}>
-          ยอดที่ใส่จะเป็น <b>จุดเริ่มต้นใหม่</b> ของลูกค้ารายนี้ — บิล / ใบรับคืน / เหตุการณ์ที่เกิด<b>ก่อนวันนี้</b> จะไม่ถูกนำมาคิดในบัญชีแผงอีก (ข้อมูลไม่ถูกลบ · กด “ยกเลิก” ภายหลังเพื่อคืนค่าได้) · ใส่ 0 ทั้งหมด = เริ่มนับใหม่จากศูนย์
-        </div>
-        <div style={{ marginBottom: 10 }}><label style={lbl}>วันที่เริ่มต้นใหม่</label><ThaiDateField value={date} onChange={setDate} style={{ ...inp, textAlign: "left" }} /></div>
-        <label style={{ ...lbl, color: "#B91C1C" }}>ค้างคืน (แผงที่ลูกค้าต้องคืน)</label>
-        <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
-          <div style={{ flex: 1 }}><label style={lbl}>ใหญ่</label>{num(oB, setOB)}</div>
-          <div style={{ flex: 1 }}><label style={lbl}>เล็ก</label>{num(oS, setOS)}</div>
-        </div>
-        <label style={{ ...lbl, color: "#B45309" }}>ชำรุดที่ฟาร์มถือรอคืนลูกค้า (ถ้ามี)</label>
-        <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
-          <div style={{ flex: 1 }}><label style={lbl}>ใหญ่</label>{num(bB, setBB)}</div>
-          <div style={{ flex: 1 }}><label style={lbl}>เล็ก</label>{num(bS, setBS)}</div>
-        </div>
-        <div style={{ marginBottom: 12 }}><label style={lbl}>หมายเหตุ</label><input style={{ ...inp, textAlign: "left" }} value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น ยกยอดจากสมุดเก่า" /></div>
-        <button onClick={() => onApply({ owedBig: parseInt(oB) || 0, owedSmall: parseInt(oS) || 0, brokenBig: parseInt(bB) || 0, brokenSmall: parseInt(bS) || 0 }, date, note)}
-          style={{ ...S.primaryBtn }}>บันทึกตั้งค่าเริ่มต้นใหม่{total > 0 ? ` · ค้างคืน ${fmt((parseInt(oB) || 0) + (parseInt(oS) || 0))} · ชำรุด ${fmt((parseInt(bB) || 0) + (parseInt(bS) || 0))}` : " (เริ่มจากศูนย์)"}</button>
-      </div>
-    </div>
-  );
-}
-
 /* 📤 ใบรายงานแผงต่อลูกค้า — เซฟเป็นรูปส่ง LINE หรือคัดลอกข้อความ */
 function TrayCustReportModal({ row, bills = [], onClose }) {
   const [saving, setSaving] = useState(false);
@@ -6249,7 +6198,8 @@ function TrayCustReportModal({ row, bills = [], onClose }) {
       const d = toThaiDate(x.iso, false) || "";
       if (x.kind === "baseline") {
         hold += (x.e.owedBig || 0) + (x.e.owedSmall || 0);
-        return { text: `${d} · 🔄 ตั้งค่าเริ่มต้นใหม่ · ค้างคืน ${trayQty(x.e.owedBig, x.e.owedSmall)}${(x.e.brokenBig || x.e.brokenSmall) ? ` · ชำรุดรอคืน ${trayQty(x.e.brokenBig, x.e.brokenSmall)}` : ""}`, tail: holdTxt() };
+        const anyOpen = (x.e.owedBig || 0) + (x.e.owedSmall || 0) + (x.e.brokenBig || 0) + (x.e.brokenSmall || 0);
+        return { text: `${d} · 🔄 ${anyOpen ? `ตั้งค่าเริ่มต้นใหม่ · ค้างคืน ${trayQty(x.e.owedBig, x.e.owedSmall)}${(x.e.brokenBig || x.e.brokenSmall) ? ` · ชำรุดรอคืน ${trayQty(x.e.brokenBig, x.e.brokenSmall)}` : ""}` : "เริ่มนับใหม่จาก 0"}`, tail: holdTxt() };
       }
       if (x.kind === "bill") {
         hold += x.sent;
