@@ -4,7 +4,7 @@ import {
   AlertCircle, ShoppingCart, RotateCcw, Copy, ClipboardCheck, Send, Truck, Clock,
   Warehouse, Egg, ArrowDownToLine, Image as ImageIcon,
   FileText, Wallet, LayoutDashboard, TrendingUp, Calendar, CheckCircle2, CircleDollarSign, QrCode, Pencil, Printer,
-  Bell, Settings, Wheat, Pill, Calculator,
+  Bell, Settings, Wheat, Pill, Calculator, Stethoscope,
 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
@@ -1127,6 +1127,7 @@ export default function App() {
             { id: "rear", icon: <ClipboardCheck size={16} />, label: "เก็บข้อมูลการเลี้ยง", c: "#B45309" },
             { id: "feed", icon: <Wheat size={16} />, label: "อาหารไก่", c: "#4D7C0F" },
             { id: "med", icon: <Pill size={16} />, label: "ยาและวิตามิน", c: "#0F766E" },
+            { id: "health", icon: <Stethoscope size={16} />, label: "สุขภาพไก่", c: "#E11D48" },
             { id: "cost", icon: <Calculator size={16} />, label: "บัญชีต้นทุน", c: "#A16207" },
           ].map((t) => (
             <button
@@ -1149,6 +1150,7 @@ export default function App() {
       {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={saveRearing} flocks={flocks} saveFlock={saveFlock} production={productionByDate} medTrials={medTrials} medStock={medStock} medInfo={medInfo} vaccines={vaccines} addVaccine={addVaccine} deleteVaccine={deleteVaccine} labTests={labTests} addLabTest={addLabTest} deleteLabTest={deleteLabTest} />}
       {view === "feed" && <FeedView rearingByDate={rearingByDate} flocks={flocks} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} feedPrice={feedPrice} setFeedPrice={setFeedPrice} feedUseByMonth={feedUseByMonth} />}
       {view === "med" && <MedView medTrials={medTrials} addMedTrial={addMedTrial} deleteMedTrial={deleteMedTrial} rearingByDate={rearingByDate} production={productionByDate} medStock={medStock} medInfo={medInfo} medReceipts={medReceipts} addMedItem={addMedItem} updateMedItem={updateMedItem} addMedReceipt={addMedReceipt} medCostByMonth={medCostByMonth} />}
+      {view === "health" && <HealthHubView production={productionByDate} flocks={flocks} vaccines={vaccines} addVaccine={addVaccine} deleteVaccine={deleteVaccine} />}
       {view === "cost" && <CostView expenses={expenses} addExpense={addExpense} deleteExpense={deleteExpense} production={productionByDate} medCostByMonth={medCostByMonth} feedCostByMonth={feedCostByMonth} feedPrice={feedPrice} bills={bills} />}
       {view === "tray" && <PanelTrayView trayStock={trayStock} setTrayStock={setTrayStock} bills={bills} trayRecords={trayRecords} setTrayRecords={setTrayRecords} trayEvents={trayEvents} addTrayEvent={addTrayEvent} deleteTrayEvent={deleteTrayEvent} />}
       {view === "booking" && <BookingEntry bookings={bookings} addBooking={addBooking} updateBooking={updateBooking} deleteBooking={deleteBooking} production={productionByDate} planEstimates={planEstimates} />}
@@ -5033,6 +5035,76 @@ function KnowledgeModal({ onClose }) {
         )}
         <div style={{ fontSize: 11.5, color: "#9b8e78", background: "#FBF8F2", border: "1px solid #efe7d8", borderRadius: 8, padding: "8px 11px" }}>⚠️ คลังความรู้นี้เป็นแนวทางทั่วไป — <b>ควรยืนยันกับสัตวแพทย์ผู้ควบคุมฟาร์มก่อนวินิจฉัย/ให้ยา/ทำวัคซีนจริงทุกครั้ง</b> · สงสัยโรคระบาดร้ายแรง (ไข้หวัดนก) แจ้งกรมปศุสัตว์ทันที</div>
       </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   🩺 สุขภาพไก่ — ศูนย์รวมทางลัด: คำแนะนำการดูแล + คลังความรู้ + สมุดวัคซีน
+   (ดึงของที่เดิมกดลึกมารวมไว้ที่เดียว — ยังเปิดจากหน้าเดิมได้เหมือนเดิม)
+============================================================ */
+function HealthHubView({ production = {}, flocks = {}, vaccines = {}, addVaccine, deleteVaccine }) {
+  const [openKB, setOpenKB] = useState(false);
+  const [openAdvice, setOpenAdvice] = useState(false);
+  const [vacHouse, setVacHouse] = useState(null);
+  const prodDates = Object.keys(production).sort();
+  const latestDate = prodDates[prodDates.length - 1] || isoFromTs(Date.now());
+  const dayHouses = production[latestDate] || [];
+  const alertCfg = useMemo(() => { try { const st = localStorage.getItem(ALERT_STORE_KEY); return normAlertCfg(st ? JSON.parse(st) : DEFAULT_ALERT_CFG); } catch { return normAlertCfg(DEFAULT_ALERT_CFG); } }, []);
+  const housesAll = [...dayHouses, ...HOUSE_IDS.filter((id) => !dayHouses.some((h) => h.id === id)).map((id) => emptyHouseDay(id, latestDate))];
+  const alertMap = {};
+  housesAll.forEach((h) => { alertMap[h.id] = h.chickens > 0 ? computeHouseAlerts(h, alertCfg) : []; });
+  const alertHouses = housesAll.filter((h) => (alertMap[h.id] || []).length);
+  const totalAlerts = alertHouses.reduce((s, h) => s + alertMap[h.id].length, 0);
+  const houseIds = [...new Set([...housesAll.map((h) => h.id), ...HOUSE_IDS])];
+  const vacCount = (hid) => (vaccines[hid] || []).length;
+  const card = { background: "#fff", border: "1px solid #eee3cd", borderRadius: 16, padding: "15px 18px", marginBottom: 14 };
+  const goBtn = (bg) => ({ ...S.primaryBtn, width: "auto", padding: "9px 18px", background: bg, borderColor: bg });
+  return (
+    <div style={{ padding: "18px 22px 40px", maxWidth: 900, margin: "0 auto" }}>
+      <div style={S.subBar}><span style={S.subBarTitle}>สุขภาพไก่ 🩺<span style={{ fontSize: 12.5, fontWeight: 600, color: "#9b8e78" }}> · คำแนะนำ · คลังความรู้ · วัคซีน (รวมไว้ที่เดียว)</span></span></div>
+
+      {/* คำแนะนำการดูแล */}
+      <div style={card}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+          <span style={{ fontSize: 16, fontWeight: 800, color: "#15803D" }}>🩺 คำแนะนำการดูแล</span>
+          <span style={{ fontSize: 12.5, color: "#9b8e78" }}>วิเคราะห์จากผลผลิตล่าสุด {toThaiDate(latestDate, false)} + มาตรฐาน Hy-Line</span>
+        </div>
+        {totalAlerts > 0
+          ? <div style={{ fontSize: 13, color: "#B45309", marginBottom: 10 }}>⚠️ พบ {totalAlerts} จุดที่ควรดูแล ใน {alertHouses.length} โรงเรือน: {alertHouses.map((h) => h.id).join(" · ")}</div>
+          : <div style={{ fontSize: 13, color: "#15803D", marginBottom: 10 }}>✅ ผลผลิตล่าสุดผ่านเกณฑ์ทุกหลัง — ไม่มีคำแนะนำเร่งด่วน</div>}
+        <button onClick={() => setOpenAdvice(true)} style={goBtn("#15803D")}>เปิดคำแนะนำการดูแล →</button>
+      </div>
+
+      {/* คลังความรู้ */}
+      <div style={card}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+          <span style={{ fontSize: 16, fontWeight: 800, color: "#0F766E" }}>📚 คลังความรู้ · โรค–วัคซีน–วิตามิน</span>
+          <span style={{ fontSize: 12.5, color: "#9b8e78" }}>{DISEASE_KB.length} โรค (รวมอุบัติใหม่) + {SUPPLEMENT_KB.length} วิตามิน/สารเสริม</span>
+        </div>
+        <button onClick={() => setOpenKB(true)} style={goBtn("#0D9488")}>เปิดคลังความรู้ →</button>
+      </div>
+
+      {/* สมุดวัคซีน */}
+      <div style={card}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+          <span style={{ fontSize: 16, fontWeight: 800, color: "#B45309" }}>💉 สมุดวัคซีน</span>
+          <span style={{ fontSize: 12.5, color: "#9b8e78" }}>เลือกโรงเรือนเพื่อดู/บันทึกการทำวัคซีน</span>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {houseIds.map((hid) => (
+            <button key={hid} onClick={() => setVacHouse(hid)} style={{ border: "1.5px solid #E7C98B", background: "#FFF9EF", color: "#8A5A12", borderRadius: 12, padding: "10px 16px", cursor: "pointer", fontWeight: 800, fontSize: 14, fontFamily: "inherit" }}>
+              💉 {hid}{vacCount(hid) ? <span style={{ fontSize: 11.5, fontWeight: 700, color: "#B45309" }}> · {vacCount(hid)} รายการ</span> : ""}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ fontSize: 11.5, color: "#9b8e78", background: "#FBF8F2", border: "1px solid #efe7d8", borderRadius: 8, padding: "8px 11px" }}>💡 หน้านี้เป็นทางลัดรวมของเดิมมาไว้ที่เดียว — ยังเปิดจากหน้าเดิมได้ (วัคซีน/ตั้งค่ารุ่น อยู่ในหน้า “เก็บข้อมูลการเลี้ยง” · คำแนะนำการดูแล อยู่ในหน้า “ผลผลิตประจำวัน”)</div>
+
+      {openKB && <KnowledgeModal onClose={() => setOpenKB(false)} />}
+      {openAdvice && <HealthAdviceModal houses={housesAll} alertMap={alertMap} flocks={flocks} prodDate={latestDate} onClose={() => setOpenAdvice(false)} />}
+      {vacHouse && <VaccineModal houseId={vacHouse} rows={vaccines[vacHouse] || []} info={VACCINE_INFO[vacHouse]} onAdd={addVaccine} onDelete={deleteVaccine} onClose={() => setVacHouse(null)} />}
     </div>
   );
 }
