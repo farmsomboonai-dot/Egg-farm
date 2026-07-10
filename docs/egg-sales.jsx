@@ -1116,7 +1116,8 @@ export default function App() {
             { id: "stock", icon: <Warehouse size={16} />, label: "สต๊อคไข่ประจำวัน" },
             { id: "production", icon: <Egg size={16} />, label: "รายการผลผลิตไข่" },
             { id: "dash", icon: <LayoutDashboard size={16} />, label: "แดชบอร์ด" },
-            { id: "book", icon: <Calendar size={16} />, label: "จอง·วางแผน" },
+            { id: "booking", icon: <Receipt size={16} />, label: "จองออเดอร์" },
+            { id: "plan", icon: <Calendar size={16} />, label: "วางแผนออเดอร์" },
             { id: "rear", icon: <ClipboardCheck size={16} />, label: "เก็บข้อมูลการเลี้ยง" },
             { id: "feed", icon: <Wheat size={16} />, label: "อาหารไก่" },
             { id: "med", icon: <Pill size={16} />, label: "ยาและวิตามิน" },
@@ -1144,7 +1145,8 @@ export default function App() {
       {view === "med" && <MedView medTrials={medTrials} addMedTrial={addMedTrial} deleteMedTrial={deleteMedTrial} rearingByDate={rearingByDate} production={productionByDate} medStock={medStock} medInfo={medInfo} medReceipts={medReceipts} addMedItem={addMedItem} updateMedItem={updateMedItem} addMedReceipt={addMedReceipt} medCostByMonth={medCostByMonth} />}
       {view === "cost" && <CostView expenses={expenses} addExpense={addExpense} deleteExpense={deleteExpense} production={productionByDate} medCostByMonth={medCostByMonth} feedCostByMonth={feedCostByMonth} feedPrice={feedPrice} bills={bills} />}
       {view === "tray" && <PanelTrayView trayStock={trayStock} setTrayStock={setTrayStock} bills={bills} trayRecords={trayRecords} setTrayRecords={setTrayRecords} trayEvents={trayEvents} addTrayEvent={addTrayEvent} deleteTrayEvent={deleteTrayEvent} />}
-      {view === "book" && <BookingPlanView bookings={bookings} addBooking={addBooking} updateBooking={updateBooking} deleteBooking={deleteBooking} production={productionByDate} planEstimates={planEstimates} setPlanEstimate={setPlanEstimate} />}
+      {view === "booking" && <BookingEntry bookings={bookings} addBooking={addBooking} updateBooking={updateBooking} deleteBooking={deleteBooking} production={productionByDate} planEstimates={planEstimates} />}
+      {view === "plan" && <PlanBoard bookings={bookings} production={productionByDate} planEstimates={planEstimates} setPlanEstimate={setPlanEstimate} />}
     </div>
   );
 }
@@ -6641,25 +6643,6 @@ function autoEstimate(production, dateISO) {
 }
 const bookingTotal = (items) => Object.values(items || {}).reduce((s, v) => s + (parseInt(v) || 0), 0);
 
-function BookingPlanView({ bookings = [], addBooking, updateBooking, deleteBooking, production = {}, planEstimates = {}, setPlanEstimate }) {
-  const [mode, setMode] = useState("plan");   // plan | book
-  const chip = (on) => ({ border: `1.5px solid ${on ? ACCENT_DK : "#e3ddd0"}`, background: on ? ACCENT_DK : "#fff", color: on ? "#fff" : "#7a6f5c", borderRadius: 999, padding: "7px 15px", cursor: "pointer", fontWeight: 800, fontSize: 13, fontFamily: "inherit" });
-  return (
-    <div style={S.wide}>
-      <div style={S.subBar}>
-        <span style={S.subBarTitle}>จองไข่ล่วงหน้า · วางแผนการขาย</span>
-        <div style={{ display: "flex", gap: 7 }}>
-          <button style={chip(mode === "book")} onClick={() => setMode("book")}>🛒 รับจอง (ลูกค้า)</button>
-          <button style={chip(mode === "plan")} onClick={() => setMode("plan")}>📊 วางแผนพรุ่งนี้</button>
-        </div>
-      </div>
-      {mode === "book"
-        ? <BookingEntry bookings={bookings} addBooking={addBooking} updateBooking={updateBooking} deleteBooking={deleteBooking} production={production} planEstimates={planEstimates} />
-        : <PlanBoard bookings={bookings} production={production} planEstimates={planEstimates} setPlanEstimate={setPlanEstimate} />}
-    </div>
-  );
-}
-
 /* 🛒 หน้ารับจอง — ลูกค้า (หรือเรา) เลือกลูกค้า + วันส่ง แล้วใส่จำนวนไข่แต่ละชนิด */
 function BookingEntry({ bookings, addBooking, updateBooking, deleteBooking, production = {}, planEstimates = {} }) {
   // cutoff: จองรอบส่งได้ถึง 08:00 ของวันส่ง · เลย 08:00 → วันส่งเร็วสุดเลื่อนเป็นวันถัดไป
@@ -6875,7 +6858,7 @@ function PlanBoard({ bookings, production, planEstimates, setPlanEstimate }) {
           <div className="no-print" style={{ fontSize: 11.5, color: "#9b8e78", marginTop: 2 }}>จองรวม {fmt(totDemand)} แผง · {custCols.length} ราย{base ? ` · ประมาณการจากผลผลิต ${toThaiDate(base, false)}` : ""}</div>
         </div>
       {custCols.length === 0 && shownIds.length === 0 ? (
-        <div style={S.emptyState}><Calendar size={34} color="#d1d5db" /><div>ยังไม่มีใครจองวันนี้ — ไปที่ “🛒 รับจอง” เพื่อเพิ่ม (ตารางจะแยกให้เห็นรายลูกค้าเอง)</div></div>
+        <div style={S.emptyState}><Calendar size={34} color="#d1d5db" /><div>ยังไม่มีใครจองวันนี้ — ไปที่ปุ่ม “จองออเดอร์” เพื่อเพิ่ม (ตารางจะแยกให้เห็นรายลูกค้าเอง)</div></div>
       ) : (
         <>
           {/* ตารางวางแผนแยกรายลูกค้า: แถว = ชนิดไข่ · คอลัมน์ = ลูกค้าแต่ละราย + ประมาณการ/จองรวม/เหลือ */}
