@@ -4845,6 +4845,199 @@ function FeedView({ rearingByDate = {}, flocks = {}, production = {}, feedDelive
 }
 
 /* ============================================================
+   📚 คลังความรู้ — โรคระบาดสัตว์ปีก & วัคซีน + วิตามิน/สารเสริม
+   อัปเดตข้อมูล ณ ก.ค. 2569 (รวมโรคอุบัติใหม่ 2567–2569) — อ้างอิงกรมปศุสัตว์/OIE/รายงานวิชาการ
+   ⚠️ เป็นความรู้ทั่วไป ต้องยืนยันกับสัตวแพทย์ผู้ควบคุมฟาร์มก่อนให้ยา/วัคซีนจริงทุกครั้ง
+============================================================ */
+const KB_TAG = {
+  critical: { label: "🚨 โรคต้องแจ้ง · เฝ้าระวังสูงสุด", bg: "#FEF2F2", bd: "#FCA5A5", c: "#991B1B" },
+  new: { label: "🆕 อุบัติใหม่ 2567–2569", bg: "#FFF7ED", bd: "#FED7AA", c: "#C2410C" },
+  watch: { label: "⚠️ เฝ้าระวัง", bg: "#FEFCE8", bd: "#FDE68A", c: "#A16207" },
+  endemic: { label: "💉 ประจำถิ่น · คุมด้วยวัคซีน", bg: "#F0FDF4", bd: "#BBF7D0", c: "#15803D" },
+};
+const DISEASE_KB = [
+  { id: "ai", th: "ไข้หวัดนกชนิดรุนแรง", en: "Highly Pathogenic Avian Influenza", abbr: "HPAI H5N1", tag: "critical", agent: "ไวรัส (Influenza A)",
+    sym: "ตายเฉียบพลันจำนวนมาก (สูงถึง 96–100% ใน 1 สัปดาห์) · หงอน/เหนียงคล้ำเขียว · หน้า-ขาบวม · ท้องเสีย · อาการทางประสาท",
+    egg: "ผลผลิตตกฮวบทันที · ไข่เปลือกบาง/นิ่ม/ไม่มีเปลือก ก่อนไก่จะตาย",
+    spread: "นกน้ำ/นกอพยพเป็นพาหะหลัก · มูล–น้ำ–อุปกรณ์–คน–รถ · ‼️ ติดสู่คนและสัตว์เลี้ยงลูกด้วยนมได้",
+    prevent: "ชีวนิรภัยเข้มงวดสูงสุด: ตาข่ายกันนกป่า · ฆ่าเชื้อรถ-รองเท้า-คนเข้าเล้า · ห้ามนำสัตว์ปีกภายนอกเข้า · ไทยห้ามใช้วัคซีน AI · เก็บตัวอย่างส่งตรวจตามโปรแกรมกรมปศุสัตว์ทุกเดือน",
+    action: "‼️ โรคต้องแจ้งตามกฎหมาย — สงสัยให้แจ้งปศุสัตว์อำเภอ/สายด่วนกรมปศุสัตว์ 063-225-6888 ทันที · ห้ามเคลื่อนย้าย/ขายไก่-ไข่ · ไม่มียารักษา ใช้วิธีทำลายเชื้อ (culling) ตามคำสั่งเจ้าหน้าที่",
+    note: "🆕 2567–2569: สายพันธุ์ clade 2.3.4.4b ระบาดหนักทั่วโลก ข้ามสู่สัตว์เลี้ยงลูกด้วยนม (วัวนม/แมว/แกะ) และติดคนงานฟาร์มในสหรัฐฯ มีผู้เสียชีวิต — ไทยปลอดการระบาดตั้งแต่ปี 2549 แต่กรมปศุสัตว์ยกระดับเฝ้าระวังเพราะไวรัสกลายพันธุ์" },
+  { id: "ampv", th: "เมตะนิวโมไวรัส / โรคหัวบวม", en: "Avian Metapneumovirus / Swollen Head Syndrome", abbr: "aMPV", tag: "new", agent: "ไวรัส (Metapneumovirus)",
+    sym: "จาม น้ำมูก ตาบวมมีฟอง · หัว–หน้าบวม (รอบตา) · สะบัดหัว · คอบิด (เมื่อลามเข้าสมอง)",
+    egg: "ผลผลิตตก · เปลือกไข่คุณภาพลด/เปลือกซีด",
+    spread: "ละอองหายใจ–สัมผัส แพร่เร็ว · มักมีแบคทีเรีย (E.coli) แทรกซ้อนทำหัวบวมรุนแรง",
+    prevent: "มีวัคซีน aMPV (subtype A/B) ในบางประเทศ — ปรึกษาสัตวแพทย์ · คุมหนู/นก · ระบายอากาศ ลดฝุ่น-แอมโมเนีย",
+    action: "ยาปฏิชีวนะคุมแบคทีเรียแทรกซ้อน (ตามสัตวแพทย์) · ลดฝุ่น/แอมโมเนีย · เสริมวิตามิน+สมุนไพรหายใจ",
+    note: "🆕 อุบัติใหม่: พบระบาดครั้งใหญ่ในสัตว์ปีกสหรัฐฯ ปลายปี 2566–2567 (subtype A และ B) แพร่ทั่วประเทศอย่างรวดเร็ว เป็นโรคที่ไก่ไข่ต้องจับตา" },
+  { id: "myco", th: "มายโคพลาสมา (ซีอาร์ดี)", en: "Mycoplasmosis (MG / MS)", abbr: "MG·MS", tag: "new", agent: "แบคทีเรีย (Mycoplasma)",
+    sym: "หายใจครืดคราดเรื้อรัง จาม น้ำตาไหล ถุงลมอักเสบ (MG) · ข้อบวม ขาเจ็บ เดินไม่ปกติ (MS)",
+    egg: "ผลผลิตตกเรื้อรัง · 🆕 MS ทำ “เปลือกไข่ยอดผิดปกติ (EAA)” — ปลายไข่บาง/ขรุขระ/แตกง่าย",
+    spread: "ติดจากแม่สู่ไข่ (แนวตั้ง) · ละออง–สัมผัส · ความเครียด/อากาศแย่กระตุ้นให้แสดงอาการ",
+    prevent: "ซื้อลูกไก่/ไข่ฟักจากฝูงปลอดมายโคพลาสมา · ชีวนิรภัย · เจาะเลือดเฝ้าระวัง · มีวัคซีนในบางฟาร์ม",
+    action: "ยากลุ่มไทโลซิน/ด็อกซี่ (ทาร์โลชิน · ด็อกซิเคียว ในสต๊อก — ใช้ตามสัตวแพทย์) คุมอาการได้แต่ไม่หายขาด",
+    note: "🆕 2567–2568 ทั่วโลกพบ MS เพิ่มขึ้นในฝูงไก่ไข่ เชื้อรุนแรงขึ้น เชื่อมโยงกับเปลือกไข่ยอดผิดปกติ (EAA) และการกดภูมิคุ้มกัน" },
+  { id: "ilt", th: "กล่องเสียง-หลอดลมอักเสบติดต่อ", en: "Infectious Laryngotracheitis", abbr: "ILT", tag: "watch", agent: "ไวรัส (Herpesvirus)",
+    sym: "หายใจลำบากรุนแรง ยืดคออ้าปาก · ไอ/สะบัดหัวมีเลือดหรือเสมหะปนเลือด · ตาแฉะ",
+    egg: "ผลผลิตตกช่วงป่วย",
+    spread: "ละออง–อุปกรณ์ · ไก่ที่หายป่วยเป็นพาหะเงียบได้นาน",
+    prevent: "วัคซีนเฉพาะพื้นที่เสี่ยง (ปรึกษาสัตวแพทย์) · ชีวนิรภัยเข้มงวด กันไก่/อุปกรณ์จากฟาร์มอื่น",
+    action: "แยกฝูงป่วยทันที · ยาปฏิชีวนะกันติดเชื้อแทรก (ตามสัตวแพทย์) · เสริมวิตามิน+สมุนไพรหายใจ (พลูโมแม็กซ์)" },
+  { id: "salmo", th: "ซัลโมเนลลา (เชื้อในไข่)", en: "Salmonella (SE / ST)", abbr: "SE", tag: "watch", agent: "แบคทีเรีย (Salmonella)",
+    sym: "ไก่โตมักไม่แสดงอาการ (พาหะเงียบ) · ลูกไก่ท้องเสีย/ตาย",
+    egg: "⚠️ ความปลอดภัยอาหาร — เชื้อปนเปื้อนในไข่ ทำผู้บริโภคอาหารเป็นพิษได้",
+    spread: "หนู–แมลง–อาหาร–น้ำ · ติดจากแม่สู่ไข่ (แนวตั้ง) ได้",
+    prevent: "คุมหนู/แมลง · สุขาภิบาลอาหาร-น้ำ · เก็บ-ล้าง-เก็บไข่ในที่เย็นสะอาด · โปรไบโอติกแข่งเชื้อ (กัท โปร) · มีวัคซีน SE",
+    action: "ตรวจเฝ้าระวังในฟาร์ม · เข้มสุขอนามัยการเก็บไข่ · ปรึกษาสัตวแพทย์เรื่องโปรแกรมวัคซีน/ตรวจเชื้อ" },
+  { id: "nd", th: "นิวคาสเซิล", en: "Newcastle Disease", abbr: "ND", tag: "endemic", agent: "ไวรัส (Paramyxovirus)",
+    sym: "หายใจลำบาก อ้าปาก · คอบิด หัวสั่น เดินวน (อาการประสาท) · ท้องเสียเขียว · ตายเป็นกลุ่ม",
+    egg: "ผลผลิตตกแรง · ไข่เปลือกซีด/ขาว/นิ่ม/รูปทรงผิดปกติ",
+    spread: "ละอองหายใจ · มูล · อุปกรณ์–คน",
+    prevent: "วัคซีนตามโปรแกรม — ฟาร์มนี้ใช้ BIOVAC ND (เชื้อเป็น หยอด/สเปรย์) + OLVAC (เชื้อตาย ฉีด) กระตุ้นซ้ำก่อนไข่และระหว่างไข่",
+    action: "แยกฝูงป่วย · เสริมวิตามิน+อิเล็กโทรไลต์ลดสเตรส · ปรึกษาสัตวแพทย์ทบทวนรอบวัคซีน · เป็นโรคต้องแจ้งเช่นกัน" },
+  { id: "ib", th: "หลอดลมอักเสบติดต่อ", en: "Infectious Bronchitis", abbr: "IB", tag: "endemic", agent: "ไวรัส (Coronavirus)",
+    sym: "จาม ครืดคราด น้ำมูก · ในไก่เล็กทำท่อนำไข่เสียหายถาวร (false layer — โตแล้วกินอาหารแต่ไม่ไข่)",
+    egg: "ไข่เปลือกซีด/บาง/ขรุขระ · ไข่ขาวใสเหลว · ผลผลิตตก",
+    spread: "ละอองหายใจ แพร่เร็วมาก · มีหลายสายพันธุ์ย่อย (เช่น QX, 793B/4-91)",
+    prevent: "วัคซีน H120/สายพันธุ์ให้ตรงกับพื้นที่ (ฟาร์มนี้ใช้ ND+IB H120) กระตุ้นเป็นระยะ",
+    action: "เสริมวิตามินลดสเตรส · คุมอุณหภูมิ/การระบายอากาศ · ถ้าเปลือกซีดเป็นวงกว้างสงสัย IB → ปรึกษาสัตวแพทย์/เจาะเลือด" },
+  { id: "eds", th: "โรคไข่ลด", en: "Egg Drop Syndrome '76", abbr: "EDS", tag: "endemic", agent: "ไวรัส (Adenovirus)",
+    sym: "ไก่ดูแข็งแรงปกติ แต่ไข่ลดผิดสังเกต (ไม่มีอาการป่วยอื่นชัด)",
+    egg: "เปลือกซีดจาง → เปลือกบาง/นิ่ม → ไม่มีเปลือก · ผลผลิตตก 10–40%",
+    spread: "ติดจากแม่สู่ไข่ (แนวตั้ง) · มูล · เป็ด/นกน้ำเป็นแหล่งเชื้อ",
+    prevent: "วัคซีนเชื้อตาย EDS (มักรวมในเข็ม ND-IB-EDS) ฉีดช่วงอายุ 14–16 สัปดาห์ ก่อนเริ่มไข่",
+    action: "ยืนยันด้วยการเจาะเลือด · ไม่มียารักษา เน้นป้องกันด้วยวัคซีนก่อนไข่ · เสริมแคลเซียม+D3 พยุงคุณภาพเปลือก" },
+  { id: "coryza", th: "หวัดหน้าบวม", en: "Infectious Coryza", abbr: "IC", tag: "endemic", agent: "แบคทีเรีย (Avibacterium)",
+    sym: "หน้า/เหนียงบวม · น้ำมูกข้นเหม็น · ตาแฉะปิด · หายใจลำบาก",
+    egg: "ผลผลิตตก 10–40%",
+    spread: "สัมผัส–น้ำ–ละออง · ไก่หายป่วยเป็นพาหะ · ระบาดเร็วในเล้าแออัด/อากาศร้อนชื้น",
+    prevent: "วัคซีนในพื้นที่เสี่ยง · ลดความหนาแน่น ระบายอากาศดี · เลี้ยงแบบ all-in-all-out",
+    action: "ยากลุ่มซัลฟา/แมโครไลด์ (ตามสัตวแพทย์) ตอบสนองดีถ้าให้เร็ว · แยกฝูงป่วย · เสริมวิตามิน" },
+  { id: "cholera", th: "อหิวาต์ไก่", en: "Fowl Cholera", abbr: "FC", tag: "endemic", agent: "แบคทีเรีย (Pasteurella)",
+    sym: "ตายเฉียบพลันในไก่สมบูรณ์ · หงอน-เหนียงบวมคล้ำ · ท้องเสียเขียว/เหลือง · ข้อบวม (แบบเรื้อรัง)",
+    egg: "ผลผลิตตก",
+    spread: "หนู/นกป่า/ซากเป็นแหล่งเชื้อ · น้ำ-อาหารปนเปื้อน",
+    prevent: "คุมหนู–นก · สุขาภิบาลน้ำ · วัคซีนในฟาร์มที่มีประวัติเป็นโรค",
+    action: "ยาปฏิชีวนะ (ซัลฟา/เตตร้าไซคลิน/อะม็อกซี่ ตามสัตวแพทย์) · กำจัดซากให้ถูกวิธี · คุมพาหะ" },
+  { id: "ibd", th: "กัมโบโร (ต่อมเบอร์ซาอักเสบ)", en: "Infectious Bursal Disease", abbr: "IBD", tag: "endemic", agent: "ไวรัส (Birnavirus)",
+    sym: "ไก่เล็ก (อายุ 3–6 สัปดาห์) ซึม ขนยุ่ง ท้องเสียขาว จิกก้น · ทำลายระบบภูมิคุ้มกัน",
+    egg: "ไม่กระทบไข่โดยตรง แต่กดภูมิ ทำวัคซีนอื่นไม่ขึ้น/ติดโรคง่ายไปตลอด",
+    spread: "มูล · เชื้อทนอยู่ในเล้าได้นานมาก",
+    prevent: "วัคซีน Gumboro ในไก่เล็กตามโปรแกรม · ฆ่าเชื้อเล้าเข้มงวดระหว่างรุ่น",
+    action: "ไม่มียารักษา · ประคับประคอง (วิตามิน/อิเล็กโทรไลต์) · เน้นป้องกันด้วยวัคซีนช่วงอนุบาล" },
+  { id: "cocci", th: "บิด (ขี้ขาว/ขี้แดง)", en: "Coccidiosis", abbr: "—", tag: "endemic", agent: "ปรสิต (Eimeria)",
+    sym: "ไก่เล็ก-รุ่น ซึม ขนยุ่ง · ถ่ายมีเลือด/เมือก · โตช้า ซีด",
+    egg: "—",
+    spread: "มูล–วัสดุรองเปียกชื้น (เชื้ออยู่ในดิน/แกลบ)",
+    prevent: "คุมความชื้นวัสดุรอง · ยากันบิดผสมอาหารช่วงเลี้ยงเล็ก · มีวัคซีนบิด",
+    action: "ยารักษาบิด (แอมโพรเลียม/ท็อลทราซูริล ตามสัตวแพทย์) · เปลี่ยนวัสดุรองที่เปียก · เสริมวิตามิน A/K" },
+];
+const SUPPLEMENT_KB = [
+  { id: "vitc", name: "วิตามินซี (Vitamin C)", cat: "วิตามิน",
+    use: "เสริมภูมิต้านทาน · ลดความเครียดจากความร้อน · ลดอาการแพ้หลังทำวัคซีน · ช่วยดูดซึมแคลเซียมสร้างเปลือกไข่",
+    when: "อากาศร้อน · ก่อน-หลังทำวัคซีน · ช่วงป่วย/ฟื้นตัว · ขนส่ง/ย้ายเล้า",
+    stock: "แอล-แอสคอร์บิค แอซิด · Poustin-C" },
+  { id: "elyte", name: "อิเล็กโทรไลต์ + เกลือแร่", cat: "เกลือแร่",
+    use: "ชดเชยน้ำ–เกลือแร่ที่สูญเสีย · ลดสเตรส · กระตุ้นการกินน้ำช่วงอากาศร้อน",
+    when: "อากาศร้อนจัด · ไก่ท้องเสีย · ขนส่ง · หลังทำวัคซีน",
+    stock: "รีโวไลท์ · Supersan Soluble" },
+  { id: "cal", name: "แคลเซียม + วิตามิน D3", cat: "แร่ธาตุ",
+    use: "สร้างเปลือกไข่ให้แข็ง–หนา · บำรุงกระดูก · แก้ไข่เปลือกบาง/หัวทราย/บุบร้าว",
+    when: "เปลือกบาง/ซีด/สาก · ไก่ไข่อายุมาก · ผลผลิตพีค · ให้ช่วงบ่าย–เย็น (เปลือกสร้างกลางคืน)",
+    stock: "Calcium + D3 · Miaphos" },
+  { id: "multivit", name: "วิตามินรวม (Multivitamin)", cat: "วิตามิน",
+    use: "ฟื้นฟูร่างกายทั่วไป · เสริมภูมิ · บำรุงช่วงเครียด/ป่วย",
+    when: "หลังป่วย/หลังให้ยาปฏิชีวนะ · หลังทำวัคซีน · ช่วงเปลี่ยนอากาศ",
+    stock: "Supersan Soluble · รีไวทัล" },
+  { id: "sele", name: "ซีลีเนียม + วิตามิน E", cat: "แร่ธาตุ",
+    use: "บำรุงระบบสืบพันธุ์ เพิ่มความสมบูรณ์พันธุ์ · ต้านอนุมูลอิสระ เสริมภูมิคุ้มกัน",
+    when: "ช่วงเริ่มไข่ · ผลผลิต/อัตราฟักไม่ดี · ให้ควบคู่วิตามิน E",
+    stock: "ซีลีเนี่ยม" },
+  { id: "probio", name: "โปรไบโอติก (จุลินทรีย์ดี)", cat: "โปรไบโอติก",
+    use: "ปรับสมดุลลำไส้ · แข่งที่กับเชื้อร้าย (ซัลโมเนลลา/อีโคไล) · แก้ท้องเสีย · เพิ่มการดูดซึมอาหาร",
+    when: "ท้องเสีย/มูลเหลว · หลังให้ยาปฏิชีวนะ · ช่วยลดไข่เปื้อน",
+    stock: "กัท โปร-พลัส" },
+  { id: "herb", name: "สมุนไพรทางเดินหายใจ / ละลายเสมหะ", cat: "สมุนไพร",
+    use: "ช่วยเคลียร์ทางเดินหายใจ · ลดเสมหะ · บรรเทาอาการหวัด/ครืดคราด",
+    when: "ช่วงอากาศเปลี่ยน · ฝุ่น/แอมโมเนียสูง · เสริมช่วงมีโรคระบบหายใจ",
+    stock: "พลูโมแม็กซ์ · Acetin (ละลายเสมหะ)" },
+  { id: "deworm", name: "ยาถ่ายพยาธิ / กำจัดไร", cat: "ป้องกันปรสิต",
+    use: "ถ่ายพยาธิภายใน · กำจัดไรเลือด/ไรขน (ปรสิตภายนอก) ที่ทำไก่ซีด–โลหิตจาง ผลผลิตตก",
+    when: "ตามโปรแกรมฟาร์ม · พบไรในเล้า/รังไข่ · ไก่หงอนซีด",
+    stock: "ไอเวอร์การ์ด · เฟนโดน่า/ลินท์อป (พ่นกำจัดไร)" },
+];
+function KnowledgeModal({ onClose }) {
+  const [tab, setTab] = useState("disease");
+  const [q, setQ] = useState("");
+  const kw = q.trim().toLowerCase();
+  const dz = DISEASE_KB.filter((d) => !kw || [d.th, d.en, d.abbr, d.agent, d.sym, d.egg, d.spread, d.prevent, d.action, d.note].join(" ").toLowerCase().includes(kw));
+  const sp = SUPPLEMENT_KB.filter((s) => !kw || [s.name, s.cat, s.use, s.when, s.stock].join(" ").toLowerCase().includes(kw));
+  const tabBtn = (id, label) => (
+    <button onClick={() => setTab(id)} style={{ flex: 1, padding: "9px 8px", borderRadius: 10, border: `1.5px solid ${tab === id ? "#0D9488" : "#e0d7c3"}`, background: tab === id ? "#0D9488" : "#fff", color: tab === id ? "#fff" : "#7a6f5c", fontWeight: 800, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit" }}>{label}</button>
+  );
+  const fld = (icon, label, val, col) => val && val !== "—" ? (
+    <div style={{ fontSize: 12.5, color: "#4a4437", margin: "3px 0", lineHeight: 1.5 }}><b style={{ color: col || "#7a6f5c" }}>{icon} {label}:</b> {val}</div>
+  ) : null;
+  return (
+    <div style={S.modalOverlay} onClick={onClose}>
+      <div style={{ ...S.modal, maxWidth: 720, maxHeight: "92vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <div style={S.modalHead}>
+          <div><div style={S.modalTitle}>📚 คลังความรู้ · โรค–วัคซีน–วิตามิน</div><div style={S.modalSub}>อัปเดต ก.ค. 2569 · รวมโรคอุบัติใหม่ 2567–2569 — อ้างอิงกรมปศุสัตว์/รายงานวิชาการ</div></div>
+          <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
+        </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>{tabBtn("disease", `🦠 โรค & วัคซีน · ${DISEASE_KB.length}`)}{tabBtn("supp", `💊 วิตามิน & สารเสริม · ${SUPPLEMENT_KB.length}`)}</div>
+        <div style={{ position: "relative", marginBottom: 12 }}>
+          <Search size={17} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: "#0D9488" }} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={tab === "disease" ? "ค้นหาโรค — เช่น หวัดนก, เปลือกไข่, หายใจ, aMPV" : "ค้นหา — เช่น เปลือก, ท้องเสีย, ร้อน, ภูมิ"}
+            style={{ width: "100%", padding: "9px 12px 9px 36px", border: "1.5px solid #99E0D6", borderRadius: 10, fontSize: 14, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: "#F0FDFA" }} />
+        </div>
+        {tab === "disease" ? (
+          <>
+            {dz.length === 0 ? <div style={{ textAlign: "center", color: "#9b8e78", padding: "20px 0", fontWeight: 600 }}>ไม่พบโรคที่ตรงกับคำค้น</div> : dz.map((d) => {
+              const tg = KB_TAG[d.tag];
+              return (
+                <div key={d.id} style={{ border: `1px solid ${tg.bd}`, borderLeft: `4px solid ${tg.c}`, borderRadius: 12, padding: "11px 13px", marginBottom: 11, background: "#fff" }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap", marginBottom: 5 }}>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: "#3a352c" }}>{d.th}</span>
+                    <span style={{ fontSize: 11.5, color: "#9b8e78" }}>{d.en} · {d.abbr}</span>
+                    <span style={{ marginLeft: "auto", fontSize: 10.5, fontWeight: 800, color: tg.c, background: tg.bg, border: `1px solid ${tg.bd}`, borderRadius: 999, padding: "2px 9px", whiteSpace: "nowrap" }}>{tg.label}</span>
+                  </div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#0D9488", marginBottom: 3 }}>🧫 เชื้อ: {d.agent}</div>
+                  {fld("🐔", "อาการ", d.sym)}
+                  {fld("🥚", "ผลต่อไข่/ผลผลิต", d.egg, "#B45309")}
+                  {fld("↔️", "การแพร่", d.spread)}
+                  {fld("🛡️", "ป้องกัน/วัคซีน", d.prevent, "#15803D")}
+                  {fld("✅", "ถ้าสงสัย ทำอย่างไร", d.action, "#0F766E")}
+                  {d.note ? <div style={{ fontSize: 12, color: tg.c, background: tg.bg, border: `1px solid ${tg.bd}`, borderRadius: 8, padding: "6px 9px", marginTop: 6, lineHeight: 1.5 }}>📰 {d.note}</div> : null}
+                </div>
+              );
+            })}
+          </>
+        ) : (
+          <>
+            {sp.length === 0 ? <div style={{ textAlign: "center", color: "#9b8e78", padding: "20px 0", fontWeight: 600 }}>ไม่พบรายการที่ตรงกับคำค้น</div> : sp.map((s) => (
+              <div key={s.id} style={{ border: "1px solid #eee3cd", borderLeft: "4px solid #0D9488", borderRadius: 12, padding: "11px 13px", marginBottom: 11, background: "#fff" }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+                  <span style={{ fontSize: 15, fontWeight: 800, color: "#3a352c" }}>{s.name}</span>
+                  <span style={{ fontSize: 10.5, fontWeight: 800, color: "#0F766E", background: "#F0FDFA", border: "1px solid #99E0D6", borderRadius: 999, padding: "2px 9px" }}>{s.cat}</span>
+                </div>
+                {fld("💡", "ใช้ทำอะไร", s.use, "#0F766E")}
+                {fld("⏰", "ให้เมื่อไหร่", s.when, "#B45309")}
+                {fld("📦", "ในสต๊อกฟาร์ม", s.stock, "#15803D")}
+              </div>
+            ))}
+            <div style={{ fontSize: 12, color: "#7A4F16", background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 10, padding: "9px 11px", marginBottom: 6, lineHeight: 1.55 }}>
+              💊 <b>ยาปฏิชีวนะ</b> (ทาร์โลชิน · ด็อกซิเคียว · ม็อกซี่การ์ด · เอ็นโรการ์ด · โคลิเคียว ฯลฯ) ให้ใช้ <b>ตามที่สัตวแพทย์สั่งเท่านั้น</b> — ห้ามใช้พร่ำเพรื่อ (ดื้อยา) และต้อง <b>เว้นระยะหยุดยา (withdrawal) ก่อนเก็บไข่ขาย</b> ตามฉลากยา
+            </div>
+          </>
+        )}
+        <div style={{ fontSize: 11.5, color: "#9b8e78", background: "#FBF8F2", border: "1px solid #efe7d8", borderRadius: 8, padding: "8px 11px" }}>⚠️ คลังความรู้นี้เป็นแนวทางทั่วไป — <b>ควรยืนยันกับสัตวแพทย์ผู้ควบคุมฟาร์มก่อนวินิจฉัย/ให้ยา/ทำวัคซีนจริงทุกครั้ง</b> · สงสัยโรคระบาดร้ายแรง (ไข้หวัดนก) แจ้งกรมปศุสัตว์ทันที</div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
    หน้าจอ: ยาและวิตามิน — ทดลองยา/สารเสริม + ตรวจจับจากบันทึกรายวัน + ประวัติการให้ยา
 ============================================================ */
 function MedView({ medTrials = [], addMedTrial, deleteMedTrial, rearingByDate = {}, production = {}, medStock = [], medInfo = {}, medReceipts = [], addMedItem, updateMedItem, addMedReceipt, medCostByMonth = {} }) {
@@ -4853,6 +5046,7 @@ function MedView({ medTrials = [], addMedTrial, deleteMedTrial, rearingByDate = 
   const [viewTrial, setViewTrial] = useState(null);
   const [receiptItem, setReceiptItem] = useState(null);   // รายการยาที่กำลังรับเข้า
   const [showAddMed, setShowAddMed] = useState(false);
+  const [showKB, setShowKB] = useState(false);            // 📚 คลังความรู้ โรค/วัคซีน/วิตามิน
   const thisYM = isoFromTs(Date.now()).slice(0, 7);
   const medCostThisMonth = medCostByMonth[thisYM]?.total || 0;
   const stockValue = medStock.reduce((s, it) => { const inf = medInfo[(it.name || "").trim()]; return s + (inf && it.price ? Math.max(0, inf.remain) * it.price : 0); }, 0);
@@ -4914,7 +5108,10 @@ function MedView({ medTrials = [], addMedTrial, deleteMedTrial, rearingByDate = 
     <div style={{ padding: "18px 22px 40px" }}>
       <div style={S.subBar}>
         <span style={S.subBarTitle}>ยาและวิตามิน 💊<span style={{ fontSize: 12.5, fontWeight: 600, color: "#9b8e78" }}> · สต๊อก {medStock.length} รายการ</span></span>
-        <button onClick={() => setShowAddMed(true)} style={{ padding: "8px 16px", borderRadius: 999, border: "1.5px solid #0D9488", background: "#0D9488", color: "#fff", fontSize: 13.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>＋ เพิ่มยาใหม่เข้าสต๊อก</button>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button onClick={() => setShowKB(true)} style={{ padding: "8px 16px", borderRadius: 999, border: "1.5px solid #0D9488", background: "#F0FDFA", color: "#0F766E", fontSize: 13.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>📚 คลังความรู้ · โรค·วัคซีน·วิตามิน</button>
+          <button onClick={() => setShowAddMed(true)} style={{ padding: "8px 16px", borderRadius: 999, border: "1.5px solid #0D9488", background: "#0D9488", color: "#fff", fontSize: 13.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>＋ เพิ่มยาใหม่เข้าสต๊อก</button>
+        </div>
       </div>
       <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
         {card("💊 ค่ายาที่ใช้จริงเดือนนี้ — ตัวนี้เข้าบัญชีต้นทุน", fmt(Math.round(medCostThisMonth)) + " บ.", medCostThisMonth ? "#B91C1C" : undefined)}
@@ -5063,6 +5260,7 @@ function MedView({ medTrials = [], addMedTrial, deleteMedTrial, rearingByDate = 
         <MedReceiptModal item={receiptItem} info={medInfo[(receiptItem.name || "").trim()]}
           onSave={(r) => { addMedReceipt(r); setReceiptItem(null); }} onClose={() => setReceiptItem(null)} />
       )}
+      {showKB && <KnowledgeModal onClose={() => setShowKB(false)} />}
       {showAddMed && (
         <AddMedModal onSave={(it) => { addMedItem(it); setShowAddMed(false); }} onClose={() => setShowAddMed(false)} />
       )}
