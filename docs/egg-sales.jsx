@@ -1138,7 +1138,7 @@ export default function App() {
       {view === "bills" && <BillHistoryView bills={bills} payments={payments} />}
       {view === "account" && <AccountView bills={bills} payments={payments} recordPayment={recordPayment} />}
       {view === "dash" && <DashboardView bills={bills} payments={payments} production={productionByDate} rearingByDate={rearingByDate} flocks={flocks} />}
-      {view === "stock" && <StockView salesByDay={salesByDay} productionByDate={productionByDate} defaultDay={stockDay} stockCounts={stockCounts} closeMeta={closeMeta} refPrices={refPrices} onCloseDay={closeDay} onReopenDay={reopenDay} />}
+      {view === "stock" && <StockView salesByDay={salesByDay} productionByDate={productionByDate} defaultDay={isoFromTs(Date.now())} stockCounts={stockCounts} closeMeta={closeMeta} refPrices={refPrices} onCloseDay={closeDay} onReopenDay={reopenDay} />}
       {view === "production" && <ProductionView houses={houses} setHouses={setHouses} prodDate={prodDate} setProdDate={setProdDate} production={productionByDate} flocks={flocks} />}
       {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={saveRearing} flocks={flocks} saveFlock={saveFlock} production={productionByDate} medTrials={medTrials} medStock={medStock} medInfo={medInfo} vaccines={vaccines} addVaccine={addVaccine} deleteVaccine={deleteVaccine} labTests={labTests} addLabTest={addLabTest} deleteLabTest={deleteLabTest} />}
       {view === "feed" && <FeedView rearingByDate={rearingByDate} flocks={flocks} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} feedPrice={feedPrice} setFeedPrice={setFeedPrice} feedUseByMonth={feedUseByMonth} />}
@@ -2816,6 +2816,24 @@ function DashboardView({ bills, payments, production = {}, rearingByDate = {}, f
    หน้าจอ: คลังรายวัน
    ยกมา + รับเข้า − ขาย(รายลูกค้า) = คงเหลือ
 ============================================================ */
+// ---- เตือน "วันก่อนหน้ายังไม่ได้บันทึก" (ใช้ทุกหน้าบันทึกรายวัน) ----
+// คืนวันก่อนหน้า (ISO) ถ้ายังไม่บันทึก & ไม่ก่อนวันแรกที่เริ่มบันทึก ; ไม่งั้น null
+function prevUnrecordedDay(selectedISO, isRecorded, firstISO) {
+  if (!selectedISO) return null;
+  const prev = shiftDayISO(selectedISO, -1);
+  if (!firstISO || prev < firstISO) return null;   // ก่อนวันแรกที่เริ่มบันทึก — ไม่เตือน
+  return isRecorded(prev) ? null : prev;
+}
+function PrevDayWarn({ prevISO, what, onGo }) {
+  if (!prevISO) return null;
+  return (
+    <div style={{ background: "#FFFBEB", border: "1.5px solid #FDE68A", borderRadius: 12, padding: "9px 14px", margin: "0 0 12px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+      <span style={{ fontWeight: 800, color: "#B45309", fontSize: 13 }}>⚠️ วันก่อนหน้า ({toThaiDate(prevISO, false)}) ยังไม่ได้บันทึก{what ? " " + what : ""} — อย่าลืมย้อนไปบันทึก</span>
+      {onGo && <button onClick={() => onGo(prevISO)} style={{ marginLeft: "auto", border: "1.5px solid #D97706", background: "#fff", color: "#B45309", borderRadius: 8, padding: "4px 13px", cursor: "pointer", fontWeight: 800, fontSize: 12.5, fontFamily: "inherit" }}>ไปบันทึกวันนั้น →</button>}
+    </div>
+  );
+}
+
 function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCounts = {}, closeMeta = {}, refPrices = {}, onCloseDay, onReopenDay }) {
   const dates = Object.keys(productionByDate).sort();
   const [day, setDay] = useState(defaultDay || dates[dates.length - 1] || STOCK_DAY);
@@ -2890,6 +2908,7 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
           <button onClick={() => goDay(1)} disabled={dIdx < 0 || dIdx >= dates.length - 1} title="วันถัดไป" style={{ padding: "6px 11px", border: `1px solid ${ACCENT}`, background: (dIdx < 0 || dIdx >= dates.length - 1) ? "#f3efe6" : "#fff", color: (dIdx < 0 || dIdx >= dates.length - 1) ? "#c9c0ad" : ACCENT_DK, borderRadius: 8, fontSize: 15, fontWeight: 800, cursor: (dIdx < 0 || dIdx >= dates.length - 1) ? "default" : "pointer" }}>›</button>
         </div>
       </div>
+      <PrevDayWarn prevISO={prevUnrecordedDay(day, (d) => !!stockCounts[d], Object.keys(stockCounts).sort()[0])} what="(ปิดยอดสิ้นวัน)" onGo={setDay} />
 
       {showDiff && totals.diff !== 0 && (
         <div style={{ margin: "0 0 10px", padding: "9px 13px", borderRadius: 10, background: totals.diff < 0 ? "#FEF2F2" : "#F0FDF4", border: `1px solid ${totals.diff < 0 ? "#FECACA" : "#BBF7D0"}`, color: totals.diff < 0 ? "#B91C1C" : "#15803D", fontSize: 13, fontWeight: 600 }}>
@@ -3265,7 +3284,7 @@ const PRODUCTION_SEED = {
   "2026-07-03": HOUSES.map((h) => ({ ...h, date: "2026-07-03" })),
   "2026-07-04": HOUSES_4_7,
 };
-const PROD_DEFAULT_DATE = "2026-07-04";   // เปิดมาโชว์วันล่าสุด
+const PROD_DEFAULT_DATE = isoFromTs(Date.now());   // เปิดมาโชว์วันปัจจุบันเสมอ (กรอกผลผลิตของวันนี้)
 
 // วันที่ไทยเสมอ (พ.ศ. + ชื่อเดือนไทย) — รับ ISO "yyyy-mm-dd" หรือ Date ; parse แบบ local กันวันเพี้ยนข้ามโซนเวลา
 function toThaiDate(v, long = true) {
@@ -3509,6 +3528,7 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
   const sortedDates = Object.keys(production).sort();   // วันที่ที่มีข้อมูล (เก่า→ใหม่)
   const curIdx = sortedDates.indexOf(prodDate);
   const goDay = (delta) => { const i = curIdx + delta; if (i >= 0 && i < sortedDates.length) setProdDate(sortedDates[i]); };
+  const prodRecorded = (d) => (production[d] || []).some((h) => (h.chickens || 0) > 0 || Object.values(h.grade?.เบอร์ || {}).some((v) => v > 0) || Object.values(h.grade?.ตกเกรด || {}).some((v) => v > 0));
   const startNewDay = () => {   // สร้างวันใหม่จากโครงวันล่าสุด (คงจำนวนไก่+ชนิด, เคลียร์จำนวนไข่/สุ่มตรวจ)
     const latest = sortedDates.filter((d) => d < prodDate).pop() || sortedDates[sortedDates.length - 1];
     const base = production[latest] || [];
@@ -3583,6 +3603,7 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
           </div>
         </div>
       </div>
+      <PrevDayWarn prevISO={prevUnrecordedDay(prodDate, prodRecorded, sortedDates.find(prodRecorded))} what="ผลผลิต" onGo={setProdDate} />
       {houses.length > 0 && (totalAlerts > 0 ? (
         <div style={S.alertBanner}>
           <div style={S.alertBannerHead}>
@@ -5315,7 +5336,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
   const rearDates = Object.keys(rearingByDate).sort();
   const [mode, setMode] = useState("house");          // "house" = สมุดรายหลัง (หลังละ 1 หน้า เหมือนฟอร์มกระดาษ) | "day" = รายวันทุกหลัง
   const [selHouse, setSelHouse] = useState(houseIds[0] || "H2");
-  const [day, setDay] = useState(() => rearDates[rearDates.length - 1] || prodDates[prodDates.length - 1] || isoFromTs(Date.now()));
+  const [day, setDay] = useState(isoFromTs(Date.now()));   // เปิดมาที่วันปัจจุบันเสมอ
   const [editHouse, setEditHouse] = useState(null);   // {hid, date} ที่กำลังกรอก
   const [flockHouse, setFlockHouse] = useState(null); // houseId ที่กำลังตั้งค่ารุ่น
   const [vacHouse, setVacHouse] = useState(null);     // houseId ที่กำลังเปิดสมุดวัคซีน
@@ -5444,6 +5465,8 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
           </>}
         </div>
       </div>
+
+      <PrevDayWarn prevISO={prevUnrecordedDay(day, (d) => !!rearingByDate[d] && Object.keys(rearingByDate[d]).length > 0, rearDates.find((d) => Object.keys(rearingByDate[d] || {}).length > 0))} what="การเลี้ยง" onGo={(d) => { setMode("day"); setDay(d); }} />
 
       {mode === "house" && (
         <div>
