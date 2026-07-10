@@ -5109,6 +5109,28 @@ function HealthHubView({ production = {}, flocks = {}, vaccines = {}, addVaccine
   );
 }
 
+/* แปลงวันหมดอายุจากฉลากยา (รูปแบบปน: D/M/YY · DD/MM/YYYY · MM/YYYY · MM/YY) → Date (วันสุดท้ายของงวด) ; คืน null ถ้าไม่มี/อ่านไม่ได้
+   ปีบนฉลากยาเป็น ค.ศ. (เช่น 27 = 2027) */
+function parseMedExpiry(s) {
+  if (!s) return null;
+  const t = String(s).trim();
+  if (!t || t === "-" || t === "—") return null;
+  const p = t.split(/[/\-.]/).map((x) => x.trim()).filter(Boolean);
+  if (p.length === 2) {                     // MM/YYYY หรือ MM/YY → วันสุดท้ายของเดือน
+    let mm = parseInt(p[0], 10), yy = parseInt(p[1], 10);
+    if (p[1].length <= 2) yy += 2000;
+    if (!mm || !yy || mm < 1 || mm > 12) return null;
+    return new Date(yy, mm, 0);             // day 0 ของเดือนถัดไป = วันสุดท้ายของเดือน mm
+  }
+  if (p.length === 3) {                      // D/M/YY หรือ DD/MM/YYYY
+    let d = parseInt(p[0], 10), m = parseInt(p[1], 10), y = parseInt(p[2], 10);
+    if (p[2].length <= 2) y += 2000;
+    if (!d || !m || !y || m < 1 || m > 12) return null;
+    return new Date(y, m - 1, d);
+  }
+  return null;
+}
+
 /* ============================================================
    หน้าจอ: ยาและวิตามิน — ทดลองยา/สารเสริม + ตรวจจับจากบันทึกรายวัน + ประวัติการให้ยา
 ============================================================ */
@@ -5119,6 +5141,11 @@ function MedView({ medTrials = [], addMedTrial, deleteMedTrial, rearingByDate = 
   const [receiptItem, setReceiptItem] = useState(null);   // รายการยาที่กำลังรับเข้า
   const [showAddMed, setShowAddMed] = useState(false);
   const [showKB, setShowKB] = useState(false);            // 📚 คลังความรู้ โรค/วัคซีน/วิตามิน
+  // เกณฑ์เตือน: ใกล้หมดสต๊อก (คงเหลือ ≤ n) · ใกล้หมดอายุ (เหลือ ≤ n วัน) — ปรับได้ เก็บ localStorage
+  const [lowThresh, setLowThresh] = useState(() => { try { const v = localStorage.getItem("eggMedLowStock"); return v != null && v !== "" ? Number(v) : 20; } catch { return 20; } });
+  const [expiryDays, setExpiryDays] = useState(() => { try { const v = localStorage.getItem("eggMedExpiryDays"); return v != null && v !== "" ? Number(v) : 120; } catch { return 120; } });
+  useEffect(() => { try { localStorage.setItem("eggMedLowStock", String(lowThresh)); } catch {} }, [lowThresh]);
+  useEffect(() => { try { localStorage.setItem("eggMedExpiryDays", String(expiryDays)); } catch {} }, [expiryDays]);
   const thisYM = isoFromTs(Date.now()).slice(0, 7);
   const medCostThisMonth = medCostByMonth[thisYM]?.total || 0;
   const stockValue = medStock.reduce((s, it) => { const inf = medInfo[(it.name || "").trim()]; return s + (inf && it.price ? Math.max(0, inf.remain) * it.price : 0); }, 0);
@@ -5176,6 +5203,26 @@ function MedView({ medTrials = [], addMedTrial, deleteMedTrial, rearingByDate = 
       <div style={{ fontSize: 18, fontWeight: 800, color: color || INK }}>{value}</div>
     </div>
   );
+  // 🚨 คำนวณของใกล้หมดสต๊อก / ใกล้-หมดอายุ (คงเหลือ = ยกมา+รับ−เบิก จาก medInfo ; วันหมดอายุ parse จากฉลาก)
+  const nowMs = Date.now();
+  const stockAlerts = (() => {
+    const rows = medStock.map((it) => {
+      const inf = medInfo[(it.name || "").trim()] || { remain: it.opening || 0 };
+      const remain = inf.remain;
+      const exp = parseMedExpiry(it.expiry);
+      const daysLeft = exp ? Math.round((exp.getTime() - nowMs) / 86400000) : null;
+      const stock = remain <= 0 ? "out" : (remain <= lowThresh ? "low" : null);
+      const expS = daysLeft == null ? null : (daysLeft < 0 ? "expired" : (daysLeft <= expiryDays ? "soon" : null));
+      return { it, remain, exp, daysLeft, stock, expS };
+    });
+    return {
+      byId: Object.fromEntries(rows.map((r) => [r.it.id, r])),
+      out: rows.filter((r) => r.stock === "out"),
+      low: rows.filter((r) => r.stock === "low").sort((a, b) => a.remain - b.remain),
+      expired: rows.filter((r) => r.expS === "expired").sort((a, b) => a.daysLeft - b.daysLeft),
+      soon: rows.filter((r) => r.expS === "soon").sort((a, b) => a.daysLeft - b.daysLeft),
+    };
+  })();
   return (
     <div style={{ padding: "18px 22px 40px" }}>
       <div style={S.subBar}>
@@ -5192,6 +5239,36 @@ function MedView({ medTrials = [], addMedTrial, deleteMedTrial, rearingByDate = 
         {card("กำลังให้อยู่วันนี้", activeTrials.length + " รายการ", activeTrials.length ? "#0F766E" : undefined)}
       </div>
 
+      {/* 🚨 แถบเตือน ของใกล้หมดสต๊อก + ของใกล้/หมดอายุ (ปรับเกณฑ์ได้) */}
+      {(() => {
+        const a = stockAlerts;
+        const hasAny = a.out.length || a.low.length || a.expired.length || a.soon.length;
+        const numInp = (val, setter) => <input value={val} onChange={(e) => setter(Math.max(0, parseInt(e.target.value.replace(/[^\d]/g, ""), 10) || 0))} onFocus={(e) => e.target.select()} inputMode="numeric"
+          style={{ width: 48, padding: "3px 6px", border: "1.5px solid #e3ddd0", borderRadius: 7, fontSize: 13, fontWeight: 700, fontFamily: "inherit", textAlign: "center", outline: "none" }} />;
+        const sec = (icon, title, tc, bg, bd, arr, render) => arr.length ? (
+          <div style={{ marginTop: 9 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 800, color: tc, marginBottom: 5 }}>{icon} {title} · {arr.length} รายการ</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {arr.map((r) => <span key={r.it.id} style={{ fontSize: 12, fontWeight: 700, color: tc, background: bg, border: `1px solid ${bd}`, borderRadius: 999, padding: "3px 11px" }}>{render(r)}</span>)}
+            </div>
+          </div>
+        ) : null;
+        return (
+          <div style={{ background: hasAny ? "#FFFBEB" : "#F0FDF4", border: `1.5px solid ${hasAny ? "#FDE68A" : "#BBF7D0"}`, borderRadius: 14, padding: "11px 14px", marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 14, fontWeight: 800, color: hasAny ? "#B45309" : "#15803D" }}>{hasAny ? "⚠️ แจ้งเตือนสต๊อกยา/วิตามิน" : "✅ สต๊อกยา/วิตามินปกติดี — ไม่มีของใกล้หมดหรือใกล้หมดอายุ"}</span>
+              <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "#7a6f5c", fontWeight: 700, flexWrap: "wrap" }}>
+                ใกล้หมดถ้าเหลือ ≤ {numInp(lowThresh, setLowThresh)} · ใกล้หมดอายุถ้าเหลือ ≤ {numInp(expiryDays, setExpiryDays)} วัน
+              </span>
+            </div>
+            {sec("🔴", "หมดสต๊อกแล้ว (ต้องสั่งด่วน)", "#B91C1C", "#FEF2F2", "#FCA5A5", a.out, (r) => r.it.name)}
+            {sec("🟠", "ใกล้หมดสต๊อก", "#C2410C", "#FFF7ED", "#FED7AA", a.low, (r) => `${r.it.name} · เหลือ ${fmt1(r.remain)} ${r.it.unit || ""}`)}
+            {sec("🔴", "หมดอายุแล้ว (อย่าใช้)", "#B91C1C", "#FEF2F2", "#FCA5A5", a.expired, (r) => `${r.it.name} · ${r.it.expiry} (เกิน ${Math.abs(r.daysLeft)} วัน)`)}
+            {sec("🟠", "ใกล้หมดอายุ (เร่งใช้)", "#C2410C", "#FFF7ED", "#FED7AA", a.soon, (r) => `${r.it.name} · ${r.it.expiry} (อีก ${r.daysLeft} วัน)`)}
+          </div>
+        );
+      })()}
+
       {/* 📦 ตารางสต๊อกยา — โครงตามชีตจริง: ยกมา/รับเข้า/เบิกใช้/คงเหลือ/ราคา/มูลค่า ; เบิกใช้ดึงจากบันทึกให้ยารายวันอัตโนมัติ */}
       <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflow: "auto", marginBottom: 14 }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 980 }}>
@@ -5204,9 +5281,11 @@ function MedView({ medTrials = [], addMedTrial, deleteMedTrial, rearingByDate = 
             {medStock.map((it, idx) => {
               const inf = medInfo[(it.name || "").trim()] || { remain: it.opening || 0, used: 0, recv: 0 };
               const val = it.price ? Math.max(0, inf.remain) * it.price : null;
+              const ea = stockAlerts.byId[it.id] || {};
               const tdm = { padding: "7px 8px", fontSize: 13, textAlign: "right", borderBottom: "1px solid #eee7d8", whiteSpace: "nowrap" };
+              const rowBg = (inf.remain <= 0 || ea.expS === "expired") ? "#FEF2F2" : (ea.stock === "low" || ea.expS === "soon" ? "#FFF9F0" : undefined);
               return (
-                <tr key={it.id} style={inf.remain <= 0 ? { background: "#FEF2F2" } : undefined}>
+                <tr key={it.id} style={rowBg ? { background: rowBg } : undefined}>
                   <td style={{ ...tdm, textAlign: "left", color: "#9b8e78" }}>{idx + 1}</td>
                   <td style={{ ...tdm, textAlign: "left", whiteSpace: "normal", minWidth: 190 }}>
                     <span style={{ fontWeight: 800 }}>{it.name}</span>
@@ -5215,11 +5294,11 @@ function MedView({ medTrials = [], addMedTrial, deleteMedTrial, rearingByDate = 
                   <td style={tdm}>{fmt1(it.opening || 0)}</td>
                   <td style={{ ...tdm, color: inf.recv ? "#15803D" : "#c9c0ad", fontWeight: inf.recv ? 700 : 400 }}>{inf.recv ? "+" + fmt1(inf.recv) : "0"}</td>
                   <td style={{ ...tdm, color: inf.used ? "#B45309" : "#c9c0ad", fontWeight: inf.used ? 700 : 400 }}>{inf.used ? fmt1(inf.used) : "0"}</td>
-                  <td style={{ ...tdm, fontWeight: 800, color: inf.remain <= 0 ? "#B91C1C" : "#15803D", background: "#F1F8F2" }}>{fmt1(inf.remain)} <span style={{ fontWeight: 500, fontSize: 11, color: "#9b8e78" }}>{it.unit || ""}</span></td>
+                  <td style={{ ...tdm, fontWeight: 800, color: inf.remain <= 0 ? "#B91C1C" : (ea.stock === "low" ? "#C2410C" : "#15803D"), background: "#F1F8F2" }}>{fmt1(inf.remain)} <span style={{ fontWeight: 500, fontSize: 11, color: "#9b8e78" }}>{it.unit || ""}</span></td>
                   <td style={tdm}>{it.price ? fmt(it.price) : "—"}</td>
                   <td style={{ ...tdm, fontWeight: 700 }}>{val != null ? fmt(Math.round(val)) : "—"}</td>
                   <td style={{ ...tdm, textAlign: "left", fontSize: 11.5, color: "#7a6f5c" }}>{it.company || ""}</td>
-                  <td style={{ ...tdm, fontSize: 11.5, color: "#7a6f5c" }}>{it.expiry || "—"}</td>
+                  <td style={{ ...tdm, fontSize: 11.5, fontWeight: ea.expS ? 800 : 400, color: ea.expS === "expired" ? "#B91C1C" : (ea.expS === "soon" ? "#C2410C" : "#7a6f5c") }}>{it.expiry || "—"}{ea.expS === "expired" ? " ⛔" : ea.expS === "soon" ? ` · อีก ${ea.daysLeft} ว.` : ""}</td>
                   <td style={{ ...tdm }}>
                     <span style={{ display: "inline-flex", gap: 5 }}>
                       <button onClick={() => setReceiptItem(it)} title="รับยาเข้าสต๊อก" style={{ border: "1px solid #86C99A", background: "#F0FDF4", color: "#15803D", borderRadius: 7, padding: "3px 9px", cursor: "pointer", fontWeight: 800, fontSize: 12, fontFamily: "inherit" }}>＋รับ</button>
