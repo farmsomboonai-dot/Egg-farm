@@ -3360,6 +3360,16 @@ function hylineHD(wk) {
   for (let i = 0; i < HYLINE_HD.length - 1; i++) { const [w0, v0] = HYLINE_HD[i], [w1, v1] = HYLINE_HD[i + 1]; if (wk >= w0 && wk <= w1) return v0 + (v1 - v0) * (wk - w0) / (w1 - w0); }
   return null;
 }
+// มาตรฐานอาหาร Hy-Line Brown (กรัม/ตัว/วัน) ตามอายุ — ค่าประมาณตามคู่มือ (ควรเทียบเล่มจริงตามอายุจริง)
+const HYLINE_FEED_G = [[6, 40], [12, 58], [16, 72], [17, 78], [18, 84], [19, 90], [20, 96], [22, 105], [25, 110], [30, 113], [40, 116], [50, 115], [60, 114], [70, 112], [80, 110], [90, 107]];
+function hylineFeedG(wk) {
+  if (wk == null) return null;
+  if (wk <= HYLINE_FEED_G[0][0]) return HYLINE_FEED_G[0][1];
+  const last = HYLINE_FEED_G[HYLINE_FEED_G.length - 1]; if (wk >= last[0]) return last[1];
+  for (let i = 0; i < HYLINE_FEED_G.length - 1; i++) { const [w0, v0] = HYLINE_FEED_G[i], [w1, v1] = HYLINE_FEED_G[i + 1]; if (wk >= w0 && wk <= w1) return v0 + (v1 - v0) * (wk - w0) / (w1 - w0); }
+  return null;
+}
+
 // คำแนะนำต่อความผิดปกติ (key = ชื่อตกเกรด หรือ _prod/_off) — สาเหตุที่พบบ่อย + สิ่งที่ควรทำ
 const ADVICE_KB = {
   "นวล": { title: "ไข่นวล (เปลือกซีด/สีจาง)", std: "เกณฑ์ฟาร์มทั่วไป < 2–3% ของไข่รวม · Hy-Line Brown เปลือกควรน้ำตาลสม่ำเสมอ",
@@ -4160,7 +4170,7 @@ function LabTestModal({ houseId, rows = [], onAdd, onDelete, onClose }) {
 
 /* กรอกข้อมูลการเลี้ยงประจำวัน ต่อโรงเรือน (ครบทุกช่องตามฟอร์มกระดาษ)
    birds = ไก่คงเหลือต้นวัน (จากรุ่นการเลี้ยง หรือยอดไก่หน้าผลผลิต) — ใช้คิดกินเฉลี่ย/ตัวแบบสด */
-function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, feedMin = 4000, medStock = [], medInfo = {}, seqLabel = null, onSkip = null, onSave, onClose }) {
+function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = null, feedMin = 4000, medStock = [], medInfo = {}, seqLabel = null, onSkip = null, onSave, onClose }) {
   const d0 = { ...emptyRearing(), ...(data || {}) };
   const [loss, setLoss] = useState({ ...emptyRearing().loss, ...(d0.loss || {}) });
   const [feed, setFeed] = useState({ ...emptyRearing().feed, ...(d0.feed || {}) });
@@ -4188,12 +4198,18 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, feedMin =
   // ไก่คงเหลือสด = ต้นวัน − คัด/ตายที่กำลังพิมพ์ → กินเฉลี่ย(กรัม/ตัว) = กินรวม(กก.)×1000 ÷ ไก่คงเหลือ
   const birdsLive = birds != null ? Math.max(0, birds - nf(loss.cull) - deadTotal) : null;
   const gPerBirdLive = birdsLive && feedUsed > 0 ? (feedUsed * 1000) / birdsLive : null;
+  // มาตรฐานอาหารตามอายุจริง (Hy-Line) × ไก่คงเหลือจริง → เตือนถ้ากินต่ำกว่ามาตรฐาน (เกิน 10%)
+  const ageWk = flockAgeWk(flock, dateISO);
+  const stdFeedG = hylineFeedG(ageWk);
+  const stdFeedKg = stdFeedG != null && birdsLive ? (stdFeedG * birdsLive) / 1000 : null;
+  const feedLow = stdFeedKg != null && feedUsed > 0 && feedUsed < stdFeedKg * 0.9;
+  const dataOut = (draft) => ({ loss, feed, water, light, meds: "", medsList: medsList.filter((m) => (m.name || "").trim()), note: note.trim(), draft });
   return (
     <div style={S.modalOverlay} onClick={onClose}>
       <div style={{ ...S.modal, maxWidth: 500, maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
         <div style={S.modalHead}>
           <div>
-            <div style={S.modalTitle}>การเลี้ยงประจำวัน · {houseId}{seqLabel ? <span style={{ marginLeft: 8, fontSize: 13, fontWeight: 800, color: "#fff", background: "#16A34A", borderRadius: 999, padding: "3px 11px", verticalAlign: "middle" }}>{seqLabel}</span> : null}</div>
+            <div style={S.modalTitle}>ข้อมูลประจำวัน · {houseId}{seqLabel ? <span style={{ marginLeft: 8, fontSize: 13, fontWeight: 800, color: "#fff", background: "#16A34A", borderRadius: 999, padding: "3px 11px", verticalAlign: "middle" }}>{seqLabel}</span> : null}</div>
             <div style={S.modalSub}>{toThaiDate(dateISO)} · ใส่ตัวเลข แล้วกด Enter ไปช่องถัดไป{seqLabel ? " · บันทึกแล้วเด้งหลังถัดไปให้เอง" : ""}</div>
           </div>
           <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
@@ -4242,6 +4258,11 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, feedMin =
             </span>
             <span style={{ fontWeight: 700 }}>กินรวมวันนี้ {fmt1(feedUsed)} กก.{gPerBirdLive != null ? ` · เฉลี่ย ${fmt1(gPerBirdLive)} กรัม/ตัว (ไก่ ${fmt(birdsLive)} ตัว)` : ""}</span>
           </div>
+          {stdFeedKg != null && (
+            <div style={{ fontSize: 12, marginTop: 3, fontWeight: feedLow ? 800 : 600, color: feedLow ? "#B91C1C" : "#0F766E", background: feedLow ? "#FEF2F2" : "#F0FDF4", border: `1px solid ${feedLow ? "#FECACA" : "#BBF7D0"}`, borderRadius: 8, padding: "6px 9px" }}>
+              {feedLow ? "⚠️ กินอาหารต่ำกว่ามาตรฐาน · " : "✓ "}มาตรฐานอายุ {ageWk} สป. ≈ {fmt1(stdFeedG)} กรัม/ตัว = <b>{fmt1(stdFeedKg)} กก.</b> (ไก่ {fmt(birdsLive)} ตัว) · กินจริง {fmt1(feedUsed)} กก.{gPerBirdLive != null ? ` (${fmt1(gPerBirdLive)} ก./ตัว)` : ""}
+            </div>
+          )}
         </div>
 
         <div style={section("#EFF8FF", "#BAE0FD", "#0284C7")}>
@@ -4294,7 +4315,8 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, feedMin =
 
         <div style={{ display: "flex", gap: 8 }}>
           {onSkip ? <button onClick={onSkip} style={{ flex: "0 0 auto", border: "1.5px solid #d8cdb6", background: "#fff", color: "#7a6f5c", borderRadius: 12, padding: "13px 16px", cursor: "pointer", fontSize: 14, fontWeight: 800, fontFamily: "inherit" }}>ข้ามหลังนี้ ▸</button> : null}
-          <button ref={saveRef} style={{ ...S.primaryBtn, flex: 1 }} onClick={() => onSave(houseId, dateISO, { loss, feed, water, light, meds: "", medsList: medsList.filter((m) => (m.name || "").trim()), note: note.trim() })}>
+          <button onClick={() => onSave(houseId, dateISO, dataOut(true))} title="เก็บไว้ก่อน ยังไม่เสร็จ — กลับมาแก้ต่อได้" style={{ flex: "0 0 auto", border: "1.5px solid #D97706", background: "#FFF7EC", color: "#B45309", borderRadius: 12, padding: "13px 16px", cursor: "pointer", fontSize: 14, fontWeight: 800, fontFamily: "inherit" }}>💾 บันทึกร่าง</button>
+          <button ref={saveRef} style={{ ...S.primaryBtn, flex: 1 }} onClick={() => onSave(houseId, dateISO, dataOut(false))}>
             บันทึก {houseId}{onSkip ? " · ไปหลังถัดไป ▸" : ""}
           </button>
         </div>
@@ -5551,7 +5573,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                   ) : (
                     <tr key={b.d}>
                       {(() => { const tr = trialOfDay(selHouse, b.d); return (
-                        <td style={{ ...td, textAlign: "left", fontWeight: 700, ...(tr ? { background: "#FFEDD5" } : {}) }} title={tr ? `🧪 ช่วงให้ ${tr.name}` : undefined}>{toThaiDate(b.d, false)}{tr ? " 🧪" : ""}</td>
+                        <td style={{ ...td, textAlign: "left", fontWeight: 700, ...(tr ? { background: "#FFEDD5" } : {}) }} title={tr ? `🧪 ช่วงให้ ${tr.name}` : undefined}>{toThaiDate(b.d, false)}{tr ? " 🧪" : ""}{b.r?.draft ? <span style={{ marginLeft: 5, fontSize: 10, fontWeight: 800, background: "#FEF3C7", color: "#B45309", borderRadius: 6, padding: "1px 6px" }}>ร่าง</span> : null}</td>
                       ); })()}
                       <td style={td}>{b.ageWk != null ? b.ageWk : "—"}</td>
                       <td style={td}>{b.r?.light?.hours || "—"}</td>
@@ -5685,6 +5707,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
         <RearingEditModal key={editHouse.hid + editHouse.date} houseId={editHouse.hid} dateISO={editHouse.date} data={rearingByDate[editHouse.date]?.[editHouse.hid]}
           siloRemain={feedRemain(rearingByDate, editHouse.hid, shiftDayISO(editHouse.date, -1), flocks[editHouse.hid])}
           birds={(() => { const f = flocks[editHouse.hid]; return f?.startCount ? f.startCount - rearingCum(rearingByDate, editHouse.hid, shiftDayISO(editHouse.date, -1), f).total : prodChickens(production, editHouse.hid, editHouse.date); })()}
+          flock={flocks[editHouse.hid]}
           feedMin={feedMin} medStock={medStock} medInfo={medInfo}
           seqLabel={round ? `หลังที่ ${round.idx + 1}/${houseIds.length}` : null}
           onSkip={round ? advanceRound : null}
