@@ -4170,7 +4170,7 @@ function LabTestModal({ houseId, rows = [], onAdd, onDelete, onClose }) {
 
 /* กรอกข้อมูลการเลี้ยงประจำวัน ต่อโรงเรือน (ครบทุกช่องตามฟอร์มกระดาษ)
    birds = ไก่คงเหลือต้นวัน (จากรุ่นการเลี้ยง หรือยอดไก่หน้าผลผลิต) — ใช้คิดกินเฉลี่ย/ตัวแบบสด */
-function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = null, feedMin = 4000, medStock = [], medInfo = {}, seqLabel = null, onSkip = null, onSave, onClose }) {
+function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = null, waterPrev = null, feedMin = 4000, medStock = [], medInfo = {}, seqLabel = null, onSkip = null, onSave, onClose }) {
   const d0 = { ...emptyRearing(), ...(data || {}) };
   const [loss, setLoss] = useState({ ...emptyRearing().loss, ...(d0.loss || {}) });
   const [feed, setFeed] = useState({ ...emptyRearing().feed, ...(d0.feed || {}) });
@@ -4203,6 +4203,20 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = n
   const stdFeedG = hylineFeedG(ageWk);
   const stdFeedKg = stdFeedG != null && birdsLive ? (stdFeedG * birdsLive) / 1000 : null;
   const feedLow = stdFeedKg != null && feedUsed > 0 && feedUsed < stdFeedKg * 0.9;
+  // น้ำ: ผลต่างมิเตอร์วันนี้ − เมื่อวาน (คิว/m³) → มล./ตัว ; มาตรฐาน ≈ 2 มล.น้ำ ต่ออาหาร 1 กรัม ตามอายุ (อุณหภูมิปกติ)
+  const waterUnitUsed = (() => {
+    if (!waterPrev) return null;
+    let s = 0, used = false;
+    ["m1", "m2", "m3", "m4", "m5", "m6"].forEach((k) => {
+      if (String(water[k] ?? "").trim() === "" || String(waterPrev[k] ?? "").trim() === "") return;
+      const diff = nf(water[k]) - nf(waterPrev[k]);
+      if (diff > 0) { s += diff; used = true; } else if (diff === 0) used = true;
+    });
+    return used ? s : null;
+  })();
+  const waterMlPerBird = waterUnitUsed != null && birdsLive ? (waterUnitUsed * 1000000) / birdsLive : null;   // คิว→ลิตร×1000→มล. ÷ ไก่
+  const stdWaterMl = stdFeedG != null ? stdFeedG * 2.0 : null;
+  const waterLow = waterMlPerBird != null && stdWaterMl != null && waterMlPerBird < stdWaterMl * 0.9;
   const dataOut = (draft) => ({ loss, feed, water, light, meds: "", medsList: medsList.filter((m) => (m.name || "").trim()), note: note.trim(), draft });
   return (
     <div style={S.modalOverlay} onClick={onClose}>
@@ -4270,6 +4284,11 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = n
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9 }}>
             {["m1", "m2", "m3", "m4", "m5", "m6"].map((k, i) => fw(k, `มิเตอร์ ${i + 1}`, <input {...numProps(13 + i, "pfWater")} value={water[k]} onChange={(e) => setWater((p) => ({ ...p, [k]: dec(e.target.value) }))} />, "#0369A1"))}
           </div>
+          {waterMlPerBird != null && stdWaterMl != null && (
+            <div style={{ fontSize: 12, marginTop: 8, fontWeight: waterLow ? 800 : 600, color: waterLow ? "#B91C1C" : "#0369A1", background: waterLow ? "#FEF2F2" : "#F0F9FF", border: `1px solid ${waterLow ? "#FECACA" : "#BAE0FD"}`, borderRadius: 8, padding: "6px 9px" }}>
+              {waterLow ? "⚠️ กินน้ำต่ำกว่ามาตรฐาน · " : "✓ "}น้ำวันนี้ {fmt1(waterUnitUsed)} คิว ≈ <b>{fmt(Math.round(waterMlPerBird))} มล./ตัว</b> · มาตรฐานอายุ {ageWk} สป. ≈ {fmt(Math.round(stdWaterMl))} มล./ตัว (ไก่ {fmt(birdsLive)} ตัว)
+            </div>
+          )}
         </div>
 
         <div style={section("#F0FDFA", "#99F6E4", "#0D9488")}>
@@ -5708,6 +5727,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
           siloRemain={feedRemain(rearingByDate, editHouse.hid, shiftDayISO(editHouse.date, -1), flocks[editHouse.hid])}
           birds={(() => { const f = flocks[editHouse.hid]; return f?.startCount ? f.startCount - rearingCum(rearingByDate, editHouse.hid, shiftDayISO(editHouse.date, -1), f).total : prodChickens(production, editHouse.hid, editHouse.date); })()}
           flock={flocks[editHouse.hid]}
+          waterPrev={(() => { const ds = Object.keys(rearingByDate).sort().filter((d) => d < editHouse.date); for (let i = ds.length - 1; i >= 0; i--) { const w = rearingByDate[ds[i]]?.[editHouse.hid]?.water; if (w && Object.values(w).some((v) => String(v).trim() !== "")) return w; } return null; })()}
           feedMin={feedMin} medStock={medStock} medInfo={medInfo}
           seqLabel={round ? `หลังที่ ${round.idx + 1}/${houseIds.length}` : null}
           onSkip={round ? advanceRound : null}
