@@ -218,6 +218,9 @@ try {
   CUSTOMERS.forEach((c) => { if (__edits[c.id]) Object.assign(c, __edits[c.id]); });
 } catch (e) {}
 // เพิ่มลูกค้าใหม่ลงรายชื่อ + บันทึกถาวร
+// ลูกค้า 1 คนอยู่ได้หลายกลุ่ม — คืน array id กลุ่ม (รองรับ groups[] ใหม่ + group เดี่ยวแบบเก่า)
+const custGroups = (c) => Array.isArray(c?.groups) ? c.groups.filter(Boolean) : (c?.group ? [c.group] : []);
+
 function addCustomerRecord(c) {
   CUSTOMERS.push(c);
   try {
@@ -254,7 +257,7 @@ function updateCustomerRecord(id, patch) {
 const custToRow = (c) => ({
   id: c.id, code: c.code || null, name: c.name || "",
   company: c.company || null, tax_id: c.taxId || null,
-  phone: c.phone || null, address: c.address || null, group_id: c.group || null,
+  phone: c.phone || null, address: c.address || null, group_id: custGroups(c)[0] || null,
 });
 const custFromRow = (r) => {
   const c = { id: r.id, code: r.code || "", group: r.group_id || "", name: r.name || "" };
@@ -336,7 +339,8 @@ function NewCustomerModal({ groups, onClose, onAdd, initial }) {
   const [taxId, setTaxId] = useState(initial?.taxId || "");
   const [phone, setPhone] = useState(initial && initial.phone && initial.phone !== "-" ? initial.phone : "");
   const [address, setAddress] = useState(initial?.address || "");
-  const [group, setGroup] = useState(initial?.group || groups[0].id);
+  const [sel, setSel] = useState(() => { const init = custGroups(initial); return init.length ? init : (groups[0] ? [groups[0].id] : []); });   // เลือกได้หลายกลุ่ม
+  const toggleGroup = (id) => setSel((p) => p.includes(id) ? p.filter((x) => x !== id) : [...p, id]);
   const [localGroups, setLocalGroups] = useState([...groups]);
   const [addingGroup, setAddingGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
@@ -346,11 +350,11 @@ function NewCustomerModal({ groups, onClose, onAdd, initial }) {
     const g = { id: "g" + Date.now(), name: nm };
     addGroupRecord(g);
     setLocalGroups((prev) => [...prev, g]);
-    setGroup(g.id);
+    setSel((prev) => [...prev, g.id]);
     setNewGroupName("");
     setAddingGroup(false);
   };
-  const valid = name.trim().length > 0;
+  const valid = name.trim().length > 0 && sel.length > 0;
   return (
     <div style={S.modalOverlay} onClick={onClose}>
       <div style={{ ...S.modal, maxHeight: "88vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
@@ -385,27 +389,29 @@ function NewCustomerModal({ groups, onClose, onAdd, initial }) {
           <textarea style={{ ...S.fullInput, minHeight: 60, resize: "vertical", fontFamily: "inherit" }} placeholder="บ้านเลขที่ / ตำบล / อำเภอ / จังหวัด" value={address} onChange={(e) => setAddress(e.target.value)} />
         </div>
         <div style={{ marginBottom: 16 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <label style={S.ciLabel}>กลุ่มลูกค้า</label>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
+            <label style={S.ciLabel}>กลุ่มลูกค้า <span style={{ color: "#9b8e78", fontWeight: 500, fontSize: 12 }}>(เลือกได้หลายกลุ่ม · แตะเพื่อเลือก/เอาออก)</span></label>
             <button type="button" onClick={() => setAddingGroup((v) => !v)} style={{ background: "none", border: "none", color: ACCENT_DK, fontWeight: 700, fontSize: 12.5, cursor: "pointer", padding: 0 }}>
               {addingGroup ? "ยกเลิก" : "+ เพิ่มกลุ่มใหม่"}
             </button>
           </div>
-          {addingGroup ? (
-            <div style={{ display: "flex", gap: 8 }}>
+          {addingGroup && (
+            <div style={{ display: "flex", gap: 8, marginBottom: 9 }}>
               <input style={S.fullInput} placeholder="ชื่อกลุ่มใหม่ เช่น ร้านกาแฟ" value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addGroup(); } }} autoFocus />
               <button type="button" onClick={addGroup} disabled={!newGroupName.trim()} style={{ ...S.primarySmBtn, opacity: newGroupName.trim() ? 1 : 0.5, whiteSpace: "nowrap" }}>เพิ่ม</button>
             </div>
-          ) : (
-            <select style={S.fullInput} value={group} onChange={(e) => setGroup(e.target.value)}>
-              {localGroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-            </select>
           )}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+            {localGroups.map((g) => { const on = sel.includes(g.id); return (
+              <button key={g.id} type="button" onClick={() => toggleGroup(g.id)} style={{ border: `1.5px solid ${on ? ACCENT_DK : "#e0d7c3"}`, background: on ? ACCENT_DK : "#fff", color: on ? "#fff" : "#7a6f5c", borderRadius: 999, padding: "6px 13px", cursor: "pointer", fontWeight: 700, fontSize: 12.5, fontFamily: "inherit" }}>{on ? "✓ " : ""}{g.name.replace(/\s*\(.*?\)\s*/g, "").trim()}</button>
+            ); })}
+          </div>
+          {sel.length === 0 && <div style={{ fontSize: 11.5, color: "#B45309", fontWeight: 700, marginTop: 6 }}>⚠️ เลือกอย่างน้อย 1 กลุ่ม</div>}
         </div>
         <button
           style={{ ...S.primaryBtn, ...(valid ? {} : S.confirmBtnDisabled) }}
           disabled={!valid}
-          onClick={() => onAdd({ id: editing ? initial.id : ("c" + Date.now()), code: normalizeCustCode(code), group, name: name.trim(), company: company.trim(), taxId: taxId.trim(), phone: phone.trim() || "-", address: address.trim() })}
+          onClick={() => onAdd({ id: editing ? initial.id : ("c" + Date.now()), code: normalizeCustCode(code), groups: sel, group: sel[0] || "", name: name.trim(), company: company.trim(), taxId: taxId.trim(), phone: phone.trim() || "-", address: address.trim() })}
         >
           {editing ? "บันทึกการแก้ไข" : "บันทึกลูกค้า"}
         </button>
@@ -428,7 +434,7 @@ function CustomerCodesModal({ onClose, onPick, onEdit, mode = "select" }) {
   const rowClick = (c) => editMode ? (onEdit && onEdit(c)) : setDetail(c);
   const detailRows = (c) => [
     ["รหัสลูกค้า", c.code],
-    ["กลุ่ม", groupName(c.group)],
+    ["กลุ่ม", custGroups(c).map(groupName).join(" · ")],
     ["บริษัท", c.company],
     ["เลขผู้เสียภาษี", c.taxId],
     ["เบอร์โทร", c.phone && c.phone !== "-" ? c.phone : ""],
@@ -485,7 +491,7 @@ function CustomerCodesModal({ onClose, onPick, onEdit, mode = "select" }) {
                     <span style={{ fontWeight: 800, color: ACCENT_DK, fontFamily: "monospace", minWidth: 62, fontSize: 13.5 }}>{c.code || "—"}</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 600, color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div>
-                      <div style={{ fontSize: 12, color: "#9b8e78" }}>{groupName(c.group)}{c.phone && c.phone !== "-" ? " · " + c.phone : ""}</div>
+                      <div style={{ fontSize: 12, color: "#9b8e78" }}>{custGroups(c).map(groupName).join(" · ")}{c.phone && c.phone !== "-" ? " · " + c.phone : ""}</div>
                     </div>
                   </div>
                   {!editMode && <button onClick={() => setDetail(c)} title="ดูรายละเอียด" style={{ display: "inline-flex", alignItems: "center", padding: "5px 8px", borderRadius: 8, border: "1px solid #e3ddd0", background: "#fff", color: "#9ca3af", cursor: "pointer", flexShrink: 0 }}><ChevronRight size={16} /></button>}
@@ -1649,7 +1655,7 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
       (c.phone || "").toLowerCase().includes(q));
     // ตอนพิมพ์ค้นหา ให้ข้ามตัวกรองกลุ่ม (หาข้ามทุกกลุ่ม) ; ไม่พิมพ์ค่อยใช้ชิปกรอง
     const activeGroupFilter = q ? "all" : custGroupFilter;
-    const groupCount = (gid) => CUSTOMERS.filter((c) => c.group === gid).length;
+    const groupCount = (gid) => CUSTOMERS.filter((c) => custGroups(c).includes(gid)).length;
     const shownGroups = CUSTOMER_GROUPS.filter((g) => groupCount(g.id) > 0);
     return (
       <div style={S.stage}>
@@ -1704,7 +1710,7 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
         )}
         {CUSTOMER_GROUPS.map((g) => {
           if (activeGroupFilter !== "all" && g.id !== activeGroupFilter) return null;
-          const list = matched.filter((c) => c.group === g.id);
+          const list = matched.filter((c) => custGroups(c).includes(g.id));
           if (list.length === 0) return null;
           return (
             <div key={g.id} style={S.custGroupBlock}>
