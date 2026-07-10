@@ -1114,7 +1114,7 @@ export default function App() {
             { id: "account", icon: <Wallet size={16} />, label: "บัญชีลูกหนี้" },
             { id: "tray", icon: <RotateCcw size={16} />, label: "บัญชีแผงไข่" },
             { id: "stock", icon: <Warehouse size={16} />, label: "สต๊อคไข่ประจำวัน" },
-            { id: "production", icon: <Egg size={16} />, label: "รายการผลผลิตไข่" },
+            { id: "production", icon: <Egg size={16} />, label: "ผลผลิตประจำวัน" },
             { id: "dash", icon: <LayoutDashboard size={16} />, label: "แดชบอร์ด" },
             { id: "booking", icon: <Receipt size={16} />, label: "จองออเดอร์" },
             { id: "plan", icon: <Calendar size={16} />, label: "วางแผนออเดอร์" },
@@ -4470,7 +4470,7 @@ function TrialResultModal({ trial, production, rearingByDate, onBack = null, onC
         </div>
         {base.s.days === 0 && target.s.days === 0 ? (
           <div style={{ background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 10, padding: "12px 14px", fontSize: 13, color: "#B91C1C", fontWeight: 700, marginBottom: 12 }}>
-            ยังไม่มีข้อมูลผลผลิตของ {trial.houseId} ในช่วงที่เลือก — กรอกผลผลิตรายวัน (แท็บรายการผลผลิตไข่) ให้ครอบคลุมช่วงที่จะเทียบก่อน แล้วผลจะคำนวณให้อัตโนมัติ
+            ยังไม่มีข้อมูลผลผลิตของ {trial.houseId} ในช่วงที่เลือก — กรอกผลผลิตรายวัน (แท็บผลผลิตประจำวัน) ให้ครอบคลุมช่วงที่จะเทียบก่อน แล้วผลจะคำนวณให้อัตโนมัติ
           </div>
         ) : (
           <>
