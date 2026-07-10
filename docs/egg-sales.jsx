@@ -2835,7 +2835,7 @@ function PrevDayWarn({ prevISO, what, onGo }) {
   return (
     <div style={{ background: "#FFFBEB", border: "1.5px solid #FDE68A", borderRadius: 12, padding: "9px 14px", margin: "0 0 12px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
       <span style={{ fontWeight: 800, color: "#B45309", fontSize: 13 }}>⚠️ วันก่อนหน้า ({toThaiDate(prevISO, false)}) ยังไม่ได้บันทึก{what ? " " + what : ""} — อย่าลืมย้อนไปบันทึก</span>
-      {onGo && <button onClick={() => onGo(prevISO)} style={{ marginLeft: "auto", border: "1.5px solid #D97706", background: "#fff", color: "#B45309", borderRadius: 8, padding: "4px 13px", cursor: "pointer", fontWeight: 800, fontSize: 12.5, fontFamily: "inherit" }}>ไปบันทึกวันนั้น →</button>}
+      {onGo && <button onClick={() => onGo(prevISO)} style={{ marginLeft: "auto", border: "1.5px solid #D97706", background: "#fff", color: "#B45309", borderRadius: 8, padding: "4px 13px", cursor: "pointer", fontWeight: 800, fontSize: 12.5, fontFamily: "inherit" }}>ไปลงข้อมูลวันที่ {toThaiDate(prevISO, false)} →</button>}
     </div>
   );
 }
