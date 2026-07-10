@@ -1109,23 +1109,23 @@ export default function App() {
         </div>
         <nav className="mainNav" style={S.nav}>
           {[
-            { id: "sales", icon: <ShoppingCart size={16} />, label: "ขายไข่" },
-            { id: "bills", icon: <FileText size={16} />, label: "ประวัติบิล" },
-            { id: "account", icon: <Wallet size={16} />, label: "บัญชีลูกหนี้" },
-            { id: "tray", icon: <RotateCcw size={16} />, label: "บัญชีแผงไข่" },
-            { id: "stock", icon: <Warehouse size={16} />, label: "สต๊อคไข่ประจำวัน" },
-            { id: "production", icon: <Egg size={16} />, label: "ผลผลิตประจำวัน" },
-            { id: "dash", icon: <LayoutDashboard size={16} />, label: "แดชบอร์ด" },
-            { id: "booking", icon: <Receipt size={16} />, label: "จองออเดอร์" },
-            { id: "plan", icon: <Calendar size={16} />, label: "วางแผนออเดอร์" },
-            { id: "rear", icon: <ClipboardCheck size={16} />, label: "เก็บข้อมูลการเลี้ยง" },
-            { id: "feed", icon: <Wheat size={16} />, label: "อาหารไก่" },
-            { id: "med", icon: <Pill size={16} />, label: "ยาและวิตามิน" },
-            { id: "cost", icon: <Calculator size={16} />, label: "บัญชีต้นทุน" },
+            { id: "sales", icon: <ShoppingCart size={16} />, label: "ขายไข่", c: "#EA580C" },
+            { id: "bills", icon: <FileText size={16} />, label: "ประวัติบิล", c: "#475569" },
+            { id: "account", icon: <Wallet size={16} />, label: "บัญชีลูกหนี้", c: "#B91C1C" },
+            { id: "tray", icon: <RotateCcw size={16} />, label: "บัญชีแผงไข่", c: "#7C3AED" },
+            { id: "stock", icon: <Warehouse size={16} />, label: "สต๊อคไข่ประจำวัน", c: "#0E7490" },
+            { id: "production", icon: <Egg size={16} />, label: "ผลผลิตประจำวัน", c: "#15803D" },
+            { id: "dash", icon: <LayoutDashboard size={16} />, label: "แดชบอร์ด", c: "#1D4ED8" },
+            { id: "booking", icon: <Receipt size={16} />, label: "จองออเดอร์", c: "#BE185D" },
+            { id: "plan", icon: <Calendar size={16} />, label: "วางแผนออเดอร์", c: "#7E22CE" },
+            { id: "rear", icon: <ClipboardCheck size={16} />, label: "เก็บข้อมูลการเลี้ยง", c: "#B45309" },
+            { id: "feed", icon: <Wheat size={16} />, label: "อาหารไก่", c: "#4D7C0F" },
+            { id: "med", icon: <Pill size={16} />, label: "ยาและวิตามิน", c: "#0F766E" },
+            { id: "cost", icon: <Calculator size={16} />, label: "บัญชีต้นทุน", c: "#A16207" },
           ].map((t) => (
             <button
               key={t.id}
-              style={{ ...S.navBtn, ...(view === t.id ? S.navBtnActive : {}) }}
+              style={{ ...S.navBtn, border: `1.5px solid ${t.c}`, ...(view === t.id ? { background: t.c, color: "#fff", borderColor: t.c } : { color: t.c }) }}
               onClick={() => setView(t.id)}
             >
               {t.icon} {t.label}
