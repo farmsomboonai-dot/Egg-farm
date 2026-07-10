@@ -1686,9 +1686,9 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
             <button style={S.primarySmBtn} onClick={() => setShowAddCust(true)}><Plus size={15} /> เพิ่มลูกค้าใหม่</button>
           </div>
         </div>
-        <div style={S.searchBox}>
-          <Search size={16} color="#9ca3af" />
-          <input style={S.searchInput} placeholder="ค้นหา ชื่อ / รหัส KK / เบอร์โทร..." value={custSearch} onChange={(e) => setCustSearch(e.target.value)} />
+        <div style={{ display: "flex", alignItems: "center", gap: 11, padding: "14px 17px", background: "#FFFBF3", border: `2px solid ${ACCENT}`, borderRadius: 13, marginBottom: 12, boxShadow: "0 3px 10px rgba(232,148,58,0.15)" }}>
+          <Search size={22} color={ACCENT_DK} strokeWidth={2.5} />
+          <input style={{ border: "none", background: "transparent", outline: "none", fontSize: 17, flex: 1, fontFamily: "inherit", color: INK, fontWeight: 600 }} placeholder="ค้นหาลูกค้า — พิมพ์ชื่อ / รหัส KK / เบอร์โทร" value={custSearch} onChange={(e) => setCustSearch(e.target.value)} autoFocus />
         </div>
         {!q && (
           <div style={S.custChips}>
