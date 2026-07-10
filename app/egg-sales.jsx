@@ -2200,9 +2200,9 @@ function BillHistoryView({ bills, payments }) {
         )}
       </div>
       <div style={{ maxWidth: 860, margin: "0 auto", padding: "14px 0" }}>
-        <div style={S.searchBox}>
-          <Search size={16} color="#9ca3af" />
-          <input style={S.searchInput} placeholder="ค้นหาชื่อลูกค้า หรือเลขที่บิล..." value={q} onChange={(e) => setQ(e.target.value)} />
+        <div style={{ display: "flex", alignItems: "center", gap: 11, padding: "14px 17px", background: "#FFFBF3", border: `2px solid ${ACCENT}`, borderRadius: 13, marginBottom: 12, boxShadow: "0 3px 10px rgba(232,148,58,0.15)" }}>
+          <Search size={22} color={ACCENT_DK} strokeWidth={2.5} />
+          <input style={{ border: "none", background: "transparent", outline: "none", fontSize: 17, flex: 1, fontFamily: "inherit", color: INK, fontWeight: 600 }} placeholder="ค้นหาชื่อลูกค้า หรือเลขที่บิล..." value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 12 }}>
           <span style={{ fontSize: 13, color: "#6b6358", fontWeight: 600 }}>ช่วงวันที่</span>
