@@ -1026,6 +1026,8 @@ export default function App() {
   // ประวัติบิลทั้งหมด (ใช้ในประวัติบิล / บัญชี / แดชบอร์ด) — เก็บลง localStorage เพื่อเรียกดู/Export บิลเก่าย้อนหลังได้
   const [bills, setBills] = useState(() => { try { return JSON.parse(localStorage.getItem("eggBills") || "[]"); } catch { return []; } });
   useEffect(() => { try { localStorage.setItem("eggBills", JSON.stringify(bills)); } catch {} }, [bills]);
+  // บิลที่ยังใช้งาน (ตัดบิลที่ยกเลิกออก) — ใช้คิดยอดขาย/สต๊อก/ลูกหนี้/ต้นทุน/แผง ; ประวัติบิลยังเห็นบิลยกเลิก (มีตราประทับ)
+  const activeBills = useMemo(() => (bills || []).filter((b) => !b.cancelled), [bills]);
   // การรับชำระเงิน: { billNo: { paid, date, method } } — เก็บถาวร (ตัดรูปสลิปออกกันเต็มพื้นที่ ; สถานะ/วันชำระยังอยู่)
   const [payments, setPayments] = useState(() => { try { return JSON.parse(localStorage.getItem("eggPayments") || "{}"); } catch { return {}; } });
   useEffect(() => {
@@ -1045,7 +1047,7 @@ export default function App() {
   // โครงสร้าง: salesByDay[workDay][productId][customerId] = แผง
   const salesByDay = useMemo(() => {
     const m = {};
-    (bills || []).forEach((b) => {
+    activeBills.forEach((b) => {
       const wd = b.workDay || isoFromTs(b.ts);
       (b.items || []).forEach((it) => {
         if (!it.productId) return;                       // ข้ามรายการมัดจำ (ไม่มี productId)
@@ -1055,15 +1057,15 @@ export default function App() {
       });
     });
     return m;
-  }, [bills]);
+  }, [activeBills]);
   // ราคาอ้างอิงต่อแผง = ราคาล่าสุดจากบิลจริง (บิลใหม่สุดชนะ) ⊕ fallback — ใช้ตีมูลค่าส่วนต่างตอนปิดยอด
   const refPrices = useMemo(() => {
     const m = { ...REF_PRICE_FALLBACK };
-    for (let i = bills.length - 1; i >= 0; i--) {
-      (bills[i].items || []).forEach((it) => { const p = parseFloat(it.price) || 0; if (it.productId && p > 0) m[it.productId] = p; });
+    for (let i = activeBills.length - 1; i >= 0; i--) {
+      (activeBills[i].items || []).forEach((it) => { const p = parseFloat(it.price) || 0; if (it.productId && p > 0) m[it.productId] = p; });
     }
     return m;
-  }, [bills]);
+  }, [activeBills]);
   const salesTotals = useMemo(() => {   // ยอดขายรวมต่อสินค้า ของวันทำงานปัจจุบัน
     const day = salesByDay[stockDay] || {};
     const m = {};
@@ -1101,6 +1103,14 @@ export default function App() {
       const prevPaid = prev[billNo]?.paid || 0;
       return { ...prev, [billNo]: { paid: prevPaid + amount, date: new Date().toLocaleDateString("th-TH"), method, slip: slip || prev[billNo]?.slip || null } };
     });
+  // ยกเลิกใบเสร็จ (soft void + audit): เก็บเหตุผล/เวลา/ผู้ยกเลิก ; บิลยังอยู่ในประวัติแต่ถูกตัดออกจากทุกยอดคำนวณ (activeBills)
+  const cancelBill = (billNo, reason, by) => {
+    setBills((prev) => prev.map((b) => b.no === billNo
+      ? { ...b, cancelled: true, cancelReason: (reason || "").trim(), cancelBy: (by || "").trim(), cancelAt: Date.now(), cancelAtStr: new Date().toLocaleString("th-TH") }
+      : b));
+    // ลบใบแผง "รอคัด" ที่ระบบสร้างจากบิลนี้ (ยังไม่คัด) ออกจากคิว — ถ้าคัดไปแล้วคงไว้ (ของจริงจัดการแล้ว)
+    setTrayRecords((prev) => prev.filter((t) => !(t.fromBill === billNo && t.status === "รอคัด" && !t.sorted)));
+  };
 
   return (
     <div style={S.app} onKeyDown={enterAdvanceFocus}>
@@ -1141,18 +1151,18 @@ export default function App() {
         </nav>
       </header>
 
-      {view === "sales" && <SalesView stock={stock} addBill={addBill} bills={bills} payments={payments} trayStock={trayStock} setTrayStock={setTrayStock} trayRecords={trayRecords} trayEvents={trayEvents} drafts={drafts} setDrafts={setDrafts} />}
-      {view === "bills" && <BillHistoryView bills={bills} payments={payments} />}
-      {view === "account" && <AccountView bills={bills} payments={payments} recordPayment={recordPayment} />}
-      {view === "dash" && <DashboardView bills={bills} payments={payments} production={productionByDate} rearingByDate={rearingByDate} flocks={flocks} />}
+      {view === "sales" && <SalesView stock={stock} addBill={addBill} bills={activeBills} payments={payments} trayStock={trayStock} setTrayStock={setTrayStock} trayRecords={trayRecords} trayEvents={trayEvents} drafts={drafts} setDrafts={setDrafts} />}
+      {view === "bills" && <BillHistoryView bills={bills} payments={payments} cancelBill={cancelBill} />}
+      {view === "account" && <AccountView bills={activeBills} payments={payments} recordPayment={recordPayment} />}
+      {view === "dash" && <DashboardView bills={activeBills} payments={payments} production={productionByDate} rearingByDate={rearingByDate} flocks={flocks} />}
       {view === "stock" && <StockView salesByDay={salesByDay} productionByDate={productionByDate} defaultDay={isoFromTs(Date.now())} stockCounts={stockCounts} closeMeta={closeMeta} refPrices={refPrices} onCloseDay={closeDay} onReopenDay={reopenDay} />}
       {view === "production" && <ProductionView houses={houses} setHouses={setHouses} prodDate={prodDate} setProdDate={setProdDate} production={productionByDate} flocks={flocks} />}
       {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={saveRearing} flocks={flocks} saveFlock={saveFlock} production={productionByDate} medTrials={medTrials} medStock={medStock} medInfo={medInfo} vaccines={vaccines} addVaccine={addVaccine} deleteVaccine={deleteVaccine} labTests={labTests} addLabTest={addLabTest} deleteLabTest={deleteLabTest} />}
       {view === "feed" && <FeedView rearingByDate={rearingByDate} flocks={flocks} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} feedPrice={feedPrice} setFeedPrice={setFeedPrice} feedUseByMonth={feedUseByMonth} />}
       {view === "med" && <MedView medTrials={medTrials} addMedTrial={addMedTrial} deleteMedTrial={deleteMedTrial} rearingByDate={rearingByDate} production={productionByDate} medStock={medStock} medInfo={medInfo} medReceipts={medReceipts} addMedItem={addMedItem} updateMedItem={updateMedItem} addMedReceipt={addMedReceipt} medCostByMonth={medCostByMonth} />}
       {view === "health" && <HealthHubView production={productionByDate} flocks={flocks} vaccines={vaccines} addVaccine={addVaccine} deleteVaccine={deleteVaccine} />}
-      {view === "cost" && <CostView expenses={expenses} addExpense={addExpense} deleteExpense={deleteExpense} production={productionByDate} medCostByMonth={medCostByMonth} feedCostByMonth={feedCostByMonth} feedPrice={feedPrice} bills={bills} />}
-      {view === "tray" && <PanelTrayView trayStock={trayStock} setTrayStock={setTrayStock} bills={bills} trayRecords={trayRecords} setTrayRecords={setTrayRecords} trayEvents={trayEvents} addTrayEvent={addTrayEvent} deleteTrayEvent={deleteTrayEvent} />}
+      {view === "cost" && <CostView expenses={expenses} addExpense={addExpense} deleteExpense={deleteExpense} production={productionByDate} medCostByMonth={medCostByMonth} feedCostByMonth={feedCostByMonth} feedPrice={feedPrice} bills={activeBills} />}
+      {view === "tray" && <PanelTrayView trayStock={trayStock} setTrayStock={setTrayStock} bills={activeBills} trayRecords={trayRecords} setTrayRecords={setTrayRecords} trayEvents={trayEvents} addTrayEvent={addTrayEvent} deleteTrayEvent={deleteTrayEvent} />}
       {view === "booking" && <BookingEntry bookings={bookings} addBooking={addBooking} updateBooking={updateBooking} deleteBooking={deleteBooking} production={productionByDate} planEstimates={planEstimates} />}
       {view === "plan" && <PlanBoard bookings={bookings} production={productionByDate} planEstimates={planEstimates} setPlanEstimate={setPlanEstimate} />}
     </div>
@@ -2149,7 +2159,7 @@ function exportBillsExcel(bills, payments) {
   setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
-function BillHistoryView({ bills, payments }) {
+function BillHistoryView({ bills, payments, cancelBill }) {
   const [q, setQ] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -2158,8 +2168,8 @@ function BillHistoryView({ bills, payments }) {
 
   const toISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   const isoOf = (b) => toISO(new Date(b.ts || 0));                         // วันที่ของบิล (จาก timestamp จริง)
-  const statusOf = (b) => { const p = payments[b.no]; if (p && p.paid >= b.total) return "paid"; if (p && p.paid > 0) return "partial"; return "unpaid"; };
-  const STCFG = { paid: { label: "ชำระแล้ว", bg: "#DCFCE7", c: "#15803D" }, partial: { label: "ชำระบางส่วน", bg: "#FEF3C7", c: "#B45309" }, unpaid: { label: "ค้างชำระ", bg: "#FEE2E2", c: "#B91C1C" } };
+  const statusOf = (b) => { if (b.cancelled) return "cancelled"; const p = payments[b.no]; if (p && p.paid >= b.total) return "paid"; if (p && p.paid > 0) return "partial"; return "unpaid"; };
+  const STCFG = { paid: { label: "ชำระแล้ว", bg: "#DCFCE7", c: "#15803D" }, partial: { label: "ชำระบางส่วน", bg: "#FEF3C7", c: "#B45309" }, unpaid: { label: "ค้างชำระ", bg: "#FEE2E2", c: "#B91C1C" }, cancelled: { label: "ยกเลิกแล้ว", bg: "#F3F4F6", c: "#6B7280" } };
   const setPreset = (kind) => {
     const now = new Date(); const t = toISO(now);
     if (kind === "all") { setFrom(""); setTo(""); }
@@ -2176,12 +2186,12 @@ function BillHistoryView({ bills, payments }) {
     return true;
   };
   const baseFiltered = bills.filter(matchesBase);
-  const statusCounts = { all: baseFiltered.length, paid: 0, partial: 0, unpaid: 0 };
+  const statusCounts = { all: baseFiltered.length, paid: 0, partial: 0, unpaid: 0, cancelled: 0 };
   baseFiltered.forEach((b) => statusCounts[statusOf(b)]++);
   const filtered = statusF === "all" ? baseFiltered : baseFiltered.filter((b) => statusOf(b) === statusF);
 
-  const totalSales = filtered.reduce((s, b) => s + (b.total || 0), 0);
-  const outstanding = filtered.reduce((s, b) => { const p = payments[b.no]; return s + Math.max(0, (b.total || 0) - (p ? p.paid : 0)); }, 0);
+  const totalSales = filtered.reduce((s, b) => s + (b.cancelled ? 0 : (b.total || 0)), 0);
+  const outstanding = filtered.reduce((s, b) => { if (b.cancelled) return s; const p = payments[b.no]; return s + Math.max(0, (b.total || 0) - (p ? p.paid : 0)); }, 0);
 
   const groups = {};
   filtered.forEach((b) => { const k = b.date || isoOf(b); (groups[k] = groups[k] || []).push(b); });
@@ -2194,14 +2204,14 @@ function BillHistoryView({ bills, payments }) {
   const sumLbl = { fontSize: 12, color: "#8a8172", marginBottom: 3 };
   const sumVal = { fontSize: 18, fontWeight: 800 };
 
-  if (selected) return <BillDetail bill={selected} payment={payments[selected.no]} onBack={() => setSelected(null)} />;
+  if (selected) return <BillDetail bill={selected} payment={payments[selected.no]} onBack={() => setSelected(null)} onCancel={cancelBill} />;
 
   return (
     <div style={S.wide}>
       <div style={S.subBar}>
         <span style={S.subBarTitle}>ประวัติบิล · {filtered.length}/{bills.length} ใบ</span>
         {filtered.length > 0 && (
-          <button onClick={() => exportBillsExcel(filtered, payments)} title="ส่งออกบิล 'ตามช่วง/ตัวกรองที่เลือก' เป็นไฟล์ Excel (หัวบริษัท/วันที่/ยอดรวม) ให้แผนกบัญชี"
+          <button onClick={() => exportBillsExcel(filtered.filter((b) => !b.cancelled), payments)} title="ส่งออกบิล 'ตามช่วง/ตัวกรองที่เลือก' เป็นไฟล์ Excel (หัวบริษัท/วันที่/ยอดรวม) ให้แผนกบัญชี — ไม่รวมบิลที่ยกเลิก"
             style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px", border: "none", background: INK, color: "#fff", borderRadius: 9, fontSize: 13.5, fontFamily: "inherit", fontWeight: 700, cursor: "pointer" }}>
             <ArrowDownToLine size={16} /> Export Excel ({filtered.length}) → บัญชี
           </button>
@@ -2227,6 +2237,7 @@ function BillHistoryView({ bills, payments }) {
           {chip(statusF === "paid", () => setStatusF("paid"), "ชำระแล้ว", statusCounts.paid)}
           {chip(statusF === "partial", () => setStatusF("partial"), "ชำระบางส่วน", statusCounts.partial)}
           {chip(statusF === "unpaid", () => setStatusF("unpaid"), "ค้างชำระ", statusCounts.unpaid)}
+          {statusCounts.cancelled > 0 && chip(statusF === "cancelled", () => setStatusF("cancelled"), "ยกเลิกแล้ว", statusCounts.cancelled)}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 14 }}>
           <div style={sumCard}><div style={sumLbl}>จำนวนบิล</div><div style={{ ...sumVal, color: INK }}>{fmt(filtered.length)}</div></div>
@@ -2238,7 +2249,7 @@ function BillHistoryView({ bills, payments }) {
         ) : (
           <div style={{ marginTop: 16 }}>
             {groupKeys.map((k) => {
-              const gb = groups[k]; const gtot = gb.reduce((s, b) => s + (b.total || 0), 0);
+              const gb = groups[k]; const gtot = gb.reduce((s, b) => s + (b.cancelled ? 0 : (b.total || 0)), 0);
               return (
                 <div key={k} style={{ marginBottom: 16 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 4px", borderBottom: "2px solid #ece5d6", marginBottom: 8 }}>
@@ -2249,12 +2260,12 @@ function BillHistoryView({ bills, payments }) {
                     {gb.map((b) => {
                       const st = STCFG[statusOf(b)];
                       return (
-                        <button key={b.no} style={S.billRow} className="customerCard" onClick={() => setSelected(b)}>
+                        <button key={b.no} style={{ ...S.billRow, ...(b.cancelled ? { opacity: 0.62, background: "#FBFBFA" } : null) }} className="customerCard" onClick={() => setSelected(b)}>
                           <div style={{ flex: 1, textAlign: "left" }}>
-                            <div style={S.billRowTop}><span style={S.billRowNo}>{b.no}</span><span style={{ ...S.statusPill, background: st.bg, color: st.c }}>{st.label}</span></div>
-                            <div style={S.billRowCust}>{b.customer?.name} · {b.date}</div>
+                            <div style={S.billRowTop}><span style={{ ...S.billRowNo, ...(b.cancelled ? { textDecoration: "line-through", color: "#9ca3af" } : null) }}>{b.no}</span><span style={{ ...S.statusPill, background: st.bg, color: st.c }}>{st.label}</span></div>
+                            <div style={S.billRowCust}>{b.customer?.name} · {b.date}{b.cancelled && b.cancelReason ? <span style={{ color: "#9ca3af" }}> · เหตุผล: {b.cancelReason}</span> : ""}</div>
                           </div>
-                          <div style={{ textAlign: "right" }}><div style={S.billRowAmt}>{fmt(b.total)} บ.</div><div style={S.billRowItems}>{b.items.length} รายการ</div></div>
+                          <div style={{ textAlign: "right" }}><div style={{ ...S.billRowAmt, ...(b.cancelled ? { textDecoration: "line-through", color: "#9ca3af" } : null) }}>{fmt(b.total)} บ.</div><div style={S.billRowItems}>{b.items.length} รายการ</div></div>
                           <ChevronRight size={18} color="#9ca3af" />
                         </button>
                       );
@@ -2270,16 +2281,33 @@ function BillHistoryView({ bills, payments }) {
   );
 }
 
-function BillDetail({ bill, payment, onBack }) {
+function BillDetail({ bill, payment, onBack, onCancel }) {
   const b = bill;
+  const [showCancel, setShowCancel] = useState(false);
+  const [reason, setReason] = useState("");
+  const [by, setBy] = useState("");
   return (
     <div style={S.stage}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
         <button style={S.ghostBtn} onClick={onBack}>← กลับ</button>
-        <button style={{ ...S.primarySmBtn, background: INK }} onClick={() => printReceiptImage("delivery-note")}><Printer size={15} /> พิมพ์ใบเสร็จ</button>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {onCancel && !b.cancelled && (
+            <button style={{ ...S.primarySmBtn, background: "#fff", color: "#B91C1C", border: "1.5px solid #FCA5A5" }} onClick={() => setShowCancel(true)}>✕ ยกเลิกใบเสร็จ</button>
+          )}
+          {b.cancelled && <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 800, color: "#B91C1C", background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 8, padding: "6px 12px" }}>✕ ยกเลิกแล้ว</span>}
+          <button style={{ ...S.primarySmBtn, background: INK }} onClick={() => printReceiptImage("delivery-note")}><Printer size={15} /> พิมพ์ใบเสร็จ</button>
+        </div>
       </div>
       <div id="delivery-note" style={{ ...S.note, marginTop: 14 }}>
         <div style={S.noteTopStripe} />
+        {b.cancelled && (
+          <div style={{ margin: "10px 24px 0", padding: "10px 14px", background: "#FEF2F2", border: "2px solid #EF4444", borderRadius: 10, color: "#B91C1C" }}>
+            <div style={{ fontSize: 18, fontWeight: 900, letterSpacing: 2 }}>✕ ยกเลิกแล้ว · CANCELLED</div>
+            <div style={{ fontSize: 12.5, marginTop: 4, color: "#7F1D1D", lineHeight: 1.6 }}>
+              เหตุผล: <b>{b.cancelReason || "—"}</b><br />เวลา: {b.cancelAtStr || "—"} · โดย: <b>{b.cancelBy || "—"}</b>
+            </div>
+          </div>
+        )}
         <div style={S.noteHead}>
           <div style={S.noteBrand}>
             <div style={S.noteLogo}><Egg size={26} /></div>
@@ -2364,7 +2392,7 @@ function BillDetail({ bill, payment, onBack }) {
             <b style={{ color: INK }}>หมายเหตุ:</b> {b.note}
           </div>
         )}
-        {!(payment && payment.paid >= b.total) && (
+        {!b.cancelled && !(payment && payment.paid >= b.total) && (
           <div style={S.qrBox}>
             <div style={S.qrLeft}>
               <div style={S.qrTitle}>สแกน QR เพื่อชำระเงิน</div>
@@ -2377,7 +2405,9 @@ function BillDetail({ bill, payment, onBack }) {
           </div>
         )}
         <div style={S.noteFooter}>
-          {payment && payment.paid >= b.total
+          {b.cancelled
+            ? <div style={{ color: "#6B7280", fontWeight: 700 }}>— ใบเสร็จนี้ถูกยกเลิกแล้ว —</div>
+            : payment && payment.paid >= b.total
             ? <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
                 <div style={{ color: "#15803D", fontWeight: 700 }}>✓ ชำระแล้ว {payment.date} ({payment.method})</div>
                 {payment.slip && (
@@ -2390,6 +2420,28 @@ function BillDetail({ bill, payment, onBack }) {
         </div>
         <div style={S.noteBottomStripe} />
       </div>
+      {showCancel && (
+        <div style={S.modalOverlay} onClick={() => setShowCancel(false)}>
+          <div style={{ ...S.modal, maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
+            <div style={S.modalHead}>
+              <div><div style={S.modalTitle}>✕ ยกเลิกใบเสร็จ {b.no}</div><div style={S.modalSub}>บิลจะถูกตัดออกจากยอดขาย/ลูกหนี้/สต๊อก · ยังเห็นในประวัติ (มีตราประทับ)</div></div>
+              <button style={S.modalClose} onClick={() => setShowCancel(false)}><X size={18} /></button>
+            </div>
+            <label style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: INK, marginBottom: 4 }}>เหตุผลการยกเลิก *</label>
+            <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} autoFocus placeholder="เช่น ลูกค้ายกเลิกออเดอร์ / ออกบิลผิด / คีย์ซ้ำ"
+              style={{ width: "100%", padding: "9px 11px", border: "1.5px solid #e3ddd0", borderRadius: 9, fontSize: 14, fontFamily: "inherit", outline: "none", boxSizing: "border-box", resize: "vertical" }} />
+            <label style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: INK, margin: "10px 0 4px" }}>ชื่อผู้ยกเลิก *</label>
+            <input value={by} onChange={(e) => setBy(e.target.value)} placeholder="ชื่อผู้ทำรายการ"
+              style={{ width: "100%", padding: "9px 11px", border: "1.5px solid #e3ddd0", borderRadius: 9, fontSize: 14, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
+            <div style={{ fontSize: 12, color: "#9b8e78", margin: "8px 0 0" }}>⏱️ เวลายกเลิก = เวลาที่กดยืนยัน (บันทึกอัตโนมัติ)</div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
+              <button onClick={() => setShowCancel(false)} style={S.ghostBtn}>ไม่ยกเลิก</button>
+              <button disabled={!reason.trim() || !by.trim()} onClick={() => { onCancel(b.no, reason, by); setShowCancel(false); onBack(); }}
+                style={{ ...S.primarySmBtn, background: "#DC2626", opacity: (reason.trim() && by.trim()) ? 1 : 0.5 }}>✕ ยืนยันยกเลิกใบเสร็จ</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
