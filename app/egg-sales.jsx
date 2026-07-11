@@ -7127,6 +7127,9 @@ function BookingEntry({ bookings, addBooking, updateBooking, deleteBooking, prod
   const [items, setItems] = useState({});
   const [note, setNote] = useState("");
   const [editId, setEditId] = useState(null);
+  const [cancelTarget, setCancelTarget] = useState(null);   // ใบจองที่กำลังยกเลิก (เปิด modal)
+  const [cReason, setCReason] = useState("");
+  const [cBy, setCBy] = useState("");
   const custName = (id) => CUSTOMERS.find((c) => c.id === id)?.name || "—";
   const setDateClamped = (v) => setDate(v && v < minDate ? minDate : v);   // เลือกก่อน cutoff ไม่ได้ → เด้งเป็นวันส่งเร็วสุด
   // ไข่คละ: โชว์ช่องจองเฉพาะเมื่อมีในประมาณการสต๊อกของวันนั้น (ตั้งในหน้าวางแผน) หรือกำลังแก้ใบที่จองคละไว้
@@ -7141,7 +7144,7 @@ function BookingEntry({ bookings, addBooking, updateBooking, deleteBooking, prod
   // ประมาณการไข่วันนั้น (ต่อชนิด) + ยอดจองเดิมของลูกค้าอื่น → เตือนถ้าจองรวมเกินสต๊อกที่คาด
   const { est: autoEst } = useMemo(() => autoEstimate(production, date), [production, date]);
   const estOf = (pid) => { const o = (planEstimates[date] || {})[pid]; return o != null && o !== "" ? (parseInt(o) || 0) : (autoEst[pid] || 0); };
-  const otherDemand = (pid) => bookings.filter((b) => b.date === date && b.id !== editId).reduce((s, b) => s + (parseInt(b.items?.[pid]) || 0), 0);
+  const otherDemand = (pid) => bookings.filter((b) => b.date === date && b.id !== editId && !b.cancelled).reduce((s, b) => s + (parseInt(b.items?.[pid]) || 0), 0);
   const STEP = 10;                                   // จองเป็นหน่วยละ 10 แผง (หารด้วย 10 ลงตัว)
   const setQty = (pid, v) => setItems((p) => { const n = { ...p }; const q = v.replace(/[^0-9]/g, ""); if (q) n[pid] = q; else delete n[pid]; return n; });
   const total = bookingTotal(items);
@@ -7163,7 +7166,10 @@ function BookingEntry({ bookings, addBooking, updateBooking, deleteBooking, prod
     reset();
   };
   const edit = (b) => { setEditId(b.id); setCustomerId(b.customerId); setDate(b.date); setItems(Object.fromEntries(Object.entries(b.items || {}).map(([k, v]) => [k, String(v)]))); setNote(b.note || ""); window.scrollTo({ top: 0, behavior: "smooth" }); };
-  const dayBookings = bookings.filter((b) => b.date === date).sort((a, b) => custName(a.customerId).localeCompare(custName(b.customerId), "th"));
+  const dayBookings = bookings.filter((b) => b.date === date).sort((a, b) => (a.cancelled ? 1 : 0) - (b.cancelled ? 1 : 0) || custName(a.customerId).localeCompare(custName(b.customerId), "th"));
+  const activeDay = dayBookings.filter((b) => !b.cancelled);   // ที่ยังใช้งาน (ตัดยกเลิก) — ใช้คิดยอดรวม/วางแผน
+  const cancelledDay = dayBookings.length - activeDay.length;
+  const confirmCancelBooking = () => { if (!cancelTarget) return; updateBooking(cancelTarget.id, { cancelled: true, cancelReason: cReason.trim(), cancelBy: cBy.trim(), cancelAt: Date.now(), cancelAtStr: new Date().toLocaleString("th-TH") }); setCancelTarget(null); setCReason(""); setCBy(""); };
   const inp = { width: "100%", padding: "8px 9px", border: "1.5px solid #e3ddd0", borderRadius: 8, fontSize: 14, fontFamily: "inherit", outline: "none", boxSizing: "border-box", textAlign: "right", background: "#fff" };
   const lbl = { display: "block", fontSize: 11.5, fontWeight: 700, color: "#7a6f5c", marginBottom: 3 };
   return (
@@ -7220,30 +7226,63 @@ function BookingEntry({ bookings, addBooking, updateBooking, deleteBooking, prod
 
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
         <span style={{ fontWeight: 800, color: INK, fontSize: 15 }}>ใบจองวันที่ {toThaiDate(date, false)}</span>
-        <span style={{ fontSize: 13, color: "#9b8e78" }}>{dayBookings.length} ราย · รวม {fmt(dayBookings.reduce((s, b) => s + bookingTotal(b.items), 0))} แผง</span>
+        <span style={{ fontSize: 13, color: "#9b8e78" }}>{activeDay.length} ราย · รวม {fmt(activeDay.reduce((s, b) => s + bookingTotal(b.items), 0))} แผง{cancelledDay > 0 ? <span style={{ color: "#B91C1C", fontWeight: 700 }}> · ยกเลิก {cancelledDay}</span> : null}</span>
       </div>
       {dayBookings.length === 0 ? (
         <div style={S.emptyState}><Calendar size={34} color="#d1d5db" /><div>ยังไม่มีใบจองของวันนี้ — กรอกด้านบนแล้วบันทึก</div></div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {dayBookings.map((b) => (
-            <div key={b.id} style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 12, padding: "11px 14px" }}>
+            <div key={b.id} style={{ background: b.cancelled ? "#FBFBFA" : "#fff", border: "1px solid #eee3cd", borderRadius: 12, padding: "11px 14px", opacity: b.cancelled ? 0.72 : 1 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
-                <User size={15} color={ACCENT_DK} /><span style={{ fontWeight: 800, color: INK }}>{custName(b.customerId)}</span>
-                <span style={{ fontWeight: 800, color: ACCENT_DK }}>· {fmt(bookingTotal(b.items))} แผง</span>
+                <User size={15} color={ACCENT_DK} /><span style={{ fontWeight: 800, color: INK, textDecoration: b.cancelled ? "line-through" : "none" }}>{custName(b.customerId)}</span>
+                <span style={{ fontWeight: 800, color: ACCENT_DK, textDecoration: b.cancelled ? "line-through" : "none" }}>· {fmt(bookingTotal(b.items))} แผง</span>
+                {b.cancelled && <span style={{ fontSize: 11, fontWeight: 800, color: "#B91C1C", background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 999, padding: "1px 9px" }}>🚫 ยกเลิกแล้ว</span>}
                 {b.note ? <span style={{ fontSize: 12, color: "#9b8e78" }}>· {b.note}</span> : null}
                 <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-                  <button onClick={() => edit(b)} style={{ border: "1px solid #d8cdb6", background: "#fff", color: "#7a6f5c", borderRadius: 7, padding: "2px 9px", cursor: "pointer", fontWeight: 700, fontSize: 12 }}>✎ แก้</button>
-                  <button onClick={() => { if (window.confirm(`ลบใบจองของ ${custName(b.customerId)}?`)) deleteBooking(b.id); }} style={{ border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 7, padding: "2px 8px", cursor: "pointer", fontWeight: 800, fontSize: 12 }}>✕</button>
+                  {b.cancelled ? (
+                    <button onClick={() => updateBooking(b.id, { cancelled: false })} style={{ border: "1px solid #86C99A", background: "#F0FDF4", color: "#15803D", borderRadius: 7, padding: "2px 9px", cursor: "pointer", fontWeight: 800, fontSize: 12 }}>↩ คืนสถานะ</button>
+                  ) : (
+                    <>
+                      <button onClick={() => edit(b)} style={{ border: "1px solid #d8cdb6", background: "#fff", color: "#7a6f5c", borderRadius: 7, padding: "2px 9px", cursor: "pointer", fontWeight: 700, fontSize: 12 }}>✎ แก้</button>
+                      <button onClick={() => { setCancelTarget(b); setCReason(""); setCBy(""); }} style={{ border: "1px solid #FDBA74", background: "#FFF7ED", color: "#C2410C", borderRadius: 7, padding: "2px 9px", cursor: "pointer", fontWeight: 800, fontSize: 12 }}>🚫 ยกเลิก</button>
+                    </>
+                  )}
+                  <button onClick={() => { if (window.confirm(`ลบใบจองของ ${custName(b.customerId)} ถาวร? (ถ้าต้องการเก็บบันทึกว่ายกเลิก ให้กด 🚫 ยกเลิก แทน)`)) deleteBooking(b.id); }} title="ลบถาวร (ไม่เก็บบันทึก)" style={{ border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 7, padding: "2px 8px", cursor: "pointer", fontWeight: 800, fontSize: 12 }}>✕</button>
                 </span>
               </div>
+              {b.cancelled && (b.cancelReason || b.cancelBy || b.cancelAtStr) && (
+                <div style={{ fontSize: 11.5, color: "#9b8e78", marginBottom: 6 }}>ยกเลิก{b.cancelReason ? `: ${b.cancelReason}` : ""}{b.cancelBy ? ` · โดย ${b.cancelBy}` : ""}{b.cancelAtStr ? ` · ${b.cancelAtStr}` : ""}</div>
+              )}
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {Object.entries(b.items || {}).map(([pid, q]) => (
-                  <span key={pid} style={{ fontSize: 12.5, background: "#F6F1E7", borderRadius: 8, padding: "3px 9px", color: "#5b5347", fontWeight: 600 }}>{PRODUCT_BY_ID[pid]?.name || pid} <b style={{ color: INK }}>{fmt(q)}</b></span>
+                  <span key={pid} style={{ fontSize: 12.5, background: "#F6F1E7", borderRadius: 8, padding: "3px 9px", color: "#5b5347", fontWeight: 600, textDecoration: b.cancelled ? "line-through" : "none" }}>{PRODUCT_BY_ID[pid]?.name || pid} <b style={{ color: INK }}>{fmt(q)}</b></span>
                 ))}
               </div>
             </div>
           ))}
+        </div>
+      )}
+      {cancelTarget && (
+        <div style={S.modalOverlay} onClick={() => setCancelTarget(null)}>
+          <div style={{ ...S.modal, maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+            <div style={S.modalHead}>
+              <div><div style={S.modalTitle}>🚫 ยกเลิกการจอง</div><div style={S.modalSub}>{custName(cancelTarget.customerId)} · {fmt(bookingTotal(cancelTarget.items))} แผง · {toThaiDate(cancelTarget.date, false)}</div></div>
+              <button style={S.modalClose} onClick={() => setCancelTarget(null)}><X size={18} /></button>
+            </div>
+            <div style={{ fontSize: 12.5, color: "#7A4F16", background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 8, padding: "7px 11px", marginBottom: 11 }}>ใบจองจะถูกตัดออกจากการวางแผน (ไม่นับใน demand) แต่ยังเก็บบันทึกไว้เป็นประวัติ — กด “คืนสถานะ” เอากลับได้</div>
+            <label style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: INK, marginBottom: 4 }}>เหตุผลการยกเลิก</label>
+            <textarea value={cReason} onChange={(e) => setCReason(e.target.value)} rows={2} autoFocus placeholder="เช่น ลูกค้ายกเลิก · เปลี่ยนวันส่ง · จองซ้ำ"
+              style={{ width: "100%", padding: "9px 11px", border: "1.5px solid #e3ddd0", borderRadius: 9, fontSize: 14, fontFamily: "inherit", outline: "none", boxSizing: "border-box", resize: "vertical" }} />
+            <label style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: INK, margin: "10px 0 4px" }}>ชื่อผู้ยกเลิก</label>
+            <input value={cBy} onChange={(e) => setCBy(e.target.value)} placeholder="ชื่อผู้ทำรายการ"
+              style={{ width: "100%", padding: "9px 11px", border: "1.5px solid #e3ddd0", borderRadius: 9, fontSize: 14, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
+            <div style={{ fontSize: 12, color: "#9b8e78", margin: "8px 0 0" }}>⏱️ เวลายกเลิก = เวลาที่กดยืนยัน (บันทึกอัตโนมัติ)</div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
+              <button onClick={() => setCancelTarget(null)} style={S.ghostBtn}>ไม่ยกเลิก</button>
+              <button onClick={confirmCancelBooking} style={{ ...S.primaryBtn, width: "auto", padding: "9px 18px", background: "#EA580C", borderColor: "#EA580C" }}>🚫 ยืนยันยกเลิกการจอง</button>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -7260,7 +7299,7 @@ function PlanBoard({ bookings, production, planEstimates, setPlanEstimate }) {
   const { base, est: auto } = useMemo(() => autoEstimate(production, date), [production, date]);
   const override = planEstimates[date] || {};
   const estOf = (pid) => { const o = override[pid]; return o != null && o !== "" ? (parseInt(o) || 0) : (auto[pid] || 0); };
-  const dayBookings = bookings.filter((b) => b.date === date);
+  const dayBookings = bookings.filter((b) => b.date === date && !b.cancelled);   // ตัดใบจองที่ยกเลิกออก → วางแผนตาม demand จริง
   // รวมใบจองเป็นรายลูกค้า (ลูกค้าเดียวจองหลายใบ → รวมชนิดให้) → 1 คอลัมน์ต่อลูกค้า
   const custCols = useMemo(() => {
     const map = {};
