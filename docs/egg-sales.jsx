@@ -4,7 +4,7 @@ import {
   AlertCircle, ShoppingCart, RotateCcw, Copy, ClipboardCheck, Send, Truck, Clock,
   Warehouse, Egg, ArrowDownToLine, Image as ImageIcon,
   FileText, Wallet, LayoutDashboard, TrendingUp, Calendar, CheckCircle2, CircleDollarSign, QrCode, Pencil, Printer,
-  Bell, Settings, Wheat, Pill, Calculator, Stethoscope,
+  Bell, Settings, Wheat, Pill, Calculator, Stethoscope, Activity,
 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
@@ -832,7 +832,7 @@ function enterAdvanceFocus(e) {
 ============================================================ */
 const TOPIC_LABELS = {
   sales: "ขายไข่", bills: "ประวัติบิล", account: "บัญชีลูกหนี้", tray: "บัญชีแผงไข่",
-  stock: "สต๊อคไข่ประจำวัน", production: "ผลผลิตประจำวัน", dash: "แดชบอร์ด",
+  stock: "สต๊อคไข่ประจำวัน", production: "ผลผลิตประจำวัน", dash: "แดชบอร์ด", manage: "แดชบอร์ดผู้บริหาร",
   booking: "จองออเดอร์", plan: "วางแผนออเดอร์", rear: "เก็บข้อมูลการเลี้ยง",
   feed: "อาหารไก่", med: "ยาและวิตามิน", trial: "ทดลอง·ติดตามผล", health: "สุขภาพไก่", cost: "บัญชีต้นทุน",
 };
@@ -841,7 +841,7 @@ const DEFAULT_ROLES = [
   { id: "owner", name: "เจ้าของ/ผู้จัดการ", emoji: "👑", pin: "1234", topics: ALL_TOPIC_IDS.slice() },
   { id: "sales", name: "ฝ่ายขาย/เสมียนโรงคัด", emoji: "🛒", pin: "", topics: ["sales", "bills", "account", "tray", "booking", "plan", "stock"] },
   { id: "farm", name: "สัตวบาล/ดูแลไก่", emoji: "🐔", pin: "", topics: ["production", "rear", "feed", "med", "trial", "health", "stock"] },
-  { id: "acct", name: "บัญชี", emoji: "💰", pin: "", topics: ["bills", "account", "cost", "dash"] },
+  { id: "acct", name: "บัญชี", emoji: "💰", pin: "", topics: ["bills", "account", "cost", "dash", "manage"] },
   { id: "medclerk", name: "เสมียนห้องสต๊อคยา", emoji: "💊", pin: "", topics: ["med"] },
   // บทบาทร้านค้าภายนอก — เข้าได้แค่ "จองออเดอร์" และเห็นเฉพาะลูกค้า/ใบจองของกลุ่มตัวเอง (custGroup)
   { id: "retail_shop", name: "ร้านค้าขายปลีก (ฉันจะกินไข่สดทุกวัน)", emoji: "🛍️", pin: "", topics: ["booking"], custGroup: "retail" },
@@ -1277,6 +1277,7 @@ export default function App() {
             { id: "stock", icon: <Warehouse size={16} />, label: "สต๊อคไข่ประจำวัน", c: "#0E7490" },
             { id: "production", icon: <Egg size={16} />, label: "ผลผลิตประจำวัน", c: "#15803D" },
             { id: "dash", icon: <LayoutDashboard size={16} />, label: "แดชบอร์ด", c: "#1D4ED8" },
+            { id: "manage", icon: <Activity size={16} />, label: "แดชบอร์ดผู้บริหาร", c: "#9333EA" },
             { id: "booking", icon: <Receipt size={16} />, label: "จองออเดอร์", c: "#BE185D" },
             { id: "plan", icon: <Calendar size={16} />, label: "วางแผนออเดอร์", c: "#7E22CE" },
             { id: "rear", icon: <ClipboardCheck size={16} />, label: "เก็บข้อมูลการเลี้ยง", c: "#B45309" },
@@ -1301,6 +1302,7 @@ export default function App() {
       {view === "bills" && <BillHistoryView bills={bills} payments={payments} cancelBill={cancelBill} />}
       {view === "account" && <AccountView bills={activeBills} payments={payments} recordPayment={recordPayment} />}
       {view === "dash" && <DashboardView bills={activeBills} payments={payments} production={productionByDate} rearingByDate={rearingByDate} flocks={flocks} />}
+      {view === "manage" && <ManageDashView production={productionByDate} rearingByDate={rearingByDate} flocks={flocks} />}
       {view === "stock" && <StockView salesByDay={salesByDay} productionByDate={productionByDate} defaultDay={isoFromTs(Date.now())} stockCounts={stockCounts} closeMeta={closeMeta} refPrices={refPrices} onCloseDay={closeDay} onReopenDay={reopenDay} />}
       {view === "production" && <ProductionView houses={houses} setHouses={setHouses} prodDate={prodDate} setProdDate={setProdDate} production={productionByDate} flocks={flocks} />}
       {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={saveRearing} flocks={flocks} saveFlock={saveFlock} production={productionByDate} medTrials={medTrials} medStock={medStock} medInfo={medInfo} vaccines={vaccines} addVaccine={addVaccine} deleteVaccine={deleteVaccine} labTests={labTests} addLabTest={addLabTest} deleteLabTest={deleteLabTest} />}
@@ -3018,6 +3020,277 @@ function DashboardView({ bills, payments, production = {}, rearingByDate = {}, f
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   หน้าจอ: แดชบอร์ดผู้บริหาร — สรุป+วิเคราะห์การเลี้ยงรายวัน
+   ไก่ตาย/หลัง · น้ำ-อาหารเทียบมาตรฐาน Hy-Line · ตกเกรด/หลัง ·
+   กระจายเบอร์ไข่เทียบค่าเฉลี่ยฟาร์ม · วิเคราะห์สาเหตุ → ส่งผู้บริหาร
+============================================================ */
+const sumVals = (o) => Object.values(o || {}).reduce((s, v) => s + (nf(v) || 0), 0);
+const WATER_METERS = ["m1", "m2", "m3", "m4", "m5", "m6"];
+function waterUsedFromMeters(cur, prev) {
+  if (!cur || !prev) return null;
+  let s = 0, used = false;
+  WATER_METERS.forEach((k) => {
+    if (String(cur[k] ?? "").trim() === "" || String(prev[k] ?? "").trim() === "") return;
+    const diff = nf(cur[k]) - nf(prev[k]);
+    if (diff > 0) { s += diff; used = true; } else if (diff === 0) used = true;
+  });
+  return used ? s : null;
+}
+// วิเคราะห์การเลี้ยง 1 วัน ทุกหลัง → ต่อหลัง + ภาพรวมฟาร์ม + คำวิเคราะห์สาเหตุ
+function manageDayData(production, rearingByDate, flocks, alertCfg, date) {
+  const prevDate = shiftDayISO(date, -1);
+  const prodDay = production[date] || [];
+  const rearDay = rearingByDate[date] || {};
+  const rearPrev = rearingByDate[prevDate] || {};
+  const ids = [...new Set([...prodDay.map((h) => h.id), ...Object.keys(rearDay)])]
+    .sort((a, b) => HOUSE_IDS.indexOf(a) - HOUSE_IDS.indexOf(b) || String(a).localeCompare(String(b)));
+  const houses = ids.map((hid) => {
+    const h = prodDay.find((x) => x.id === hid) || { id: hid, chickens: 0, grade: { เบอร์: {}, ตกเกรด: {} } };
+    const grade = h.grade || { เบอร์: {}, ตกเกรด: {} };
+    const chickens = h.chickens || prodChickens(production, hid, date) || 0;
+    const age = flockAgeWk(flocks[hid], date);
+    const goodFong = sumVals(grade.เบอร์);
+    const goodPrang = goodFong / PER_PRADANG;
+    const offPrang = sumVals(grade.ตกเกรด);
+    const offFong = offPrang * PER_PRADANG;
+    const totalFong = goodFong + offFong;
+    const totalPrang = goodPrang + offPrang;
+    const prodRate = chickens > 0 ? (goodFong / chickens) * 100 : null;   // ไข่ดี/ไก่ (≈ hen-day %)
+    const stdHD = hylineHD(age);
+    const rateDiff = (prodRate != null && stdHD != null) ? prodRate - stdHD : null;
+    const offPct = totalFong > 0 ? (offFong / totalFong) * 100 : 0;
+    const berFong = {}; BER_KEYS.forEach((k) => { berFong[k] = nf(grade.เบอร์[k]); });
+    const r = rearDay[hid];
+    const deaths = r ? nf(r.loss?.deadAm) + nf(r.loss?.deadPm) : null;
+    const cull = r ? nf(r.loss?.cull) : null;
+    const deathPct = (deaths != null && chickens > 0) ? (deaths / chickens) * 100 : null;
+    const birdsLive = chickens > 0 ? Math.max(0, chickens - (cull || 0) - (deaths || 0)) : null;
+    const feedUsed = r ? nf(r.feed?.s1used) + nf(r.feed?.s2used) : null;
+    const stdFeedG = hylineFeedG(age);
+    const stdFeedKg = (stdFeedG != null && birdsLive) ? (stdFeedG * birdsLive) / 1000 : null;
+    const feedPct = (stdFeedKg && feedUsed > 0) ? (feedUsed / stdFeedKg) * 100 : null;
+    const waterUsed = waterUsedFromMeters(r?.water, rearPrev[hid]?.water);
+    const waterMl = (waterUsed != null && birdsLive) ? (waterUsed * 1000000) / birdsLive : null;
+    const stdWaterMl = stdFeedG != null ? stdFeedG * 2.0 : null;
+    const waterPct = (waterMl != null && stdWaterMl) ? (waterMl / stdWaterMl) * 100 : null;
+    const alerts = chickens > 0 ? computeHouseAlerts(h, alertCfg) : [];
+    return { hid, chickens, age, goodFong, goodPrang, offPrang, offFong, totalFong, totalPrang, prodRate, stdHD, rateDiff, offPct, berFong, deaths, cull, deathPct, feedUsed, stdFeedKg, feedPct, waterMl, stdWaterMl, waterPct, alerts, hasRear: !!r, issues: [] };
+  });
+  // ค่าเฉลี่ยฟาร์ม (สัดส่วนเบอร์ไข่) → ใช้เทียบว่าหลังไหนเบอร์ผิดกลุ่ม
+  const farmBer = {}; BER_KEYS.forEach((k) => { farmBer[k] = 0; });
+  let farmGood = 0;
+  houses.forEach((h) => { BER_KEYS.forEach((k) => { farmBer[k] += h.berFong[k]; }); farmGood += h.goodFong; });
+  const berShareFarm = {}; BER_KEYS.forEach((k) => { berShareFarm[k] = farmGood > 0 ? (farmBer[k] / farmGood) * 100 : 0; });
+  // วิเคราะห์ความผิดปกติต่อหลัง
+  houses.forEach((h) => {
+    const iss = h.issues;
+    if (h.deathPct != null && h.deathPct >= 0.1) iss.push({ sev: "red", head: `ไก่ตายสูง ${fmt(h.deaths)} ตัว (${h.deathPct.toFixed(2)}% ของฝูง)`, why: "อัตราตายรายวันสูงกว่าปกติมาก (ปกติ ~<0.05%/วัน)", act: "ตรวจโรค (ND/IB/หลอดลม) · เช็คความร้อน/การระบายอากาศ/ความแออัด · แยกซากผิดปกติส่งตรวจ · ทบทวนสมุดวัคซีน" });
+    else if (h.deaths != null && h.deaths > 0 && h.deathPct != null && h.deathPct >= 0.05) iss.push({ sev: "amber", head: `ไก่ตาย ${fmt(h.deaths)} ตัว (${h.deathPct.toFixed(2)}%)`, why: "สูงกว่าปกติเล็กน้อย — เฝ้าระวัง", act: "สังเกตอาการฝูง · ตรวจน้ำ/อาหาร/อากาศ" });
+    if (h.feedPct != null && h.feedPct < 90) iss.push({ sev: "amber", head: `กินอาหาร ${h.feedPct.toFixed(0)}% ของมาตรฐาน`, why: "กินต่ำกว่าเกณฑ์ — อาจจากอากาศร้อน น้ำไม่พอ หรือสุขภาพฝูง", act: "ตรวจระบบน้ำ+คุณภาพอาหาร · ลดความร้อน/ให้วิตามินลดสเตรส" });
+    if (h.waterPct != null && h.waterPct < 90) iss.push({ sev: "amber", head: `กินน้ำ ${h.waterPct.toFixed(0)}% ของมาตรฐาน`, why: "น้ำน้อยฉุดการกินอาหารและผลผลิตตาม", act: "ตรวจหัวจุ๊บตัน/แรงดันน้ำ/ท่อรั่ว" });
+    else if (h.waterPct != null && h.waterPct > 160) iss.push({ sev: "amber", head: `กินน้ำสูงผิดปกติ ${h.waterPct.toFixed(0)}%`, why: "อาจน้ำรั่ว/หกเสีย หรือฝูงเครียดจากความร้อน", act: "ตรวจท่อ-หัวจุ๊บรั่ว · เช็คอุณหภูมิโรงเรือน" });
+    if (h.rateDiff != null && h.rateDiff <= -8) iss.push({ sev: "red", head: `ผลผลิต ${h.prodRate.toFixed(0)}% ต่ำกว่ามาตรฐานอายุ (~${h.stdHD.toFixed(0)}%)`, why: ADVICE_KB._prod.causes[0], act: ADVICE_KB._prod.actions.slice(0, 2).join(" · ") });
+    h.alerts.forEach((a) => { const ad = adviceForTag(a.tag); if (ad) iss.push({ sev: "amber", head: `${a.label} · ${a.detail}`, why: ad.causes[0], act: ad.actions[0] }); });
+    // เบอร์ไข่ผิดกลุ่ม (เทียบค่าเฉลี่ยฟาร์ม) — ข้อมูลประกอบ (ขนาดไข่แปรตามอายุ)
+    if (h.goodFong >= 300) {
+      BER_KEYS.forEach((k) => {
+        const share = (h.berFong[k] / h.goodFong) * 100;
+        const dev = share - berShareFarm[k];
+        if (Math.abs(dev) >= 12) iss.push({ sev: "info", head: `เบอร์ ${k} ${dev > 0 ? "มาก" : "น้อย"}กว่ากลุ่ม (${share.toFixed(0)}% เทียบเฉลี่ยฟาร์ม ${berShareFarm[k].toFixed(0)}%)`, why: "ขนาดไข่แปรตามอายุฝูง/อาหาร — ต่างจากกลุ่มมากควรดูอายุและสูตรอาหาร", act: "เทียบอายุฝูงกับหลังอื่น · ทบทวนโปรตีน/พลังงานอาหาร" });
+      });
+    }
+  });
+  // ภาพรวมฟาร์ม
+  const chickensSum = houses.reduce((s, h) => s + h.chickens, 0);
+  const deathsSum = houses.reduce((s, h) => s + (h.deaths || 0), 0);
+  const cullSum = houses.reduce((s, h) => s + (h.cull || 0), 0);
+  const goodPrangSum = houses.reduce((s, h) => s + h.goodPrang, 0);
+  const offPrangSum = houses.reduce((s, h) => s + h.offPrang, 0);
+  const totalFongSum = houses.reduce((s, h) => s + h.totalFong, 0);
+  const goodFongSum = houses.reduce((s, h) => s + h.goodFong, 0);
+  const avgRate = chickensSum > 0 ? (goodFongSum / chickensSum) * 100 : null;
+  let stdW = 0, stdWc = 0;
+  houses.forEach((h) => { if (h.stdHD != null && h.chickens > 0) { stdW += h.stdHD * h.chickens; stdWc += h.chickens; } });
+  const stdAvgRate = stdWc > 0 ? stdW / stdWc : null;
+  const offPctAll = totalFongSum > 0 ? (offPrangSum * PER_PRADANG / totalFongSum) * 100 : 0;
+  const farm = {
+    nHouses: houses.length, chickens: chickensSum, deaths: deathsSum, cull: cullSum,
+    goodPrang: goodPrangSum, offPrang: offPrangSum, totalPrang: goodPrangSum + offPrangSum,
+    avgRate, stdAvgRate, offPctAll,
+    deathPct: chickensSum > 0 ? (deathsSum / chickensSum) * 100 : null,
+    housesIssue: houses.filter((h) => h.issues.some((i) => i.sev !== "info")).length,
+  };
+  return { date, prevDate, houses, farm, berShareFarm };
+}
+function manageSummaryText(data) {
+  const f = data.farm;
+  const L = [`📊 รายงานผู้บริหาร · การเลี้ยง · ${toThaiDate(data.date)}`, COMPANY.name, ``];
+  L.push(`🐔 เลี้ยง ${fmt(f.nHouses)} หลัง · ไก่รวม ${fmt(f.chickens)} ตัว`);
+  L.push(`💀 ตายวันนี้รวม ${fmt(f.deaths)} ตัว${f.deathPct != null ? ` (${f.deathPct.toFixed(2)}%)` : ""}${f.cull ? ` · คัด ${fmt(f.cull)} ตัว` : ""}`);
+  L.push(`🥚 ไข่รวม ${fmt(Math.round(f.totalPrang))} แผง (ดี ${fmt(Math.round(f.goodPrang))} · ตกเกรด ${fmt(Math.round(f.offPrang))} = ${f.offPctAll.toFixed(1)}%)`);
+  if (f.avgRate != null) L.push(`📈 ผลผลิตเฉลี่ย ${f.avgRate.toFixed(1)}%${f.stdAvgRate != null ? ` (มาตรฐาน Hy-Line ~${f.stdAvgRate.toFixed(1)}%)` : ""}`);
+  L.push(``);
+  const problem = data.houses.filter((h) => h.issues.some((i) => i.sev !== "info"));
+  if (!problem.length) L.push(`✅ ทุกหลังปกติ — ไม่พบความผิดปกติเด่นวันนี้`);
+  else {
+    L.push(`⚠️ หลังที่ต้องให้ความสนใจ (${problem.length}):`);
+    problem.forEach((h) => { L.push(`• ${h.hid}${h.age != null ? ` (อายุ ${h.age} สป.)` : ""}: ${h.issues.filter((i) => i.sev !== "info").map((i) => i.head).join(" · ")}`); });
+  }
+  L.push(``, `รายหลังโดยย่อ:`);
+  data.houses.forEach((h) => {
+    L.push(`  ${h.hid}: ตาย ${h.deaths != null ? fmt(h.deaths) : "—"} · ไข่ ${fmt(Math.round(h.totalPrang))} แผง · ตกเกรด ${h.offPct.toFixed(1)}%${h.prodRate != null ? ` · ผลผลิต ${h.prodRate.toFixed(0)}%` : ""}${h.feedPct != null ? ` · อาหาร ${h.feedPct.toFixed(0)}%มฐ` : ""}${h.waterPct != null ? ` · น้ำ ${h.waterPct.toFixed(0)}%มฐ` : ""}`);
+  });
+  return L.join("\n");
+}
+function ManageDashView({ production = {}, rearingByDate = {}, flocks = {} }) {
+  const prodDates = useMemo(() => Object.keys(production).sort(), [production]);
+  const [date, setDate] = useState(() => prodDates[prodDates.length - 1] || isoFromTs(Date.now()));
+  const [copied, setCopied] = useState(false);
+  const [sendState, setSendState] = useState("");
+  const lineOn = !!LINE_FN;
+  const alertCfg = useMemo(() => { try { const st = localStorage.getItem(ALERT_STORE_KEY); return normAlertCfg(st ? JSON.parse(st) : DEFAULT_ALERT_CFG); } catch { return normAlertCfg(DEFAULT_ALERT_CFG); } }, []);
+  const data = useMemo(() => manageDayData(production, rearingByDate, flocks, alertCfg, date), [production, rearingByDate, flocks, alertCfg, date]);
+  const f = data.farm;
+  const hasData = data.houses.length > 0;
+  const copySummary = () => { const t = manageSummaryText(data); if (navigator.clipboard) navigator.clipboard.writeText(t); setCopied(true); setTimeout(() => setCopied(false), 1800); };
+  const sendLine = async () => { setSendState("sending"); const r = await sendLineMessage(manageSummaryText(data)); setSendState(r.ok ? "ok" : "err:" + r.error); setTimeout(() => setSendState(""), r.ok ? 2500 : 6000); };
+  const problem = data.houses.filter((h) => h.issues.some((i) => i.sev !== "info"));
+  const sevColor = { red: { bg: "#FEF2F2", bd: "#FCA5A5", c: "#B91C1C" }, amber: { bg: "#FFF7EC", bd: "#F5DEB9", c: "#B45309" }, info: { bg: "#EFF6FF", bd: "#BFDBFE", c: "#1D4ED8" } };
+  const pctCell = (pct, lowBad = true) => {
+    if (pct == null) return { txt: "—", style: { color: "#c2b8a5" } };
+    const bad = lowBad ? pct < 90 : (pct < 90 || pct > 160);
+    return { txt: pct.toFixed(0) + "%", style: { color: bad ? "#B91C1C" : "#15803D", fontWeight: 700, background: bad ? "#FEF2F2" : "transparent" } };
+  };
+  const td = { padding: "7px 8px", fontSize: 13, borderBottom: "1px solid #f3eee2", textAlign: "right", whiteSpace: "nowrap" };
+  const th = { padding: "8px", fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", borderBottom: "2px solid #eadfca", textAlign: "right", whiteSpace: "nowrap" };
+  return (
+    <div style={S.wide}>
+      <div style={S.subBar}>
+        <span style={S.subBarTitle}>แดชบอร์ดผู้บริหาร · การเลี้ยง</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginLeft: "auto" }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <button onClick={() => setDate((d) => shiftDayISO(d, -1))} style={{ ...S.ghostBtn, padding: "6px 10px" }}>‹</button>
+            <div style={{ minWidth: 150 }}><ThaiDateField value={date} onChange={setDate} /></div>
+            <button onClick={() => setDate((d) => shiftDayISO(d, 1))} style={{ ...S.ghostBtn, padding: "6px 10px" }}>›</button>
+          </div>
+          <button onClick={copySummary} style={{ ...S.primaryBtn, width: "auto", padding: "7px 15px", fontSize: 12.5 }}>{copied ? "✓ คัดลอกแล้ว" : "📋 คัดลอกสรุป"}</button>
+          {lineOn && <button onClick={sendLine} disabled={sendState === "sending"} style={{ ...S.primaryBtn, width: "auto", padding: "7px 15px", fontSize: 12.5, background: sendState === "ok" ? "#16A34A" : sendState.startsWith("err") ? "#DC2626" : undefined }}>{sendState === "sending" ? "⏳ กำลังส่ง…" : sendState === "ok" ? "✓ ส่งแล้ว" : sendState.startsWith("err") ? "✗ ไม่สำเร็จ" : "📤 ส่งเข้า LINE"}</button>}
+        </div>
+      </div>
+      {!hasData ? (
+        <div style={S.emptyState}><Activity size={36} color="#d1d5db" /><div>ยังไม่มีข้อมูลผลผลิต/การเลี้ยงของ {toThaiDate(date, false)} — เลือกวันอื่น หรือไปป้อนข้อมูลก่อน</div></div>
+      ) : (
+        <div style={{ padding: "14px 0" }}>
+          <div style={S.summaryGrid}>
+            <SummaryCard icon={<Warehouse size={18} />} label="หลังที่เลี้ยง" value={f.nHouses} tone="blue" unit="หลัง" sub={`ไก่รวม ${fmt(f.chickens)} ตัว`} />
+            <SummaryCard icon={<Activity size={18} />} label="ไก่ตายวันนี้" value={f.deaths} tone={f.deathPct != null && f.deathPct >= 0.1 ? "red" : "amber"} unit="ตัว" sub={f.deathPct != null ? `${f.deathPct.toFixed(2)}% ของฝูง${f.cull ? ` · คัด ${fmt(f.cull)}` : ""}` : ""} />
+            <SummaryCard icon={<Egg size={18} />} label="ไข่รวม" value={Math.round(f.totalPrang)} tone="amber" unit="แผง" sub={`ตกเกรด ${f.offPctAll.toFixed(1)}%`} />
+            <SummaryCard icon={<TrendingUp size={18} />} label="ผลผลิตเฉลี่ย" value={f.avgRate != null ? Math.round(f.avgRate) : 0} tone={f.avgRate != null && f.stdAvgRate != null && f.avgRate < f.stdAvgRate - 5 ? "red" : "green"} unit="%" sub={f.stdAvgRate != null ? `มาตรฐาน ~${f.stdAvgRate.toFixed(0)}%` : "ตั้งรุ่นเพื่อเทียบ"} />
+            <SummaryCard icon={<AlertCircle size={18} />} label="หลังที่ต้องดู" value={f.housesIssue} tone={f.housesIssue > 0 ? "red" : "green"} unit="หลัง" sub={f.housesIssue > 0 ? "มีความผิดปกติ" : "ปกติทุกหลัง"} />
+          </div>
+
+          {/* วิเคราะห์ความผิดปกติ + คำแนะนำ */}
+          <div style={{ ...S.dashCard, marginTop: 14 }}>
+            <div style={S.dashCardTitle}><Stethoscope size={16} /> วิเคราะห์ความผิดปกติ · {toThaiDate(date, false)}</div>
+            {problem.length === 0 ? (
+              <div style={{ padding: "16px 6px", color: "#15803D", fontWeight: 700 }}>✅ ไม่พบความผิดปกติเด่นวันนี้ — ทุกหลังอยู่ในเกณฑ์</div>
+            ) : problem.map((h) => (
+              <div key={h.hid} style={{ border: "1px solid #eee3cd", borderRadius: 12, padding: "11px 13px", marginBottom: 10 }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap", marginBottom: 7, paddingBottom: 6, borderBottom: "1px solid #f3eee2" }}>
+                  <span style={{ fontSize: 15, fontWeight: 800, color: ACCENT_DK }}>โรงเรือน {h.hid}</span>
+                  {h.age != null ? <span style={{ fontSize: 12.5, color: "#7a6f5c" }}>อายุ ~{h.age} สัปดาห์</span> : <span style={{ fontSize: 12, color: "#c2410c" }}>· ยังไม่ตั้งรุ่น (เทียบมาตรฐานไม่ได้)</span>}
+                  <span style={{ fontSize: 12.5, color: "#7a6f5c" }}>· ไก่ {fmt(h.chickens)} ตัว</span>
+                </div>
+                {h.issues.filter((i) => i.sev !== "info").map((i, idx) => {
+                  const c = sevColor[i.sev] || sevColor.amber;
+                  return (
+                    <div key={idx} style={{ background: c.bg, border: `1px solid ${c.bd}`, borderRadius: 9, padding: "8px 11px", marginBottom: 6 }}>
+                      <div style={{ fontWeight: 800, color: c.c, fontSize: 13 }}>{i.sev === "red" ? "🔴 " : "🟠 "}{i.head}</div>
+                      <div style={{ fontSize: 12, color: "#6b6358", marginTop: 3 }}><b>สาเหตุที่พบบ่อย:</b> {i.why}</div>
+                      <div style={{ fontSize: 12, color: "#6b6358", marginTop: 2 }}><b>ควรทำ:</b> {i.act}</div>
+                    </div>
+                  );
+                })}
+                {h.issues.some((i) => i.sev === "info") && (
+                  <div style={{ fontSize: 11.5, color: "#1D4ED8", marginTop: 2 }}>ℹ️ {h.issues.filter((i) => i.sev === "info").map((i) => i.head).join(" · ")}</div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* ตารางรายหลัง */}
+          <div style={{ ...S.dashCard, marginTop: 14, overflowX: "auto" }}>
+            <div style={S.dashCardTitle}><Warehouse size={16} /> สรุปรายหลัง</div>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
+              <thead><tr>
+                <th style={{ ...th, textAlign: "left" }}>หลัง</th>
+                <th style={th}>อายุ(สป.)</th><th style={th}>ไก่(ตัว)</th><th style={th}>ตาย</th><th style={th}>คัด</th>
+                <th style={th}>อาหาร%มฐ</th><th style={th}>น้ำ%มฐ</th><th style={th}>ไข่ดี(แผง)</th><th style={th}>ตกเกรด(แผง)</th><th style={th}>ตกเกรด%</th><th style={th}>ผลผลิต%</th><th style={th}>มฐ%</th>
+              </tr></thead>
+              <tbody>
+                {data.houses.map((h) => {
+                  const fp = pctCell(h.feedPct), wp = pctCell(h.waterPct, false);
+                  const rateBad = h.rateDiff != null && h.rateDiff <= -8;
+                  return (
+                    <tr key={h.hid}>
+                      <td style={{ ...td, textAlign: "left", fontWeight: 800, color: ACCENT_DK }}>{h.hid}</td>
+                      <td style={td}>{h.age != null ? h.age : "—"}</td>
+                      <td style={td}>{fmt(h.chickens)}</td>
+                      <td style={{ ...td, color: h.deathPct != null && h.deathPct >= 0.1 ? "#B91C1C" : INK, fontWeight: h.deaths ? 700 : 400, background: h.deathPct != null && h.deathPct >= 0.1 ? "#FEF2F2" : "transparent" }}>{h.deaths != null ? fmt(h.deaths) : "—"}</td>
+                      <td style={td}>{h.cull != null ? fmt(h.cull) : "—"}</td>
+                      <td style={{ ...td, ...fp.style }}>{fp.txt}</td>
+                      <td style={{ ...td, ...wp.style }}>{wp.txt}</td>
+                      <td style={td}>{fmt(Math.round(h.goodPrang))}</td>
+                      <td style={td}>{fmt(Math.round(h.offPrang))}</td>
+                      <td style={{ ...td, color: h.offPct > (alertCfg.offPctMax || 10) ? "#B91C1C" : INK }}>{h.offPct.toFixed(1)}%</td>
+                      <td style={{ ...td, color: rateBad ? "#B91C1C" : "#15803D", fontWeight: 700, background: rateBad ? "#FEF2F2" : "transparent" }}>{h.prodRate != null ? h.prodRate.toFixed(0) + "%" : "—"}</td>
+                      <td style={{ ...td, color: "#9b8e78" }}>{h.stdHD != null ? "~" + h.stdHD.toFixed(0) + "%" : "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <div style={{ fontSize: 11, color: "#9b8e78", marginTop: 8 }}>อาหาร/น้ำ %มฐ = เทียบมาตรฐาน Hy-Line Brown ตามอายุ (แดง = ต่ำกว่า 90% · น้ำแดงเมื่อ &lt;90% หรือ &gt;160%) · ผลผลิต% = ไข่ดี ÷ จำนวนไก่ · น้ำต้องกรอกมิเตอร์ต่อเนื่อง 2 วันจึงคำนวณได้</div>
+          </div>
+
+          {/* กระจายเบอร์ไข่ต่อหลัง (เทียบค่าเฉลี่ยฟาร์ม) */}
+          <div style={{ ...S.dashCard, marginTop: 14, overflowX: "auto" }}>
+            <div style={S.dashCardTitle}><Egg size={16} /> กระจายเบอร์ไข่รายหลัง (แผง) · เทียบสัดส่วนเฉลี่ยฟาร์ม</div>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 560 }}>
+              <thead><tr>
+                <th style={{ ...th, textAlign: "left" }}>หลัง</th>
+                {BER_KEYS.map((k) => <th key={k} style={th}>เบอร์ {k}</th>)}
+                <th style={th}>ไข่ดีรวม</th>
+              </tr></thead>
+              <tbody>
+                {data.houses.map((h) => (
+                  <tr key={h.hid}>
+                    <td style={{ ...td, textAlign: "left", fontWeight: 800, color: ACCENT_DK }}>{h.hid}</td>
+                    {BER_KEYS.map((k) => {
+                      const share = h.goodFong > 0 ? (h.berFong[k] / h.goodFong) * 100 : 0;
+                      const dev = share - data.berShareFarm[k];
+                      const big = h.goodFong >= 300 && Math.abs(dev) >= 12;
+                      return <td key={k} style={{ ...td, background: big ? (dev > 0 ? "#FEF3C7" : "#EFF6FF") : "transparent", color: big ? (dev > 0 ? "#B45309" : "#1D4ED8") : INK, fontWeight: big ? 800 : 400 }}>{fmt(Math.round(h.berFong[k] / PER_PRADANG))}<span style={{ fontSize: 10, color: "#9b8e78" }}> {share.toFixed(0)}%</span></td>;
+                    })}
+                    <td style={{ ...td, fontWeight: 700 }}>{fmt(Math.round(h.goodPrang))}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <td style={{ ...td, textAlign: "left", fontWeight: 800, color: "#7a6f5c" }}>เฉลี่ยฟาร์ม</td>
+                  {BER_KEYS.map((k) => <td key={k} style={{ ...td, color: "#7a6f5c" }}>{data.berShareFarm[k].toFixed(0)}%</td>)}
+                  <td style={td} />
+                </tr>
+              </tbody>
+            </table>
+            <div style={{ fontSize: 11, color: "#9b8e78", marginTop: 8 }}>ช่องเน้นสี = หลังนั้นสัดส่วนเบอร์นั้นต่างจากค่าเฉลี่ยฟาร์ม ≥12% (🟡 มากกว่า · 🔵 น้อยกว่า) — ขนาดไข่แปรตามอายุฝูงและอาหารเป็นหลัก ใช้ประกอบการพิจารณา</div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
