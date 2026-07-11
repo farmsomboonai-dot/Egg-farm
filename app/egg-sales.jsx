@@ -1301,7 +1301,7 @@ export default function App() {
       {view === "production" && <ProductionView houses={houses} setHouses={setHouses} prodDate={prodDate} setProdDate={setProdDate} production={productionByDate} flocks={flocks} />}
       {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={saveRearing} flocks={flocks} saveFlock={saveFlock} production={productionByDate} medTrials={medTrials} medStock={medStock} medInfo={medInfo} vaccines={vaccines} addVaccine={addVaccine} deleteVaccine={deleteVaccine} labTests={labTests} addLabTest={addLabTest} deleteLabTest={deleteLabTest} />}
       {view === "feed" && <FeedView rearingByDate={rearingByDate} flocks={flocks} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} feedPrice={feedPrice} setFeedPrice={setFeedPrice} feedUseByMonth={feedUseByMonth} />}
-      {view === "med" && <MedView production={productionByDate} medStock={medStock} medInfo={medInfo} medReceipts={medReceipts} addMedItem={addMedItem} updateMedItem={updateMedItem} addMedReceipt={addMedReceipt} medCostByMonth={medCostByMonth} />}
+      {view === "med" && <MedView production={productionByDate} medStock={medStock} medInfo={medInfo} medReceipts={medReceipts} addMedItem={addMedItem} updateMedItem={updateMedItem} addMedReceipt={addMedReceipt} medCostByMonth={medCostByMonth} canManage={currentRole === "owner" || currentRole === "medclerk"} />}
       {view === "trial" && <TrialView medTrials={medTrials} addMedTrial={addMedTrial} deleteMedTrial={deleteMedTrial} production={productionByDate} rearingByDate={rearingByDate} />}
       {view === "health" && <HealthHubView production={productionByDate} flocks={flocks} vaccines={vaccines} addVaccine={addVaccine} deleteVaccine={deleteVaccine} />}
       {view === "cost" && <CostView expenses={expenses} addExpense={addExpense} deleteExpense={deleteExpense} production={productionByDate} medCostByMonth={medCostByMonth} feedCostByMonth={feedCostByMonth} feedPrice={feedPrice} bills={activeBills} />}
@@ -5461,7 +5461,7 @@ function TrialView({ medTrials = [], addMedTrial, deleteMedTrial, production = {
 /* ============================================================
    หน้าจอ: ยาและวิตามิน — คลัง/สต๊อกยา + แจ้งเตือนใกล้หมด/หมดอายุ + คลังความรู้
 ============================================================ */
-function MedView({ production = {}, medStock = [], medInfo = {}, medReceipts = [], addMedItem, updateMedItem, addMedReceipt, medCostByMonth = {} }) {
+function MedView({ production = {}, medStock = [], medInfo = {}, medReceipts = [], addMedItem, updateMedItem, addMedReceipt, medCostByMonth = {}, canManage = true }) {
   const prodDates = Object.keys(production).sort();
   const houseIds = [...new Set([...(production[prodDates[prodDates.length - 1]] || []).map((h) => h.id), ...HOUSE_IDS])];   // รวมหลังใหม่ที่ยังไม่มีผลผลิต (เช่น H7)
   const [receiptItem, setReceiptItem] = useState(null);   // รายการยาที่กำลังรับเข้า
@@ -5508,6 +5508,60 @@ function MedView({ production = {}, medStock = [], medInfo = {}, medReceipts = [
       soon: rows.filter((r) => r.expS === "soon").sort((a, b) => a.daysLeft - b.daysLeft),
     };
   })();
+  // 👁️ โหมดดูอย่างเดียว (สัตวบาล) — เห็นแค่ ชื่อยา/คงเหลือ/วันหมดอายุ/ฉลาก ; ไม่มีรับเข้า/แก้ไข/เพิ่ม/ต้นทุน
+  if (!canManage) {
+    const a = stockAlerts;
+    const hasAny = a.out.length || a.low.length || a.expired.length || a.soon.length;
+    const sec = (icon, title, tc, bg, bd, arr, render) => arr.length ? (
+      <div style={{ marginTop: 9 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 800, color: tc, marginBottom: 5 }}>{icon} {title} · {arr.length} รายการ</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {arr.map((r) => <span key={r.it.id} style={{ fontSize: 12, fontWeight: 700, color: tc, background: bg, border: `1px solid ${bd}`, borderRadius: 999, padding: "3px 11px" }}>{render(r)}</span>)}
+        </div>
+      </div>
+    ) : null;
+    const tdm = { padding: "8px 10px", fontSize: 13.5, textAlign: "right", borderBottom: "1px solid #eee7d8", whiteSpace: "nowrap" };
+    return (
+      <div style={{ padding: "18px 22px 40px" }}>
+        <div style={S.subBar}>
+          <span style={S.subBarTitle}>ยาและวิตามิน 💊<span style={{ fontSize: 12.5, fontWeight: 600, color: "#9b8e78" }}> · สต๊อก {medStock.length} รายการ · 👁️ ดูอย่างเดียว</span></span>
+        </div>
+        <div style={{ background: hasAny ? "#FFFBEB" : "#F0FDF4", border: `1.5px solid ${hasAny ? "#FDE68A" : "#BBF7D0"}`, borderRadius: 14, padding: "11px 14px", marginBottom: 14 }}>
+          <span style={{ fontSize: 14, fontWeight: 800, color: hasAny ? "#B45309" : "#15803D" }}>{hasAny ? "⚠️ แจ้งเตือนสต๊อกยา/วิตามิน" : "✅ สต๊อกยา/วิตามินปกติดี — ไม่มีของใกล้หมดหรือใกล้หมดอายุ"}</span>
+          {sec("🔴", "หมดสต๊อกแล้ว", "#B91C1C", "#FEF2F2", "#FCA5A5", a.out, (r) => r.it.name)}
+          {sec("🟠", "ใกล้หมดสต๊อก", "#C2410C", "#FFF7ED", "#FED7AA", a.low, (r) => `${r.it.name} · เหลือ ${fmt1(r.remain)} ${r.it.unit || ""}`)}
+          {sec("🟣", "หมดอายุแล้ว", "#9333EA", "#FAF5FF", "#E9D5FF", a.expired, (r) => `${r.it.name} · ${r.it.expiry} (เกิน ${Math.abs(r.daysLeft)} วัน)`)}
+          {sec("🟡", "ใกล้หมดอายุ", "#A16207", "#FEFCE8", "#FDE68A", a.soon, (r) => `${r.it.name} · ${r.it.expiry} (อีก ${r.daysLeft} วัน)`)}
+        </div>
+        <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflow: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
+            <thead><tr>
+              {["ลำดับ", "ชื่อยา", "คงเหลือ", "วันหมดอายุ", "ฉลาก"].map((h, i) => (
+                <th key={i} style={{ padding: "8px 10px", fontSize: 12, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", whiteSpace: "nowrap", textAlign: i <= 1 ? "left" : (i === 4 ? "center" : "right"), position: "sticky", top: 0 }}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {medStock.map((it, idx) => {
+                const ea = stockAlerts.byId[it.id] || {};
+                const inf = medInfo[(it.name || "").trim()] || { remain: it.opening || 0 };
+                const rowBg = (inf.remain <= 0 || ea.expS === "expired") ? "#FEF2F2" : (ea.stock === "low" || ea.expS === "soon" ? "#FFF9F0" : undefined);
+                return (
+                  <tr key={it.id} style={rowBg ? { background: rowBg } : undefined}>
+                    <td style={{ ...tdm, textAlign: "left", color: "#9b8e78" }}>{idx + 1}</td>
+                    <td style={{ ...tdm, textAlign: "left", whiteSpace: "normal", minWidth: 180, fontWeight: 800 }}>{it.name}{it.desc ? <span style={{ color: "#9b8e78", fontSize: 11.5, fontWeight: 400 }}> · {it.desc}</span> : null}</td>
+                    <td style={{ ...tdm, fontWeight: 800, color: inf.remain <= 0 ? "#B91C1C" : (ea.stock === "low" ? "#C2410C" : "#15803D") }}>{fmt1(inf.remain)} <span style={{ fontWeight: 500, fontSize: 11, color: "#9b8e78" }}>{it.unit || ""}</span></td>
+                    <td style={{ ...tdm, fontWeight: ea.expS ? 800 : 400, color: ea.expS === "expired" ? "#B91C1C" : (ea.expS === "soon" ? "#C2410C" : "#7a6f5c") }}>{it.expiry || "—"}{ea.expS === "expired" ? " ⛔" : ea.expS === "soon" ? ` · อีก ${ea.daysLeft} ว.` : ""}</td>
+                    <td style={{ ...tdm, textAlign: "center" }}>{it.labelImg ? <img src={it.labelImg} alt="ฉลาก" style={{ height: 34, borderRadius: 4, verticalAlign: "middle" }} /> : <span style={{ color: "#c9c0ad", fontSize: 11.5 }}>—</span>}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ fontSize: 11.5, color: "#9b8e78", marginTop: 10 }}>👁️ โหมดดูอย่างเดียว — ดูชื่อยา · คงเหลือ · วันหมดอายุ · ฉลาก เท่านั้น · การรับเข้า/แก้ไข/เพิ่มยา ทำโดยเจ้าของหรือเสมียนห้องสต๊อคยา</div>
+      </div>
+    );
+  }
   return (
     <div style={{ padding: "18px 22px 40px" }}>
       <div style={S.subBar}>
