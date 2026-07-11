@@ -826,8 +826,132 @@ function enterAdvanceFocus(e) {
   }
 }
 
+/* ============================================================
+   🔐 สิทธิ์การเข้าดูตามบทบาท (client-side — ควบคุมระดับ UI + PIN ต่อบทบาท)
+   หมายเหตุ: ป้องกันการเปิดข้ามบทบาท/กดผิดหน้า ระดับเบา · ไม่ใช่ความปลอดภัยระดับเซิร์ฟเวอร์
+============================================================ */
+const TOPIC_LABELS = {
+  sales: "ขายไข่", bills: "ประวัติบิล", account: "บัญชีลูกหนี้", tray: "บัญชีแผงไข่",
+  stock: "สต๊อคไข่ประจำวัน", production: "ผลผลิตประจำวัน", dash: "แดชบอร์ด",
+  booking: "จองออเดอร์", plan: "วางแผนออเดอร์", rear: "เก็บข้อมูลการเลี้ยง",
+  feed: "อาหารไก่", med: "ยาและวิตามิน", health: "สุขภาพไก่", cost: "บัญชีต้นทุน",
+};
+const ALL_TOPIC_IDS = Object.keys(TOPIC_LABELS);
+const DEFAULT_ROLES = [
+  { id: "owner", name: "เจ้าของ/ผู้จัดการ", emoji: "👑", pin: "1234", topics: ALL_TOPIC_IDS.slice() },
+  { id: "sales", name: "ฝ่ายขาย/หน้าร้าน", emoji: "🛒", pin: "", topics: ["sales", "bills", "account", "tray", "booking", "plan", "stock"] },
+  { id: "farm", name: "สัตวบาล/ดูแลไก่", emoji: "🐔", pin: "", topics: ["production", "rear", "feed", "med", "health", "stock"] },
+  { id: "acct", name: "บัญชี", emoji: "💰", pin: "", topics: ["bills", "account", "cost", "dash"] },
+];
+
+function RolePickerModal({ roles, current, onPick, onClose }) {
+  const [sel, setSel] = useState(null);
+  const [pin, setPin] = useState("");
+  const [err, setErr] = useState("");
+  const choose = (r) => {
+    if (r.id === current) { onClose(); return; }        // เลือกบทบาทเดิม = ปิดเฉยๆ
+    if (!r.pin) { onPick(r.id); return; }                // ไม่มี PIN → เข้าเลย
+    setSel(r); setPin(""); setErr("");
+  };
+  const submit = () => { if (sel && pin === sel.pin) onPick(sel.id); else setErr("PIN ไม่ถูกต้อง"); };
+  return (
+    <div style={S.modalOverlay} onClick={onClose}>
+      <div style={{ ...S.modal, maxWidth: 430 }} onClick={(e) => e.stopPropagation()}>
+        <div style={S.modalHead}>
+          <div><div style={S.modalTitle}>เลือกผู้ใช้งาน</div><div style={S.modalSub}>เข้าใช้งานตามสิทธิ์ของบทบาท</div></div>
+          <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
+        </div>
+        {!sel ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {roles.map((r) => (
+              <button key={r.id} onClick={() => choose(r)} style={{ display: "flex", alignItems: "center", gap: 11, padding: "12px 14px", border: `1.5px solid ${r.id === current ? ACCENT : "#e3ddd0"}`, background: r.id === current ? "#FFF7EC" : "#fff", borderRadius: 11, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+                <span style={{ fontSize: 22 }}>{r.emoji}</span>
+                <span style={{ flex: 1 }}><div style={{ fontWeight: 800, color: INK, fontSize: 14.5 }}>{r.name}</div><div style={{ fontSize: 11.5, color: "#9b8e78" }}>{r.id === "owner" ? ALL_TOPIC_IDS.length : (r.topics || []).length} หัวข้อ{r.pin ? " · 🔒 มี PIN" : ""}</div></span>
+                {r.id === current && <span style={{ fontSize: 11.5, fontWeight: 800, color: ACCENT_DK }}>ใช้อยู่</span>}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div>
+            <div style={{ fontSize: 14.5, fontWeight: 800, color: INK, marginBottom: 9 }}>{sel.emoji} {sel.name} · ใส่ PIN</div>
+            <input value={pin} onChange={(e) => { setPin(e.target.value.replace(/\D/g, "")); setErr(""); }} onKeyDown={(e) => { if (e.key === "Enter") submit(); }} type="password" inputMode="numeric" autoFocus placeholder="● ● ● ●" maxLength={8}
+              style={{ width: "100%", padding: "11px 13px", border: `1.5px solid ${err ? "#FCA5A5" : "#e3ddd0"}`, borderRadius: 10, fontSize: 20, letterSpacing: 6, textAlign: "center", fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
+            {err && <div style={{ color: "#B91C1C", fontSize: 12.5, fontWeight: 700, marginTop: 6 }}>{err}</div>}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
+              <button onClick={() => setSel(null)} style={S.ghostBtn}>← กลับ</button>
+              <button onClick={submit} disabled={!pin} style={{ ...S.primaryBtn, width: "auto", padding: "9px 20px", opacity: pin ? 1 : 0.5 }}>เข้าใช้งาน</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RoleSettingsModal({ roles, onSave, accessLog = [], onClose }) {
+  const [local, setLocal] = useState(() => roles.map((r) => ({ ...r, topics: [...(r.topics || [])] })));
+  const toggleTopic = (rid, tid) => setLocal((prev) => prev.map((r) => r.id !== rid ? r : { ...r, topics: r.topics.includes(tid) ? r.topics.filter((x) => x !== tid) : [...r.topics, tid] }));
+  const setPin = (rid, v) => setLocal((prev) => prev.map((r) => r.id !== rid ? r : { ...r, pin: v.replace(/\D/g, "").slice(0, 8) }));
+  return (
+    <div style={S.modalOverlay} onClick={onClose}>
+      <div style={{ ...S.modal, maxWidth: 700, maxHeight: "92vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <div style={S.modalHead}>
+          <div><div style={S.modalTitle}>⚙️ ตั้งค่าสิทธิ์การเข้าดู</div><div style={S.modalSub}>กำหนดหัวข้อที่แต่ละบทบาทเห็น + ตั้ง PIN (เจ้าของเท่านั้น)</div></div>
+          <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
+        </div>
+        <div style={{ fontSize: 11.5, color: "#7A4F16", background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 8, padding: "8px 11px", marginBottom: 12 }}>⚠️ เป็นการควบคุมระดับหน้าจอ (client-side) — กันเปิดข้ามบทบาท/กดผิดหน้า · PIN ว่าง = บทบาทนั้นเข้าได้เลยไม่ต้องใส่รหัส</div>
+        {local.map((r) => (
+          <div key={r.id} style={{ border: "1px solid #eee3cd", borderRadius: 12, padding: "12px 14px", marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 9 }}>
+              <span style={{ fontSize: 20 }}>{r.emoji}</span>
+              <span style={{ fontWeight: 800, color: INK, fontSize: 14.5 }}>{r.name}</span>
+              <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "#7a6f5c", fontWeight: 700 }}>
+                🔒 PIN <input value={r.pin} onChange={(e) => setPin(r.id, e.target.value)} inputMode="numeric" placeholder="ว่าง=ไม่ล็อก" style={{ width: 96, padding: "5px 8px", border: "1.5px solid #e3ddd0", borderRadius: 7, fontSize: 13, textAlign: "center", fontFamily: "inherit", outline: "none" }} />
+              </span>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {ALL_TOPIC_IDS.map((tid) => {
+                const owner = r.id === "owner", on = owner || r.topics.includes(tid);
+                return (
+                  <button key={tid} disabled={owner} onClick={() => toggleTopic(r.id, tid)} style={{ fontSize: 12, fontWeight: 700, padding: "4px 10px", borderRadius: 999, cursor: owner ? "default" : "pointer", fontFamily: "inherit", border: `1px solid ${on ? "#86C99A" : "#e0d7c3"}`, background: on ? "#F0FDF4" : "#fff", color: on ? "#15803D" : "#9b8e78", opacity: owner ? 0.75 : 1 }}>{on ? "✓ " : ""}{TOPIC_LABELS[tid]}</button>
+                );
+              })}
+            </div>
+            {r.id === "owner" && <div style={{ fontSize: 11, color: "#9b8e78", marginTop: 6 }}>เจ้าของเห็นทุกหัวข้อเสมอ (แก้หัวข้อไม่ได้ · ตั้ง PIN ได้)</div>}
+          </div>
+        ))}
+        {accessLog.length > 0 && (
+          <div style={{ border: "1px solid #eee3cd", borderRadius: 12, padding: "10px 14px", marginBottom: 12 }}>
+            <div style={{ fontWeight: 800, color: "#7a6f5c", fontSize: 13, marginBottom: 6 }}>📋 ประวัติการเข้าใช้ล่าสุด · {accessLog.length}</div>
+            {accessLog.slice(0, 15).map((a, i) => (
+              <div key={i} style={{ fontSize: 12.5, color: "#5b5347", padding: "3px 0", borderTop: i ? "1px solid #f3eee2" : "none" }}>{a.emoji} {a.name} · {a.at}</div>
+            ))}
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button onClick={onClose} style={S.ghostBtn}>ยกเลิก</button>
+          <button onClick={() => { onSave(local); onClose(); }} style={{ ...S.primaryBtn, width: "auto", padding: "9px 20px" }}>💾 บันทึกสิทธิ์</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
-  const [view, setView] = useState("sales");
+  // 🔐 สิทธิ์การเข้าดูตามบทบาท (PIN ต่อบทบาท · client-side)
+  const [roles, setRoles] = useState(() => { try { const s = JSON.parse(localStorage.getItem("eggRoles")); return Array.isArray(s) && s.length ? s : DEFAULT_ROLES; } catch { return DEFAULT_ROLES; } });
+  useEffect(() => { try { localStorage.setItem("eggRoles", JSON.stringify(roles)); } catch {} }, [roles]);
+  const [currentRole, setCurrentRole] = useState(() => { try { return localStorage.getItem("eggCurrentRole") || "owner"; } catch { return "owner"; } });
+  useEffect(() => { try { localStorage.setItem("eggCurrentRole", currentRole); } catch {} }, [currentRole]);
+  const [accessLog, setAccessLog] = useState(() => { try { return JSON.parse(localStorage.getItem("eggAccessLog") || "[]"); } catch { return []; } });
+  useEffect(() => { try { localStorage.setItem("eggAccessLog", JSON.stringify(accessLog)); } catch {} }, [accessLog]);
+  const [showRolePicker, setShowRolePicker] = useState(false);
+  const [showRoleSettings, setShowRoleSettings] = useState(false);
+  const roleObj = roles.find((r) => r.id === currentRole) || roles[0];
+  const allowedTopics = roleObj.id === "owner" ? ALL_TOPIC_IDS : (roleObj.topics || []);
+  const pickRole = (rid) => { const r = roles.find((x) => x.id === rid); if (!r) return; setCurrentRole(rid); setShowRolePicker(false); setAccessLog((prev) => [{ id: rid, name: r.name, emoji: r.emoji, at: new Date().toLocaleString("th-TH") }, ...prev].slice(0, 50)); };
+  const [view, setView] = useState(() => allowedTopics.includes("sales") ? "sales" : (allowedTopics[0] || "sales"));
+  useEffect(() => { setView((v) => allowedTopics.includes(v) ? v : (allowedTopics[0] || v)); }, [currentRole, roles]);   // สลับบทบาทแล้ว view หลุดสิทธิ์ → เด้งไปหัวข้อแรกที่เข้าได้
 
   // Supabase: โหลดลูกค้า+กลุ่มจากฐานข้อมูลกลางครั้งแรกที่เปิดแอป — สำเร็จแล้ว bump เพื่อ re-render ให้เห็นรายชื่อล่าสุด
   const [, setCustSyncRev] = useState(0);
@@ -1122,6 +1246,12 @@ export default function App() {
             <div style={S.brandName}>ฟาร์มไข่สมบูรณ์</div>
             <div style={S.brandSub}>บริษัท เอสเจเอฟ ฟาร์ม จำกัด · ต้นแบบ · 1 แผง = 30 ฟอง</div>
           </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 4, paddingLeft: 12, borderLeft: "1px solid #ece6da" }}>
+            <button onClick={() => setShowRolePicker(true)} title="สลับผู้ใช้ / เปลี่ยนบทบาท" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 11px", border: "1.5px solid #e3ddd0", borderRadius: 999, background: "#FFFBF3", cursor: "pointer", fontFamily: "inherit", fontWeight: 800, fontSize: 12.5, color: INK }}>
+              <span style={{ fontSize: 15 }}>{roleObj.emoji}</span>{roleObj.name}<span style={{ color: "#9b8e78", fontWeight: 600 }}> · สลับ</span>
+            </button>
+            {roleObj.id === "owner" && <button onClick={() => setShowRoleSettings(true)} title="ตั้งค่าสิทธิ์การเข้าดู" style={{ display: "inline-flex", alignItems: "center", padding: "6px 9px", border: "1.5px solid #e3ddd0", borderRadius: 999, background: "#fff", cursor: "pointer", fontFamily: "inherit" }}><Settings size={15} color="#7a6f5c" /></button>}
+          </div>
         </div>
         <nav className="mainNav" style={S.nav}>
           {[
@@ -1139,7 +1269,7 @@ export default function App() {
             { id: "med", icon: <Pill size={16} />, label: "ยาและวิตามิน", c: "#0F766E" },
             { id: "health", icon: <Stethoscope size={16} />, label: "สุขภาพไก่", c: "#E11D48" },
             { id: "cost", icon: <Calculator size={16} />, label: "บัญชีต้นทุน", c: "#A16207" },
-          ].map((t) => (
+          ].filter((t) => allowedTopics.includes(t.id)).map((t) => (
             <button
               key={t.id}
               style={{ ...S.navBtn, border: `1.5px solid ${t.c}`, ...(view === t.id ? { background: t.c, color: "#fff", borderColor: t.c } : { color: t.c }) }}
@@ -1165,6 +1295,9 @@ export default function App() {
       {view === "tray" && <PanelTrayView trayStock={trayStock} setTrayStock={setTrayStock} bills={activeBills} trayRecords={trayRecords} setTrayRecords={setTrayRecords} trayEvents={trayEvents} addTrayEvent={addTrayEvent} deleteTrayEvent={deleteTrayEvent} />}
       {view === "booking" && <BookingEntry bookings={bookings} addBooking={addBooking} updateBooking={updateBooking} deleteBooking={deleteBooking} production={productionByDate} planEstimates={planEstimates} />}
       {view === "plan" && <PlanBoard bookings={bookings} production={productionByDate} planEstimates={planEstimates} setPlanEstimate={setPlanEstimate} />}
+
+      {showRolePicker && <RolePickerModal roles={roles} current={currentRole} onPick={pickRole} onClose={() => setShowRolePicker(false)} />}
+      {showRoleSettings && <RoleSettingsModal roles={roles} accessLog={accessLog} onSave={setRoles} onClose={() => setShowRoleSettings(false)} />}
     </div>
   );
 }
