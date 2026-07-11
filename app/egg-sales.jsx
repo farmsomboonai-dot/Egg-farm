@@ -839,7 +839,7 @@ const TOPIC_LABELS = {
 const ALL_TOPIC_IDS = Object.keys(TOPIC_LABELS);
 const DEFAULT_ROLES = [
   { id: "owner", name: "เจ้าของ/ผู้จัดการ", emoji: "👑", pin: "1234", topics: ALL_TOPIC_IDS.slice() },
-  { id: "sales", name: "ฝ่ายขาย/หน้าร้าน", emoji: "🛒", pin: "", topics: ["sales", "bills", "account", "tray", "booking", "plan", "stock"] },
+  { id: "sales", name: "ฝ่ายขาย/เสมียนโรงคัด", emoji: "🛒", pin: "", topics: ["sales", "bills", "account", "tray", "booking", "plan", "stock"] },
   { id: "farm", name: "สัตวบาล/ดูแลไก่", emoji: "🐔", pin: "", topics: ["production", "rear", "feed", "med", "health", "stock"] },
   { id: "acct", name: "บัญชี", emoji: "💰", pin: "", topics: ["bills", "account", "cost", "dash"] },
   { id: "medclerk", name: "เสมียนห้องสต๊อคยา", emoji: "💊", pin: "", topics: ["med"] },
@@ -943,9 +943,12 @@ export default function App() {
   const [roles, setRoles] = useState(() => {
     try {
       const s = JSON.parse(localStorage.getItem("eggRoles"));
-      const base = Array.isArray(s) && s.length ? s : DEFAULT_ROLES;
-      const have = new Set(base.map((r) => r.id));
-      return [...base, ...DEFAULT_ROLES.filter((r) => !have.has(r.id))];   // เติมบทบาทใหม่ที่เพิ่มมาทีหลัง (เช่น เสมียนห้องสต๊อคยา) โดยไม่ทับของเดิม
+      const stored = Array.isArray(s) ? s : [];
+      const byId = Object.fromEntries(stored.map((r) => [r.id, r]));
+      // ชื่อ/emoji ยึดตาม DEFAULT_ROLES (โค้ด) เสมอ · คง topics/pin ที่ user ปรับไว้ในเครื่อง · เติมบทบาทใหม่อัตโนมัติ
+      const merged = DEFAULT_ROLES.map((d) => { const u = byId[d.id]; return u ? { ...d, topics: u.topics || d.topics, pin: u.pin != null ? u.pin : d.pin } : d; });
+      const extra = stored.filter((r) => !DEFAULT_ROLES.some((d) => d.id === r.id));   // บทบาทที่ user เพิ่มเอง (เผื่ออนาคต)
+      return [...merged, ...extra];
     } catch { return DEFAULT_ROLES; }
   });
   useEffect(() => { try { localStorage.setItem("eggRoles", JSON.stringify(roles)); } catch {} }, [roles]);
@@ -5456,8 +5459,8 @@ function MedView({ medTrials = [], addMedTrial, deleteMedTrial, rearingByDate = 
             </div>
             {sec("🔴", "หมดสต๊อกแล้ว (ต้องสั่งด่วน)", "#B91C1C", "#FEF2F2", "#FCA5A5", a.out, (r) => r.it.name)}
             {sec("🟠", "ใกล้หมดสต๊อก", "#C2410C", "#FFF7ED", "#FED7AA", a.low, (r) => `${r.it.name} · เหลือ ${fmt1(r.remain)} ${r.it.unit || ""}`)}
-            {sec("🔴", "หมดอายุแล้ว (อย่าใช้)", "#B91C1C", "#FEF2F2", "#FCA5A5", a.expired, (r) => `${r.it.name} · ${r.it.expiry} (เกิน ${Math.abs(r.daysLeft)} วัน)`)}
-            {sec("🟠", "ใกล้หมดอายุ (เร่งใช้)", "#C2410C", "#FFF7ED", "#FED7AA", a.soon, (r) => `${r.it.name} · ${r.it.expiry} (อีก ${r.daysLeft} วัน)`)}
+            {sec("🟣", "หมดอายุแล้ว (อย่าใช้)", "#9333EA", "#FAF5FF", "#E9D5FF", a.expired, (r) => `${r.it.name} · ${r.it.expiry} (เกิน ${Math.abs(r.daysLeft)} วัน)`)}
+            {sec("🟡", "ใกล้หมดอายุ (เร่งใช้)", "#A16207", "#FEFCE8", "#FDE68A", a.soon, (r) => `${r.it.name} · ${r.it.expiry} (อีก ${r.daysLeft} วัน)`)}
           </div>
         );
       })()}
