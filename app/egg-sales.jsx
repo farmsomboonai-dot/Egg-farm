@@ -843,6 +843,9 @@ const DEFAULT_ROLES = [
   { id: "farm", name: "สัตวบาล/ดูแลไก่", emoji: "🐔", pin: "", topics: ["production", "rear", "feed", "med", "trial", "health", "stock"] },
   { id: "acct", name: "บัญชี", emoji: "💰", pin: "", topics: ["bills", "account", "cost", "dash"] },
   { id: "medclerk", name: "เสมียนห้องสต๊อคยา", emoji: "💊", pin: "", topics: ["med"] },
+  // บทบาทร้านค้าภายนอก — เข้าได้แค่ "จองออเดอร์" และเห็นเฉพาะลูกค้า/ใบจองของกลุ่มตัวเอง (custGroup)
+  { id: "retail_shop", name: "ร้านค้าขายปลีก (ฉันจะกินไข่สดทุกวัน)", emoji: "🛍️", pin: "", topics: ["booking"], custGroup: "retail" },
+  { id: "branch_shop", name: "ร้านฟาร์มสมบูรณ์", emoji: "🏪", pin: "", topics: ["booking"], custGroup: "branch" },
 ];
 
 function RolePickerModal({ roles, current, onPick, onClose }) {
@@ -960,6 +963,7 @@ export default function App() {
   const [showRoleSettings, setShowRoleSettings] = useState(false);
   const roleObj = roles.find((r) => r.id === currentRole) || roles[0];
   const allowedTopics = roleObj.id === "owner" ? ALL_TOPIC_IDS : (roleObj.topics || []);
+  const roleCustGroup = roleObj.id === "owner" ? null : (roleObj.custGroup || null);   // บทบาทร้านค้า → จำกัดให้เห็นเฉพาะกลุ่มลูกค้านี้
   const pickRole = (rid) => { const r = roles.find((x) => x.id === rid); if (!r) return; setCurrentRole(rid); setShowRolePicker(false); setAccessLog((prev) => [{ id: rid, name: r.name, emoji: r.emoji, at: new Date().toLocaleString("th-TH") }, ...prev].slice(0, 50)); };
   const [view, setView] = useState(() => allowedTopics.includes("sales") ? "sales" : (allowedTopics[0] || "sales"));
   useEffect(() => { setView((v) => allowedTopics.includes(v) ? v : (allowedTopics[0] || v)); }, [currentRole, roles]);   // สลับบทบาทแล้ว view หลุดสิทธิ์ → เด้งไปหัวข้อแรกที่เข้าได้
@@ -1306,7 +1310,7 @@ export default function App() {
       {view === "health" && <HealthHubView production={productionByDate} flocks={flocks} vaccines={vaccines} addVaccine={addVaccine} deleteVaccine={deleteVaccine} />}
       {view === "cost" && <CostView expenses={expenses} addExpense={addExpense} deleteExpense={deleteExpense} production={productionByDate} medCostByMonth={medCostByMonth} feedCostByMonth={feedCostByMonth} feedPrice={feedPrice} bills={activeBills} />}
       {view === "tray" && <PanelTrayView trayStock={trayStock} setTrayStock={setTrayStock} bills={activeBills} trayRecords={trayRecords} setTrayRecords={setTrayRecords} trayEvents={trayEvents} addTrayEvent={addTrayEvent} deleteTrayEvent={deleteTrayEvent} />}
-      {view === "booking" && <BookingEntry bookings={bookings} addBooking={addBooking} updateBooking={updateBooking} deleteBooking={deleteBooking} production={productionByDate} planEstimates={planEstimates} />}
+      {view === "booking" && <BookingEntry bookings={bookings} addBooking={addBooking} updateBooking={updateBooking} deleteBooking={deleteBooking} production={productionByDate} planEstimates={planEstimates} custGroup={roleCustGroup} />}
       {view === "plan" && <PlanBoard bookings={bookings} production={productionByDate} planEstimates={planEstimates} setPlanEstimate={setPlanEstimate} />}
 
       {showRolePicker && <RolePickerModal roles={roles} current={currentRole} onPick={pickRole} onClose={() => setShowRolePicker(false)} />}
@@ -7335,7 +7339,11 @@ function autoEstimate(production, dateISO) {
 const bookingTotal = (items) => Object.values(items || {}).reduce((s, v) => s + (parseInt(v) || 0), 0);
 
 /* 🛒 หน้ารับจอง — ลูกค้า (หรือเรา) เลือกลูกค้า + วันส่ง แล้วใส่จำนวนไข่แต่ละชนิด */
-function BookingEntry({ bookings, addBooking, updateBooking, deleteBooking, production = {}, planEstimates = {} }) {
+function BookingEntry({ bookings, addBooking, updateBooking, deleteBooking, production = {}, planEstimates = {}, custGroup = null }) {
+  // บทบาทร้านค้า (custGroup) → เห็นเฉพาะลูกค้า/ใบจองของกลุ่มตัวเอง; owner/พนักงานภายใน = null (เห็นทั้งหมด)
+  const inGroup = (cid) => !custGroup || custGroups(CUSTOMERS.find((c) => c.id === cid)).includes(custGroup);
+  const scopedBookings = custGroup ? bookings.filter((b) => inGroup(b.customerId)) : bookings;
+  const custOptions = custGroup ? CUSTOMERS.filter((c) => custGroups(c).includes(custGroup)) : CUSTOMERS;
   // cutoff: จองรอบส่งได้ถึง 08:00 ของวันส่ง · เลย 08:00 → วันส่งเร็วสุดเลื่อนเป็นวันถัดไป
   const now = new Date();
   const todayISO = isoFromTs(now.getTime());
@@ -7362,7 +7370,7 @@ function BookingEntry({ bookings, addBooking, updateBooking, deleteBooking, prod
   // ประมาณการไข่วันนั้น (ต่อชนิด) + ยอดจองเดิมของลูกค้าอื่น → เตือนถ้าจองรวมเกินสต๊อกที่คาด
   const { est: autoEst } = useMemo(() => autoEstimate(production, date), [production, date]);
   const estOf = (pid) => { const o = (planEstimates[date] || {})[pid]; return o != null && o !== "" ? (parseInt(o) || 0) : (autoEst[pid] || 0); };
-  const otherDemand = (pid) => bookings.filter((b) => b.date === date && b.id !== editId && !b.cancelled).reduce((s, b) => s + (parseInt(b.items?.[pid]) || 0), 0);
+  const otherDemand = (pid) => scopedBookings.filter((b) => b.date === date && b.id !== editId && !b.cancelled).reduce((s, b) => s + (parseInt(b.items?.[pid]) || 0), 0);
   const STEP = 10;                                   // จองเป็นหน่วยละ 10 แผง (หารด้วย 10 ลงตัว)
   const setQty = (pid, v) => setItems((p) => { const n = { ...p }; const q = v.replace(/[^0-9]/g, ""); if (q) n[pid] = q; else delete n[pid]; return n; });
   const total = bookingTotal(items);
@@ -7384,7 +7392,7 @@ function BookingEntry({ bookings, addBooking, updateBooking, deleteBooking, prod
     reset();
   };
   const edit = (b) => { setEditId(b.id); setCustomerId(b.customerId); setDate(b.date); setItems(Object.fromEntries(Object.entries(b.items || {}).map(([k, v]) => [k, String(v)]))); setNote(b.note || ""); window.scrollTo({ top: 0, behavior: "smooth" }); };
-  const dayBookings = bookings.filter((b) => b.date === date).sort((a, b) => (a.cancelled ? 1 : 0) - (b.cancelled ? 1 : 0) || custName(a.customerId).localeCompare(custName(b.customerId), "th"));
+  const dayBookings = scopedBookings.filter((b) => b.date === date).sort((a, b) => (a.cancelled ? 1 : 0) - (b.cancelled ? 1 : 0) || custName(a.customerId).localeCompare(custName(b.customerId), "th"));
   const activeDay = dayBookings.filter((b) => !b.cancelled);   // ที่ยังใช้งาน (ตัดยกเลิก) — ใช้คิดยอดรวม/วางแผน
   const cancelledDay = dayBookings.length - activeDay.length;
   const confirmCancelBooking = () => { if (!cancelTarget) return; updateBooking(cancelTarget.id, { cancelled: true, cancelReason: cReason.trim(), cancelBy: cBy.trim(), cancelAt: Date.now(), cancelAtStr: new Date().toLocaleString("th-TH") }); setCancelTarget(null); setCReason(""); setCBy(""); };
@@ -7398,7 +7406,7 @@ function BookingEntry({ bookings, addBooking, updateBooking, deleteBooking, prod
           <div style={{ flex: "1 1 200px" }}><label style={lbl}>ลูกค้า</label>
             <select ref={(el) => { refs.current[0] = el; }} onKeyDown={onKey(0)} style={{ ...inp, textAlign: "left" }} value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
               <option value="">— เลือกลูกค้า —</option>
-              {CUSTOMERS.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {custOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div style={{ flex: "1 1 170px" }}><label style={lbl}>วันที่ส่ง / รับไข่</label><ThaiDateField value={date} onChange={setDateClamped} min={minDate} inputRef={(el) => { refs.current[1] = el; }} onKeyDown={onKey(1)} style={{ ...inp, textAlign: "left" }} /></div>
