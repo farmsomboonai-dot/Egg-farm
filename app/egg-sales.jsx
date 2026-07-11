@@ -834,13 +834,13 @@ const TOPIC_LABELS = {
   sales: "ขายไข่", bills: "ประวัติบิล", account: "บัญชีลูกหนี้", tray: "บัญชีแผงไข่",
   stock: "สต๊อคไข่ประจำวัน", production: "ผลผลิตประจำวัน", dash: "แดชบอร์ด",
   booking: "จองออเดอร์", plan: "วางแผนออเดอร์", rear: "เก็บข้อมูลการเลี้ยง",
-  feed: "อาหารไก่", med: "ยาและวิตามิน", health: "สุขภาพไก่", cost: "บัญชีต้นทุน",
+  feed: "อาหารไก่", med: "ยาและวิตามิน", trial: "ทดลอง·ติดตามผล", health: "สุขภาพไก่", cost: "บัญชีต้นทุน",
 };
 const ALL_TOPIC_IDS = Object.keys(TOPIC_LABELS);
 const DEFAULT_ROLES = [
   { id: "owner", name: "เจ้าของ/ผู้จัดการ", emoji: "👑", pin: "1234", topics: ALL_TOPIC_IDS.slice() },
   { id: "sales", name: "ฝ่ายขาย/เสมียนโรงคัด", emoji: "🛒", pin: "", topics: ["sales", "bills", "account", "tray", "booking", "plan", "stock"] },
-  { id: "farm", name: "สัตวบาล/ดูแลไก่", emoji: "🐔", pin: "", topics: ["production", "rear", "feed", "med", "health", "stock"] },
+  { id: "farm", name: "สัตวบาล/ดูแลไก่", emoji: "🐔", pin: "", topics: ["production", "rear", "feed", "med", "trial", "health", "stock"] },
   { id: "acct", name: "บัญชี", emoji: "💰", pin: "", topics: ["bills", "account", "cost", "dash"] },
   { id: "medclerk", name: "เสมียนห้องสต๊อคยา", emoji: "💊", pin: "", topics: ["med"] },
 ];
@@ -1278,6 +1278,7 @@ export default function App() {
             { id: "rear", icon: <ClipboardCheck size={16} />, label: "เก็บข้อมูลการเลี้ยง", c: "#B45309" },
             { id: "feed", icon: <Wheat size={16} />, label: "อาหารไก่", c: "#4D7C0F" },
             { id: "med", icon: <Pill size={16} />, label: "ยาและวิตามิน", c: "#0F766E" },
+            { id: "trial", icon: <TrendingUp size={16} />, label: "ทดลอง·ติดตามผล", c: "#0891B2" },
             { id: "health", icon: <Stethoscope size={16} />, label: "สุขภาพไก่", c: "#E11D48" },
             { id: "cost", icon: <Calculator size={16} />, label: "บัญชีต้นทุน", c: "#A16207" },
           ].filter((t) => allowedTopics.includes(t.id)).map((t) => (
@@ -1300,7 +1301,8 @@ export default function App() {
       {view === "production" && <ProductionView houses={houses} setHouses={setHouses} prodDate={prodDate} setProdDate={setProdDate} production={productionByDate} flocks={flocks} />}
       {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={saveRearing} flocks={flocks} saveFlock={saveFlock} production={productionByDate} medTrials={medTrials} medStock={medStock} medInfo={medInfo} vaccines={vaccines} addVaccine={addVaccine} deleteVaccine={deleteVaccine} labTests={labTests} addLabTest={addLabTest} deleteLabTest={deleteLabTest} />}
       {view === "feed" && <FeedView rearingByDate={rearingByDate} flocks={flocks} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} feedPrice={feedPrice} setFeedPrice={setFeedPrice} feedUseByMonth={feedUseByMonth} />}
-      {view === "med" && <MedView medTrials={medTrials} addMedTrial={addMedTrial} deleteMedTrial={deleteMedTrial} rearingByDate={rearingByDate} production={productionByDate} medStock={medStock} medInfo={medInfo} medReceipts={medReceipts} addMedItem={addMedItem} updateMedItem={updateMedItem} addMedReceipt={addMedReceipt} medCostByMonth={medCostByMonth} />}
+      {view === "med" && <MedView production={productionByDate} medStock={medStock} medInfo={medInfo} medReceipts={medReceipts} addMedItem={addMedItem} updateMedItem={updateMedItem} addMedReceipt={addMedReceipt} medCostByMonth={medCostByMonth} />}
+      {view === "trial" && <TrialView medTrials={medTrials} addMedTrial={addMedTrial} deleteMedTrial={deleteMedTrial} production={productionByDate} rearingByDate={rearingByDate} />}
       {view === "health" && <HealthHubView production={productionByDate} flocks={flocks} vaccines={vaccines} addVaccine={addVaccine} deleteVaccine={deleteVaccine} />}
       {view === "cost" && <CostView expenses={expenses} addExpense={addExpense} deleteExpense={deleteExpense} production={productionByDate} medCostByMonth={medCostByMonth} feedCostByMonth={feedCostByMonth} feedPrice={feedPrice} bills={activeBills} />}
       {view === "tray" && <PanelTrayView trayStock={trayStock} setTrayStock={setTrayStock} bills={activeBills} trayRecords={trayRecords} setTrayRecords={setTrayRecords} trayEvents={trayEvents} addTrayEvent={addTrayEvent} deleteTrayEvent={deleteTrayEvent} />}
@@ -5328,30 +5330,13 @@ function parseMedExpiry(s) {
 }
 
 /* ============================================================
-   หน้าจอ: ยาและวิตามิน — ทดลองยา/สารเสริม + ตรวจจับจากบันทึกรายวัน + ประวัติการให้ยา
+   หน้าจอ: ทดลอง·ติดตามผล — ทดลองยา/สารเสริม/อื่นๆ + ตรวจจับจากบันทึกรายวัน + ประวัติการให้ยา
+   (แยกออกมาจากหน้ายาและวิตามิน — MedView เหลือแค่คลัง/สต๊อก)
 ============================================================ */
-function MedView({ medTrials = [], addMedTrial, deleteMedTrial, rearingByDate = {}, production = {}, medStock = [], medInfo = {}, medReceipts = [], addMedItem, updateMedItem, addMedReceipt, medCostByMonth = {} }) {
+function TrialView({ medTrials = [], addMedTrial, deleteMedTrial, production = {}, rearingByDate = {} }) {
   const prodDates = Object.keys(production).sort();
-  const houseIds = [...new Set([...(production[prodDates[prodDates.length - 1]] || []).map((h) => h.id), ...HOUSE_IDS])];   // รวมหลังใหม่ที่ยังไม่มีผลผลิต (เช่น H7)
+  const houseIds = [...new Set([...(production[prodDates[prodDates.length - 1]] || []).map((h) => h.id), ...HOUSE_IDS])];
   const [viewTrial, setViewTrial] = useState(null);
-  const [receiptItem, setReceiptItem] = useState(null);   // รายการยาที่กำลังรับเข้า
-  const [showAddMed, setShowAddMed] = useState(false);
-  const [showKB, setShowKB] = useState(false);            // 📚 คลังความรู้ โรค/วัคซีน/วิตามิน
-  // เกณฑ์เตือน: ใกล้หมดสต๊อก (คงเหลือ ≤ n) · ใกล้หมดอายุ (เหลือ ≤ n วัน) — ปรับได้ เก็บ localStorage
-  const [lowThresh, setLowThresh] = useState(() => { try { const v = localStorage.getItem("eggMedLowStock"); return v != null && v !== "" ? Number(v) : 20; } catch { return 20; } });
-  const [expiryDays, setExpiryDays] = useState(() => { try { const v = localStorage.getItem("eggMedExpiryDays"); return v != null && v !== "" ? Number(v) : 120; } catch { return 120; } });
-  useEffect(() => { try { localStorage.setItem("eggMedLowStock", String(lowThresh)); } catch {} }, [lowThresh]);
-  useEffect(() => { try { localStorage.setItem("eggMedExpiryDays", String(expiryDays)); } catch {} }, [expiryDays]);
-  const thisYM = isoFromTs(Date.now()).slice(0, 7);
-  const medCostThisMonth = medCostByMonth[thisYM]?.total || 0;
-  const stockValue = medStock.reduce((s, it) => { const inf = medInfo[(it.name || "").trim()]; return s + (inf && it.price ? Math.max(0, inf.remain) * it.price : 0); }, 0);
-  const editItem = (it) => {   // แก้ชื่อ/ราคา แบบเร็ว (prompt) — ชื่อเปลี่ยนแล้วบันทึกรายวันเดิมที่ใช้ชื่อเก่าจะไม่ลิงก์ จึงเตือนก่อน
-    const nm = window.prompt("ชื่อยา (แก้ชื่อ = บันทึกรายวันที่ใช้ชื่อเดิมจะไม่ถูกนับ)", it.name);
-    if (nm === null) return;
-    const pr = window.prompt("ราคา บาท/" + (it.unit || "หน่วย") + " (เว้นว่าง = ไม่มีราคา)", it.price != null ? String(it.price) : "");
-    if (pr === null) return;
-    updateMedItem(it.id, { name: (nm || it.name).trim(), price: pr.trim() === "" ? null : (parseFloat(pr.replace(/,/g, "")) || null) });
-  };
   // ยาที่ตรวจพบจากบันทึกรายวัน (ยังไม่ได้สร้างเป็นการทดลอง)
   const detected = useMemo(() => {
     const m = {};
@@ -5374,14 +5359,12 @@ function MedView({ medTrials = [], addMedTrial, deleteMedTrial, rearingByDate = 
     const out = [];
     Object.keys(rearingByDate).sort().reverse().forEach((d) => {
       Object.keys(rearingByDate[d] || {}).sort().forEach((hid) => {
-        const r = rearingByDate[d][hid];
-        const txt = medsDetail(r);
+        const txt = medsDetail(rearingByDate[d][hid]);
         if (txt) out.push({ date: d, hid, txt });
       });
     });
     return out.slice(0, 15);
   }, [rearingByDate]);
-  // ฟอร์มเริ่มการทดลองใหม่
   const [name, setName] = useState("");
   const [hid, setHid] = useState(houseIds[0] || "H2");
   const [from, setFrom] = useState("");
@@ -5393,6 +5376,112 @@ function MedView({ medTrials = [], addMedTrial, deleteMedTrial, rearingByDate = 
   const activeTrials = medTrials.filter((t) => today >= t.startDate && today <= t.endDate);
   const inp = { width: "100%", padding: "9px 10px", border: "1.5px solid #e3ddd0", borderRadius: 9, fontSize: 14, fontFamily: "inherit", outline: "none", boxSizing: "border-box" };
   const lbl = { display: "block", fontSize: 12, fontWeight: 700, color: INK, marginBottom: 3 };
+  const card = (label, value, color) => (
+    <div style={{ flex: 1, minWidth: 130, background: "#fff", border: "1px solid #eee3cd", borderRadius: 12, padding: "10px 14px" }}>
+      <div style={{ fontSize: 11.5, fontWeight: 700, color: "#9b8e78" }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 800, color: color || INK }}>{value}</div>
+    </div>
+  );
+  return (
+    <div style={{ padding: "18px 22px 40px" }}>
+      <div style={S.subBar}>
+        <span style={S.subBarTitle}>ทดลอง·ติดตามผล 🧪<span style={{ fontSize: 12.5, fontWeight: 600, color: "#9b8e78" }}> · เปรียบเทียบตัวเลขก่อน–ระหว่าง–หลังให้ยา/สารเสริม/อื่นๆ</span></span>
+      </div>
+      <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+        {card("การทดลองทั้งหมด", medTrials.length + " รายการ")}
+        {card("กำลังให้อยู่วันนี้", activeTrials.length + " รายการ", activeTrials.length ? "#0F766E" : undefined)}
+      </div>
+
+      {detected.length > 0 && (
+        <div style={{ background: "#F0FDFA", border: "1px solid #99F6E4", borderRadius: 12, padding: "10px 12px", marginBottom: 12 }}>
+          <div style={{ fontWeight: 800, color: "#0F766E", fontSize: 13, marginBottom: 7 }}>💊 ตรวจพบจากบันทึกยารายวัน — กดเพื่อดูผลได้ทันที ไม่ต้องกรอกซ้ำ</div>
+          <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+            {detected.map((s, i) => (
+              <button key={i} onClick={() => {
+                const t = { id: "tr" + Date.now() + i, name: s.name, houseId: s.hid, startDate: s.from, endDate: s.to, note: `จากบันทึกรายวัน · ให้ ${s.days} วัน` };
+                addMedTrial(t); setViewTrial(t);
+              }} style={{ border: "1.5px solid #0D9488", background: "#fff", color: "#0F766E", borderRadius: 999, padding: "6px 13px", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
+                📊 {s.name} · {s.hid} · {toThaiDate(s.from, false)}{s.to !== s.from ? " – " + toThaiDate(s.to, false) : ""} ({s.days} วัน)
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
+        <div style={{ flex: "1 1 300px", background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 12, padding: "12px 12px 10px" }}>
+          <div style={{ fontWeight: 800, color: ACCENT_DK, fontSize: 13, marginBottom: 8 }}>＋ เริ่มการทดลองใหม่</div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <div style={{ flex: 1.6 }}><label style={lbl}>ยา/สารเสริม/สิ่งที่ทดลอง</label><input style={inp} placeholder="เช่น Calcium+D3 · เปลี่ยนอาหาร" value={name} onChange={(e) => setName(e.target.value)} /></div>
+            <div style={{ flex: 0.7 }}><label style={lbl}>โรงเรือน</label><select style={inp} value={hid} onChange={(e) => setHid(e.target.value)}>{houseIds.map((h) => <option key={h}>{h}</option>)}</select></div>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <div style={{ flex: 1 }}><label style={lbl}>เริ่มให้วันที่</label><ThaiDateField value={from} onChange={setFrom} style={inp} /></div>
+            <div style={{ flex: 1 }}><label style={lbl}>ให้ถึงวันที่</label><ThaiDateField value={to} onChange={setTo} style={inp} /></div>
+          </div>
+          <div style={{ marginBottom: 10 }}><label style={lbl}>หมายเหตุ (เช่น กิน 5 วัน สัปดาห์ที่ 1)</label><input style={inp} value={note} onChange={(e) => setNote(e.target.value)} /></div>
+          <button disabled={!valid} onClick={() => { addMedTrial({ id: "tr" + Date.now(), name: name.trim(), houseId: hid, startDate: from, endDate: to, note: note.trim() }); setName(""); setFrom(""); setTo(""); setNote(""); }}
+            style={{ ...S.primaryBtn, opacity: valid ? 1 : 0.5 }}>บันทึกการทดลอง</button>
+        </div>
+        <div style={{ flex: "1.4 1 340px" }}>
+          <div style={{ fontSize: 12.5, fontWeight: 800, color: "#7a6f5c", marginBottom: 6 }}>🧪 การทดลองทั้งหมด · {medTrials.length} รายการ</div>
+          {medTrials.length === 0 ? <div style={{ fontSize: 12.5, color: "#9b8e78", background: "#fff", border: "1px dashed #d8cdb6", borderRadius: 12, padding: "18px 14px", textAlign: "center" }}>ยังไม่มีการทดลอง — กรอกฟอร์มซ้าย หรือกดจากรายการ "ตรวจพบ"</div> : medTrials.map((t) => (
+            <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "#FDFAF3", border: "1px solid #eee3cd", borderRadius: 10, padding: "9px 11px", marginBottom: 7, fontSize: 13, flexWrap: "wrap" }}>
+              <span style={{ fontWeight: 800 }}>🧪 {t.name}</span>
+              <span style={{ fontWeight: 700, color: ACCENT_DK }}>{t.houseId}</span>
+              <span style={{ color: "#9b8e78" }}>{toThaiDate(t.startDate, false)} – {toThaiDate(t.endDate, false)} ({dayCount(t)} วัน)</span>
+              {t.note ? <span style={{ color: "#9b8e78" }}>· {t.note}</span> : null}
+              <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+                <button onClick={() => setViewTrial(t)} style={{ border: `1px solid ${ACCENT_DK}`, background: ACCENT_DK, color: "#fff", borderRadius: 8, padding: "4px 12px", cursor: "pointer", fontWeight: 800, fontSize: 12.5, fontFamily: "inherit" }}>📊 ดูผล / วินิจฉัย</button>
+                <button onClick={() => { if (window.confirm(`ลบการทดลอง "${t.name}" ?`)) deleteMedTrial(t.id); }} style={{ border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 8, padding: "4px 9px", cursor: "pointer", fontWeight: 800 }}>✕</button>
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, padding: "12px 14px", marginTop: 12 }}>
+        <div style={{ fontWeight: 800, fontSize: 13.5, color: "#7a6f5c", marginBottom: 8 }}>💊 บันทึกการให้ยาล่าสุด (จากแท็บ เก็บข้อมูลการเลี้ยง)</div>
+        {medLog.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: "#9b8e78" }}>ยังไม่มีบันทึกยา — กรอกในหน้ากรอกรายวัน (ช่อง ยา/สารเสริม) แล้วจะโผล่ที่นี่</div>
+        ) : medLog.map((x, i) => (
+          <div key={i} style={{ display: "flex", gap: 10, alignItems: "baseline", padding: "6px 2px", borderBottom: i < medLog.length - 1 ? "1px solid #f3eee1" : "none", fontSize: 13, flexWrap: "wrap" }}>
+            <span style={{ color: "#9b8e78", whiteSpace: "nowrap" }}>{toThaiDate(x.date, false)}</span>
+            <span style={{ fontWeight: 800, color: ACCENT_DK }}>{x.hid}</span>
+            <span>{x.txt}</span>
+          </div>
+        ))}
+      </div>
+
+      {viewTrial && <TrialResultModal trial={viewTrial} production={production} rearingByDate={rearingByDate} onClose={() => setViewTrial(null)} />}
+    </div>
+  );
+}
+
+/* ============================================================
+   หน้าจอ: ยาและวิตามิน — คลัง/สต๊อกยา + แจ้งเตือนใกล้หมด/หมดอายุ + คลังความรู้
+============================================================ */
+function MedView({ production = {}, medStock = [], medInfo = {}, medReceipts = [], addMedItem, updateMedItem, addMedReceipt, medCostByMonth = {} }) {
+  const prodDates = Object.keys(production).sort();
+  const houseIds = [...new Set([...(production[prodDates[prodDates.length - 1]] || []).map((h) => h.id), ...HOUSE_IDS])];   // รวมหลังใหม่ที่ยังไม่มีผลผลิต (เช่น H7)
+  const [receiptItem, setReceiptItem] = useState(null);   // รายการยาที่กำลังรับเข้า
+  const [showAddMed, setShowAddMed] = useState(false);
+  const [showKB, setShowKB] = useState(false);            // 📚 คลังความรู้ โรค/วัคซีน/วิตามิน
+  // เกณฑ์เตือน: ใกล้หมดสต๊อก (คงเหลือ ≤ n) · ใกล้หมดอายุ (เหลือ ≤ n วัน) — ปรับได้ เก็บ localStorage
+  const [lowThresh, setLowThresh] = useState(() => { try { const v = localStorage.getItem("eggMedLowStock"); return v != null && v !== "" ? Number(v) : 20; } catch { return 20; } });
+  const [expiryDays, setExpiryDays] = useState(() => { try { const v = localStorage.getItem("eggMedExpiryDays"); return v != null && v !== "" ? Number(v) : 120; } catch { return 120; } });
+  useEffect(() => { try { localStorage.setItem("eggMedLowStock", String(lowThresh)); } catch {} }, [lowThresh]);
+  useEffect(() => { try { localStorage.setItem("eggMedExpiryDays", String(expiryDays)); } catch {} }, [expiryDays]);
+  const thisYM = isoFromTs(Date.now()).slice(0, 7);
+  const medCostThisMonth = medCostByMonth[thisYM]?.total || 0;
+  const stockValue = medStock.reduce((s, it) => { const inf = medInfo[(it.name || "").trim()]; return s + (inf && it.price ? Math.max(0, inf.remain) * it.price : 0); }, 0);
+  const editItem = (it) => {   // แก้ชื่อ/ราคา แบบเร็ว (prompt) — ชื่อเปลี่ยนแล้วบันทึกรายวันเดิมที่ใช้ชื่อเก่าจะไม่ลิงก์ จึงเตือนก่อน
+    const nm = window.prompt("ชื่อยา (แก้ชื่อ = บันทึกรายวันที่ใช้ชื่อเดิมจะไม่ถูกนับ)", it.name);
+    if (nm === null) return;
+    const pr = window.prompt("ราคา บาท/" + (it.unit || "หน่วย") + " (เว้นว่าง = ไม่มีราคา)", it.price != null ? String(it.price) : "");
+    if (pr === null) return;
+    updateMedItem(it.id, { name: (nm || it.name).trim(), price: pr.trim() === "" ? null : (parseFloat(pr.replace(/,/g, "")) || null) });
+  };
   const card = (label, value, color) => (
     <div style={{ flex: 1, minWidth: 130, background: "#fff", border: "1px solid #eee3cd", borderRadius: 12, padding: "10px 14px" }}>
       <div style={{ fontSize: 11.5, fontWeight: 700, color: "#9b8e78" }}>{label}</div>
@@ -5431,8 +5520,6 @@ function MedView({ medTrials = [], addMedTrial, deleteMedTrial, rearingByDate = 
       <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
         {card("💊 ค่ายาที่ใช้จริงเดือนนี้ — ตัวนี้เข้าบัญชีต้นทุน", fmt(Math.round(medCostThisMonth)) + " บ.", medCostThisMonth ? "#B91C1C" : undefined)}
         {card("📦 มูลค่าสต๊อกในคลัง (ทรัพย์สิน — ไม่ใช่ค่าใช้จ่าย)", fmt(Math.round(stockValue)) + " บ.", "#9b8e78")}
-        {card("การทดลองทั้งหมด", medTrials.length + " รายการ")}
-        {card("กำลังให้อยู่วันนี้", activeTrials.length + " รายการ", activeTrials.length ? "#0F766E" : undefined)}
       </div>
 
       {/* 🚨 แถบเตือน ของใกล้หมดสต๊อก + ของใกล้/หมดอายุ (ปรับเกณฑ์ได้) */}
@@ -5536,73 +5623,6 @@ function MedView({ medTrials = [], addMedTrial, deleteMedTrial, rearingByDate = 
         </div>
       )}
 
-      {detected.length > 0 && (
-        <div style={{ background: "#F0FDFA", border: "1px solid #99F6E4", borderRadius: 12, padding: "10px 12px", marginBottom: 12 }}>
-          <div style={{ fontWeight: 800, color: "#0F766E", fontSize: 13, marginBottom: 7 }}>💊 ตรวจพบจากบันทึกยารายวัน — กดเพื่อดูผลได้ทันที ไม่ต้องกรอกซ้ำ</div>
-          <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-            {detected.map((s, i) => (
-              <button key={i} onClick={() => {
-                const t = { id: "tr" + Date.now() + i, name: s.name, houseId: s.hid, startDate: s.from, endDate: s.to, note: `จากบันทึกรายวัน · ให้ ${s.days} วัน` };
-                addMedTrial(t); setViewTrial(t);
-              }} style={{ border: "1.5px solid #0D9488", background: "#fff", color: "#0F766E", borderRadius: 999, padding: "6px 13px", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
-                📊 {s.name} · {s.hid} · {toThaiDate(s.from, false)}{s.to !== s.from ? " – " + toThaiDate(s.to, false) : ""} ({s.days} วัน)
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
-        {/* ฟอร์มเริ่มการทดลองใหม่ */}
-        <div style={{ flex: "1 1 300px", background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 12, padding: "12px 12px 10px" }}>
-          <div style={{ fontWeight: 800, color: ACCENT_DK, fontSize: 13, marginBottom: 8 }}>＋ เริ่มการทดลองใหม่</div>
-          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-            <div style={{ flex: 1.6 }}><label style={lbl}>ยา/สารเสริมที่ให้</label><input style={inp} placeholder="เช่น Calcium+D3" value={name} onChange={(e) => setName(e.target.value)} /></div>
-            <div style={{ flex: 0.7 }}><label style={lbl}>โรงเรือน</label><select style={inp} value={hid} onChange={(e) => setHid(e.target.value)}>{houseIds.map((h) => <option key={h}>{h}</option>)}</select></div>
-          </div>
-          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-            <div style={{ flex: 1 }}><label style={lbl}>เริ่มให้วันที่</label><ThaiDateField value={from} onChange={setFrom} style={inp} /></div>
-            <div style={{ flex: 1 }}><label style={lbl}>ให้ถึงวันที่</label><ThaiDateField value={to} onChange={setTo} style={inp} /></div>
-          </div>
-          <div style={{ marginBottom: 10 }}><label style={lbl}>หมายเหตุ (เช่น กิน 5 วัน สัปดาห์ที่ 1)</label><input style={inp} value={note} onChange={(e) => setNote(e.target.value)} /></div>
-          <button disabled={!valid} onClick={() => { addMedTrial({ id: "tr" + Date.now(), name: name.trim(), houseId: hid, startDate: from, endDate: to, note: note.trim() }); setName(""); setFrom(""); setTo(""); setNote(""); }}
-            style={{ ...S.primaryBtn, opacity: valid ? 1 : 0.5 }}>บันทึกการทดลอง</button>
-        </div>
-        {/* รายการทดลองทั้งหมด */}
-        <div style={{ flex: "1.4 1 340px" }}>
-          <div style={{ fontSize: 12.5, fontWeight: 800, color: "#7a6f5c", marginBottom: 6 }}>🧪 การทดลองทั้งหมด · {medTrials.length} รายการ</div>
-          {medTrials.length === 0 ? <div style={{ fontSize: 12.5, color: "#9b8e78", background: "#fff", border: "1px dashed #d8cdb6", borderRadius: 12, padding: "18px 14px", textAlign: "center" }}>ยังไม่มีการทดลอง — กรอกฟอร์มซ้าย หรือกดจากรายการ "ตรวจพบ"</div> : medTrials.map((t) => (
-            <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "#FDFAF3", border: "1px solid #eee3cd", borderRadius: 10, padding: "9px 11px", marginBottom: 7, fontSize: 13, flexWrap: "wrap" }}>
-              <span style={{ fontWeight: 800 }}>🧪 {t.name}</span>
-              <span style={{ fontWeight: 700, color: ACCENT_DK }}>{t.houseId}</span>
-              <span style={{ color: "#9b8e78" }}>{toThaiDate(t.startDate, false)} – {toThaiDate(t.endDate, false)} ({dayCount(t)} วัน)</span>
-              {t.note ? <span style={{ color: "#9b8e78" }}>· {t.note}</span> : null}
-              <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-                <button onClick={() => setViewTrial(t)} style={{ border: `1px solid ${ACCENT_DK}`, background: ACCENT_DK, color: "#fff", borderRadius: 8, padding: "4px 12px", cursor: "pointer", fontWeight: 800, fontSize: 12.5, fontFamily: "inherit" }}>📊 ดูผล / วินิจฉัย</button>
-                <button onClick={() => { if (window.confirm(`ลบการทดลอง "${t.name}" ?`)) deleteMedTrial(t.id); }} style={{ border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 8, padding: "4px 9px", cursor: "pointer", fontWeight: 800 }}>✕</button>
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* ประวัติการให้ยาจากบันทึกรายวัน */}
-      <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, padding: "12px 14px", marginTop: 12 }}>
-        <div style={{ fontWeight: 800, fontSize: 13.5, color: "#7a6f5c", marginBottom: 8 }}>💊 บันทึกการให้ยาล่าสุด (จากแท็บ เก็บข้อมูลการเลี้ยง)</div>
-        {medLog.length === 0 ? (
-          <div style={{ fontSize: 12.5, color: "#9b8e78" }}>ยังไม่มีบันทึกยา — กรอกในหน้ากรอกรายวัน (ช่อง ยา/สารเสริม) แล้วจะโผล่ที่นี่</div>
-        ) : medLog.map((x, i) => (
-          <div key={i} style={{ display: "flex", gap: 10, alignItems: "baseline", padding: "6px 2px", borderBottom: i < medLog.length - 1 ? "1px solid #f3eee1" : "none", fontSize: 13, flexWrap: "wrap" }}>
-            <span style={{ color: "#9b8e78", whiteSpace: "nowrap" }}>{toThaiDate(x.date, false)}</span>
-            <span style={{ fontWeight: 800, color: ACCENT_DK }}>{x.hid}</span>
-            <span>{x.txt}</span>
-          </div>
-        ))}
-      </div>
-
-      {viewTrial && (
-        <TrialResultModal trial={viewTrial} production={production} rearingByDate={rearingByDate} onClose={() => setViewTrial(null)} />
-      )}
       {receiptItem && (
         <MedReceiptModal item={receiptItem} info={medInfo[(receiptItem.name || "").trim()]}
           onSave={(r) => { addMedReceipt(r); setReceiptItem(null); }} onClose={() => setReceiptItem(null)} />
