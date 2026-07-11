@@ -842,6 +842,7 @@ const DEFAULT_ROLES = [
   { id: "sales", name: "ฝ่ายขาย/หน้าร้าน", emoji: "🛒", pin: "", topics: ["sales", "bills", "account", "tray", "booking", "plan", "stock"] },
   { id: "farm", name: "สัตวบาล/ดูแลไก่", emoji: "🐔", pin: "", topics: ["production", "rear", "feed", "med", "health", "stock"] },
   { id: "acct", name: "บัญชี", emoji: "💰", pin: "", topics: ["bills", "account", "cost", "dash"] },
+  { id: "medclerk", name: "เสมียนห้องสต๊อคยา", emoji: "💊", pin: "", topics: ["med"] },
 ];
 
 function RolePickerModal({ roles, current, onPick, onClose }) {
@@ -939,7 +940,14 @@ function RoleSettingsModal({ roles, onSave, accessLog = [], onClose }) {
 
 export default function App() {
   // 🔐 สิทธิ์การเข้าดูตามบทบาท (PIN ต่อบทบาท · client-side)
-  const [roles, setRoles] = useState(() => { try { const s = JSON.parse(localStorage.getItem("eggRoles")); return Array.isArray(s) && s.length ? s : DEFAULT_ROLES; } catch { return DEFAULT_ROLES; } });
+  const [roles, setRoles] = useState(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem("eggRoles"));
+      const base = Array.isArray(s) && s.length ? s : DEFAULT_ROLES;
+      const have = new Set(base.map((r) => r.id));
+      return [...base, ...DEFAULT_ROLES.filter((r) => !have.has(r.id))];   // เติมบทบาทใหม่ที่เพิ่มมาทีหลัง (เช่น เสมียนห้องสต๊อคยา) โดยไม่ทับของเดิม
+    } catch { return DEFAULT_ROLES; }
+  });
   useEffect(() => { try { localStorage.setItem("eggRoles", JSON.stringify(roles)); } catch {} }, [roles]);
   const [currentRole, setCurrentRole] = useState(() => { try { return localStorage.getItem("eggCurrentRole") || "owner"; } catch { return "owner"; } });
   useEffect(() => { try { localStorage.setItem("eggCurrentRole", currentRole); } catch {} }, [currentRole]);
