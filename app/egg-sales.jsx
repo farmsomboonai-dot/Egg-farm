@@ -834,14 +834,14 @@ const TOPIC_LABELS = {
   sales: "ขายไข่", bills: "ประวัติบิล", account: "บัญชีลูกหนี้", tray: "บัญชีแผงไข่",
   stock: "สต๊อคไข่ประจำวัน", production: "ผลผลิตประจำวัน", dash: "แดชบอร์ด", manage: "แดชบอร์ดผู้บริหาร",
   booking: "จองออเดอร์", plan: "วางแผนออเดอร์", rear: "เก็บข้อมูลการเลี้ยง",
-  feed: "อาหารไก่", med: "ยาและวิตามิน", trial: "ทดลอง·ติดตามผล", health: "สุขภาพไก่", cost: "บัญชีต้นทุน",
+  feed: "อาหารไก่", med: "ยาและวิตามิน", trial: "ทดลอง·ติดตามผล", health: "สุขภาพไก่", cost: "บัญชีต้นทุน", houseecon: "คุ้มค่ารายหลัง",
 };
 const ALL_TOPIC_IDS = Object.keys(TOPIC_LABELS);
 const DEFAULT_ROLES = [
   { id: "owner", name: "เจ้าของ/ผู้จัดการ", emoji: "👑", pin: "1234", topics: ALL_TOPIC_IDS.slice() },
   { id: "sales", name: "ฝ่ายขาย/เสมียนโรงคัด", emoji: "🛒", pin: "", topics: ["sales", "bills", "account", "tray", "booking", "plan", "stock"] },
   { id: "farm", name: "สัตวบาล/ดูแลไก่", emoji: "🐔", pin: "", topics: ["production", "rear", "feed", "med", "trial", "health", "stock"] },
-  { id: "acct", name: "บัญชี", emoji: "💰", pin: "", topics: ["bills", "account", "cost", "dash", "manage"] },
+  { id: "acct", name: "บัญชี", emoji: "💰", pin: "", topics: ["bills", "account", "cost", "dash", "manage", "houseecon"] },
   { id: "medclerk", name: "เสมียนห้องสต๊อคยา", emoji: "💊", pin: "", topics: ["med"] },
   // บทบาทร้านค้าภายนอก — เข้าได้แค่ "จองออเดอร์" และเห็นเฉพาะลูกค้า/ใบจองของกลุ่มตัวเอง (custGroup)
   { id: "retail_shop", name: "ร้านค้าขายปลีก (ฉันจะกินไข่สดทุกวัน)", emoji: "🛍️", pin: "", topics: ["booking"], custGroup: "retail" },
@@ -1286,6 +1286,7 @@ export default function App() {
             { id: "trial", icon: <TrendingUp size={16} />, label: "ทดลอง·ติดตามผล", c: "#0891B2" },
             { id: "health", icon: <Stethoscope size={16} />, label: "สุขภาพไก่", c: "#E11D48" },
             { id: "cost", icon: <Calculator size={16} />, label: "บัญชีต้นทุน", c: "#A16207" },
+            { id: "houseecon", icon: <CircleDollarSign size={16} />, label: "คุ้มค่ารายหลัง", c: "#047857" },
           ].filter((t) => allowedTopics.includes(t.id)).map((t) => (
             <button
               key={t.id}
@@ -1311,6 +1312,7 @@ export default function App() {
       {view === "trial" && <TrialView medTrials={medTrials} addMedTrial={addMedTrial} deleteMedTrial={deleteMedTrial} production={productionByDate} rearingByDate={rearingByDate} />}
       {view === "health" && <HealthHubView production={productionByDate} flocks={flocks} vaccines={vaccines} addVaccine={addVaccine} deleteVaccine={deleteVaccine} />}
       {view === "cost" && <CostView expenses={expenses} addExpense={addExpense} deleteExpense={deleteExpense} production={productionByDate} medCostByMonth={medCostByMonth} feedCostByMonth={feedCostByMonth} feedPrice={feedPrice} bills={activeBills} />}
+      {view === "houseecon" && <HouseEconView production={productionByDate} flocks={flocks} expenses={expenses} medCostByMonth={medCostByMonth} feedCostByMonth={feedCostByMonth} feedUseByMonth={feedUseByMonth} feedPrice={feedPrice} refPrices={refPrices} bills={activeBills} />}
       {view === "tray" && <PanelTrayView trayStock={trayStock} setTrayStock={setTrayStock} bills={activeBills} trayRecords={trayRecords} setTrayRecords={setTrayRecords} trayEvents={trayEvents} addTrayEvent={addTrayEvent} deleteTrayEvent={deleteTrayEvent} />}
       {view === "booking" && <BookingEntry bookings={bookings} addBooking={addBooking} updateBooking={updateBooking} deleteBooking={deleteBooking} production={productionByDate} planEstimates={planEstimates} custGroup={roleCustGroup} />}
       {view === "plan" && <PlanBoard bookings={bookings} production={productionByDate} planEstimates={planEstimates} setPlanEstimate={setPlanEstimate} />}
@@ -3288,6 +3290,244 @@ function ManageDashView({ production = {}, rearingByDate = {}, flocks = {} }) {
               </tbody>
             </table>
             <div style={{ fontSize: 11, color: "#9b8e78", marginTop: 8 }}>ช่องเน้นสี = หลังนั้นสัดส่วนเบอร์นั้นต่างจากค่าเฉลี่ยฟาร์ม ≥12% (🟡 มากกว่า · 🔵 น้อยกว่า) — ขนาดไข่แปรตามอายุฝูงและอาหารเป็นหลัก ใช้ประกอบการพิจารณา</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   หน้าจอ: คุ้มค่า·กำไรรายหลัง — ต้นทุน/รายได้/กำไรต่อหลังต่อเดือน
+   + คำแนะนำปลดไก่ + ประสิทธิภาพผลผลิต + เทรนด์ราคาไข่ทั้งปี
+   หมายเหตุการปันส่วน: ค่าอาหาร/ค่ายา = ตามที่ใช้จริงต่อหลัง ·
+   ค่าสายพันธุ์/ค่าเสื่อม = อัตรา×ฟองของหลังนั้น · ค่าใช้จ่ายรวม
+   (ที่ไม่ระบุหลัง) ปันตามสัดส่วนจำนวนไก่ · รายได้ = ตีมูลค่า
+   ผลผลิตตามราคาขายล่าสุด (ไม่ใช่ยอดขายจริงรายหลัง)
+============================================================ */
+function houseEconData(production, flocks, expenses, medCostByMonth, feedCostByMonth, feedUseByMonth, refPrices, rates, ym) {
+  const daysInMonth = Object.keys(production).filter((d) => d.slice(0, 7) === ym).sort();
+  const ids = new Set();
+  daysInMonth.forEach((d) => (production[d] || []).forEach((h) => ids.add(h.id)));
+  Object.keys(medCostByMonth[ym]?.byHouse || {}).forEach((h) => ids.add(h));
+  Object.keys(feedCostByMonth[ym]?.byHouse || {}).forEach((h) => ids.add(h));
+  Object.keys(feedUseByMonth[ym]?.byHouse || {}).forEach((h) => ids.add(h));
+  const idList = [...ids].sort((a, b) => HOUSE_IDS.indexOf(a) - HOUSE_IDS.indexOf(b) || String(a).localeCompare(String(b)));
+  const perHouse = {}; idList.forEach((hid) => { perHouse[hid] = { hid, days: 0, chSum: 0, goodFong: 0, offPrang: 0, pidPrang: {} }; });
+  daysInMonth.forEach((d) => {
+    (production[d] || []).forEach((h) => {
+      const ph = perHouse[h.id]; if (!ph) return;
+      const good = sumVals(h.grade?.เบอร์), off = sumVals(h.grade?.ตกเกรด);
+      if ((h.chickens || 0) > 0 || good > 0 || off > 0) { ph.days++; ph.chSum += (h.chickens || 0); }
+      ph.goodFong += good; ph.offPrang += off;
+      const ps = productionToStock([h]);
+      Object.entries(ps).forEach(([pid, pr]) => { ph.pidPrang[pid] = (ph.pidPrang[pid] || 0) + pr; });
+    });
+  });
+  const monthExp = expenses.filter((x) => (x.date || "").slice(0, 7) === ym);
+  const farmWideManual = monthExp.filter((x) => !x.houseId).reduce((s, x) => s + (x.amount || 0), 0);
+  const houseDirectManual = {}; monthExp.filter((x) => x.houseId).forEach((x) => { houseDirectManual[x.houseId] = (houseDirectManual[x.houseId] || 0) + (x.amount || 0); });
+  const totalChSum = idList.reduce((s, hid) => s + perHouse[hid].chSum, 0) || 1;
+  const lastDay = daysInMonth[daysInMonth.length - 1] || ym + "-28";
+  const houses = idList.map((hid) => {
+    const ph = perHouse[hid];
+    const avgCh = ph.days ? ph.chSum / ph.days : 0;
+    const eggsFong = ph.goodFong + ph.offPrang * PER_PRADANG;
+    const goodPrang = ph.goodFong / PER_PRADANG;
+    const totalPrang = goodPrang + ph.offPrang;
+    const hendayPct = (avgCh > 0 && ph.days > 0) ? (ph.goodFong / (avgCh * ph.days)) * 100 : null;
+    let revenue = 0; Object.entries(ph.pidPrang).forEach(([pid, pr]) => { revenue += pr * (refPrices[pid] != null ? refPrices[pid] : (REF_PRICE_FALLBACK[pid] || 0)); });
+    const feedCost = feedCostByMonth[ym]?.byHouse?.[hid] || 0;
+    const feedKg = feedUseByMonth[ym]?.byHouse?.[hid] || 0;
+    const medCost = medCostByMonth[ym]?.byHouse?.[hid] || 0;
+    const breedCost = eggsFong * (rates.breed || 0);
+    const depreCost = eggsFong * (rates.depre || 0);
+    const directManual = houseDirectManual[hid] || 0;
+    const allocFarm = farmWideManual * (ph.chSum / totalChSum);
+    const totalCost = feedCost + medCost + breedCost + depreCost + directManual + allocFarm;
+    const profit = revenue - totalCost;
+    const profitPerBird = avgCh > 0 ? profit / avgCh : null;
+    const costPerPrang = totalPrang > 0 ? totalCost / totalPrang : null;
+    const revPerPrang = totalPrang > 0 ? revenue / totalPrang : null;
+    const feedKgPerPrang = totalPrang > 0 ? feedKg / totalPrang : null;
+    const eggsPerHen = avgCh > 0 ? totalPrang * PER_PRADANG / avgCh : null;   // ฟอง/แม่/เดือน
+    const age = flockAgeWk(flocks[hid], lastDay);
+    const stdHD = hylineHD(age);
+    // คำแนะนำปลดไก่
+    const reasons = [];
+    if (profit < 0) reasons.push("ขาดทุนเดือนนี้");
+    if (age != null && age >= 95) reasons.push(`อายุมากแล้ว (${age} สป.)`);
+    else if (age != null && age >= 80) reasons.push(`อายุใกล้ปลด (${age} สป.)`);
+    if (hendayPct != null && hendayPct < 60) reasons.push(`ผลผลิตต่ำ (${hendayPct.toFixed(0)}%)`);
+    else if (stdHD != null && hendayPct != null && hendayPct < stdHD - 15) reasons.push(`ต่ำกว่ามาตรฐานอายุมาก (${hendayPct.toFixed(0)}% เทียบ ~${stdHD.toFixed(0)}%)`);
+    let rec;
+    if ((profit < 0 && age != null && age >= 70) || (age != null && age >= 95) || (hendayPct != null && hendayPct < 55 && age != null && age >= 75)) rec = { level: "cull", label: "🔴 ควรพิจารณาปลด" };
+    else if (profit < 0 || (age != null && age >= 80) || (stdHD != null && hendayPct != null && hendayPct < stdHD - 12)) rec = { level: "watch", label: "🟠 เฝ้าระวัง" };
+    else rec = { level: "ok", label: "🟢 คุ้มค่า" };
+    rec.reasons = reasons;
+    return { hid, days: ph.days, avgCh, eggsFong, goodPrang, totalPrang, hendayPct, revenue, feedCost, feedKg, medCost, breedCost, depreCost, directManual, allocFarm, totalCost, profit, profitPerBird, costPerPrang, revPerPrang, feedKgPerPrang, eggsPerHen, age, stdHD, rec };
+  });
+  const farm = houses.reduce((a, h) => ({
+    avgCh: a.avgCh + h.avgCh, revenue: a.revenue + h.revenue, totalCost: a.totalCost + h.totalCost,
+    profit: a.profit + h.profit, totalPrang: a.totalPrang + h.totalPrang, feedKg: a.feedKg + h.feedKg,
+  }), { avgCh: 0, revenue: 0, totalCost: 0, profit: 0, totalPrang: 0, feedKg: 0 });
+  return { ym, houses, farm, daysInMonth };
+}
+function eggPriceTrend(bills, year) {
+  // ราคาเฉลี่ยถ่วงน้ำหนักต่อแผง รายเดือน: รวม + เบอร์ 0-5
+  const berIds = ["n0", "n1", "n2", "n3", "n4", "n5"];
+  const m = {};   // ym → { all:{sum,qty}, byPid:{pid:{sum,qty}} }
+  (bills || []).forEach((b) => {
+    const ym = billYM(b); if (!ym || (year && !ym.startsWith(year))) return;
+    (b.items || []).forEach((it) => {
+      const pid = it.productId, price = parseFloat(it.price) || 0, qty = it.qty || 0;
+      if (!pid || price <= 0 || qty <= 0) return;
+      m[ym] = m[ym] || { all: { sum: 0, qty: 0 }, byPid: {} };
+      m[ym].all.sum += price * qty; m[ym].all.qty += qty;
+      m[ym].byPid[pid] = m[ym].byPid[pid] || { sum: 0, qty: 0 };
+      m[ym].byPid[pid].sum += price * qty; m[ym].byPid[pid].qty += qty;
+    });
+  });
+  const months = Object.keys(m).sort();
+  const rows = months.map((ym) => {
+    const d = m[ym];
+    const avgAll = d.all.qty ? d.all.sum / d.all.qty : null;
+    const ber = {}; berIds.forEach((pid) => { ber[pid] = d.byPid[pid]?.qty ? d.byPid[pid].sum / d.byPid[pid].qty : null; });
+    return { ym, avgAll, ber, qty: d.all.qty };
+  });
+  return { rows, berIds };
+}
+function HouseEconView({ production = {}, flocks = {}, expenses = [], medCostByMonth = {}, feedCostByMonth = {}, feedUseByMonth = {}, feedPrice = 0, refPrices = {}, bills = [] }) {
+  const rates = useMemo(() => { try { return { breed: 0.5, depre: 0.3, ...JSON.parse(localStorage.getItem("eggCostRates") || "{}") }; } catch { return { breed: 0.5, depre: 0.3 }; } }, []);
+  const months = useMemo(() => {
+    const s = new Set();
+    Object.keys(production).forEach((d) => s.add(d.slice(0, 7)));
+    Object.keys(medCostByMonth).forEach((mk) => s.add(mk));
+    Object.keys(feedCostByMonth).forEach((mk) => s.add(mk));
+    expenses.forEach((x) => { if (x.date) s.add(x.date.slice(0, 7)); });
+    return [...s].filter(Boolean).sort();
+  }, [production, medCostByMonth, feedCostByMonth, expenses]);
+  const [ym, setYm] = useState(() => months[months.length - 1] || (isoFromTs(Date.now())).slice(0, 7));
+  const curYm = months.includes(ym) ? ym : (months[months.length - 1] || ym);
+  const idx = months.indexOf(curYm);
+  const data = useMemo(() => houseEconData(production, flocks, expenses, medCostByMonth, feedCostByMonth, feedUseByMonth, refPrices, rates, curYm), [production, flocks, expenses, medCostByMonth, feedCostByMonth, feedUseByMonth, refPrices, rates, curYm]);
+  const year = curYm.slice(0, 4);
+  const trend = useMemo(() => eggPriceTrend(bills, year), [bills, year]);
+  const f = data.farm;
+  const cullHouses = data.houses.filter((h) => h.rec.level === "cull");
+  const watchHouses = data.houses.filter((h) => h.rec.level === "watch");
+  const th = { padding: "8px", fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", borderBottom: "2px solid #eadfca", textAlign: "right", whiteSpace: "nowrap" };
+  const td = { padding: "7px 8px", fontSize: 13, borderBottom: "1px solid #f3eee2", textAlign: "right", whiteSpace: "nowrap" };
+  const money = (v) => (v < 0 ? "-" : "") + fmt(Math.abs(Math.round(v)));
+  const recBg = { cull: { bg: "#FEF2F2", c: "#B91C1C" }, watch: { bg: "#FFF7EC", c: "#B45309" }, ok: { bg: "#F0FDF4", c: "#15803D" } };
+  return (
+    <div style={S.wide}>
+      <div style={S.subBar}>
+        <span style={S.subBarTitle}>คุ้มค่า·กำไรรายหลัง{curYm ? <span style={{ fontSize: 13, fontWeight: 700, color: ACCENT_DK }}> · {ymTH(curYm)}</span> : null}</span>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: "auto" }}>
+          <button disabled={idx <= 0} onClick={() => setYm(months[idx - 1])} style={{ ...S.ghostBtn, padding: "6px 12px", opacity: idx <= 0 ? 0.4 : 1 }}>‹ เดือนก่อน</button>
+          <button disabled={idx >= months.length - 1} onClick={() => setYm(months[idx + 1])} style={{ ...S.ghostBtn, padding: "6px 12px", opacity: idx >= months.length - 1 ? 0.4 : 1 }}>เดือนถัดไป ›</button>
+        </div>
+      </div>
+      {data.houses.length === 0 ? (
+        <div style={S.emptyState}><CircleDollarSign size={36} color="#d1d5db" /><div>ยังไม่มีข้อมูลผลผลิต/ต้นทุนของ {ymTH(curYm)} — เลือกเดือนอื่น หรือป้อนข้อมูลก่อน</div></div>
+      ) : (
+        <div style={{ padding: "14px 0" }}>
+          <div style={S.summaryGrid}>
+            <SummaryCard icon={<CircleDollarSign size={18} />} label="รายได้ประเมิน" value={Math.round(f.revenue)} tone="green" unit="บ." sub="ตีมูลค่าผลผลิตตามราคาล่าสุด" />
+            <SummaryCard icon={<Calculator size={18} />} label="ต้นทุนรวม" value={Math.round(f.totalCost)} tone="amber" unit="บ." sub={`${fmt(Math.round(f.totalPrang))} แผง`} />
+            <SummaryCard icon={<TrendingUp size={18} />} label={f.profit >= 0 ? "กำไรรวม" : "ขาดทุนรวม"} value={Math.round(f.profit)} tone={f.profit >= 0 ? "green" : "red"} unit="บ." sub={f.revenue > 0 ? `มาร์จิ้น ${((f.profit / f.revenue) * 100).toFixed(0)}%` : ""} />
+            <SummaryCard icon={<AlertCircle size={18} />} label="ควรพิจารณาปลด" value={cullHouses.length} tone={cullHouses.length ? "red" : "green"} unit="หลัง" sub={watchHouses.length ? `เฝ้าระวังอีก ${watchHouses.length} หลัง` : "ไม่มีหลังเสี่ยง"} />
+          </div>
+
+          {!feedPrice && <div style={{ background: "#FFFBEB", border: "1.5px solid #FDE68A", borderRadius: 12, padding: "9px 14px", margin: "12px 0 0", fontSize: 12.5, color: "#B45309", fontWeight: 700 }}>⚠️ ยังไม่ได้ตั้งราคาอาหาร (บาท/กก.) — ต้นทุนค่าอาหารยังไม่ถูกนำมาคิด · ตั้งได้ในหน้า “อาหารไก่”</div>}
+
+          {(cullHouses.length > 0 || watchHouses.length > 0) && (
+            <div style={{ ...S.dashCard, marginTop: 14 }}>
+              <div style={S.dashCardTitle}><AlertCircle size={16} /> คำแนะนำปลดไก่ / เฝ้าระวัง</div>
+              {[...cullHouses, ...watchHouses].map((h) => {
+                const c = recBg[h.rec.level];
+                return (
+                  <div key={h.hid} style={{ background: c.bg, border: `1px solid ${c.c}33`, borderRadius: 10, padding: "9px 12px", marginBottom: 7 }}>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
+                      <span style={{ fontWeight: 800, color: ACCENT_DK }}>โรงเรือน {h.hid}</span>
+                      <span style={{ fontWeight: 800, color: c.c }}>{h.rec.label}</span>
+                      {h.age != null && <span style={{ fontSize: 12.5, color: "#7a6f5c" }}>อายุ ~{h.age} สป.</span>}
+                      <span style={{ fontSize: 12.5, color: h.profit >= 0 ? "#15803D" : "#B91C1C", fontWeight: 700 }}>{h.profit >= 0 ? "กำไร" : "ขาดทุน"} {money(h.profit)} บ.</span>
+                      {h.hendayPct != null && <span style={{ fontSize: 12.5, color: "#7a6f5c" }}>ผลผลิต {h.hendayPct.toFixed(0)}%{h.stdHD != null ? ` (มฐ ~${h.stdHD.toFixed(0)}%)` : ""}</span>}
+                    </div>
+                    {h.rec.reasons.length > 0 && <div style={{ fontSize: 12, color: "#6b6358", marginTop: 3 }}>เหตุผล: {h.rec.reasons.join(" · ")}</div>}
+                  </div>
+                );
+              })}
+              <div style={{ fontSize: 11, color: "#9b8e78", marginTop: 4 }}>เป็นคำแนะนำเบื้องต้นจากอายุ+ผลผลิต+กำไร ควรพิจารณาร่วมกับราคาไข่/ราคาลูกไก่รุ่นใหม่/แผนการเลี้ยงจริง</div>
+            </div>
+          )}
+
+          {/* ตารางเศรษฐศาสตร์รายหลัง */}
+          <div style={{ ...S.dashCard, marginTop: 14, overflowX: "auto" }}>
+            <div style={S.dashCardTitle}><Warehouse size={16} /> ต้นทุน–รายได้–กำไร รายหลัง · {ymTH(curYm)}</div>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
+              <thead><tr>
+                <th style={{ ...th, textAlign: "left" }}>หลัง</th>
+                <th style={th}>อายุ(สป.)</th><th style={th}>ไก่เฉลี่ย</th><th style={th}>ผลผลิต%</th><th style={th}>ไข่(แผง)</th>
+                <th style={th}>รายได้(บ.)</th><th style={th}>ต้นทุน(บ.)</th><th style={th}>กำไร(บ.)</th><th style={th}>กำไร/ตัว</th><th style={th}>ต้นทุน/แผง</th><th style={th}>คำแนะนำ</th>
+              </tr></thead>
+              <tbody>
+                {data.houses.map((h) => (
+                  <tr key={h.hid}>
+                    <td style={{ ...td, textAlign: "left", fontWeight: 800, color: ACCENT_DK }}>{h.hid}</td>
+                    <td style={td}>{h.age != null ? h.age : "—"}</td>
+                    <td style={td}>{fmt(Math.round(h.avgCh))}</td>
+                    <td style={{ ...td, color: h.stdHD != null && h.hendayPct != null && h.hendayPct < h.stdHD - 12 ? "#B91C1C" : INK }}>{h.hendayPct != null ? h.hendayPct.toFixed(0) + "%" : "—"}</td>
+                    <td style={td}>{fmt(Math.round(h.totalPrang))}</td>
+                    <td style={td}>{money(h.revenue)}</td>
+                    <td style={td}>{money(h.totalCost)}</td>
+                    <td style={{ ...td, fontWeight: 800, color: h.profit >= 0 ? "#15803D" : "#B91C1C", background: h.profit >= 0 ? "transparent" : "#FEF2F2" }}>{money(h.profit)}</td>
+                    <td style={{ ...td, color: h.profitPerBird != null && h.profitPerBird < 0 ? "#B91C1C" : INK }}>{h.profitPerBird != null ? money(h.profitPerBird) : "—"}</td>
+                    <td style={td}>{h.costPerPrang != null ? fmt1(h.costPerPrang) : "—"}</td>
+                    <td style={{ ...td, textAlign: "center" }}><span style={{ fontSize: 12, fontWeight: 800, color: recBg[h.rec.level].c }}>{h.rec.label}</span></td>
+                  </tr>
+                ))}
+                <tr>
+                  <td style={{ ...td, textAlign: "left", fontWeight: 800 }}>รวมฟาร์ม</td>
+                  <td style={td} /><td style={{ ...td, fontWeight: 700 }}>{fmt(Math.round(f.avgCh))}</td><td style={td} /><td style={{ ...td, fontWeight: 700 }}>{fmt(Math.round(f.totalPrang))}</td>
+                  <td style={{ ...td, fontWeight: 700 }}>{money(f.revenue)}</td><td style={{ ...td, fontWeight: 700 }}>{money(f.totalCost)}</td>
+                  <td style={{ ...td, fontWeight: 800, color: f.profit >= 0 ? "#15803D" : "#B91C1C" }}>{money(f.profit)}</td><td style={td} /><td style={td} /><td style={td} />
+                </tr>
+              </tbody>
+            </table>
+            <div style={{ fontSize: 11, color: "#9b8e78", marginTop: 8 }}>รายได้ = ตีมูลค่าผลผลิตตามราคาขายล่าสุดต่อแผง (ไม่ใช่ยอดขายจริงรายหลัง) · ต้นทุน = ค่าอาหาร+ค่ายา(ใช้จริงต่อหลัง) + ค่าสายพันธุ์/ค่าเสื่อม(อัตรา×ฟอง) + ค่าใช้จ่ายรวมปันตามจำนวนไก่ · ผลผลิต% = ไข่ดี ÷ (ไก่เฉลี่ย × วันที่มีข้อมูล)</div>
+          </div>
+
+          {/* เทรนด์ราคาไข่ทั้งปี */}
+          <div style={{ ...S.dashCard, marginTop: 14, overflowX: "auto" }}>
+            <div style={S.dashCardTitle}><TrendingUp size={16} /> เทรนด์ราคาไข่เฉลี่ย/แผง · ปี {Number(year) + 543} <span style={{ fontSize: 12, fontWeight: 600, color: "#9b8e78" }}>(จากบิลขายจริง)</span></div>
+            {trend.rows.length === 0 ? (
+              <div style={{ padding: "14px 6px", color: "#9b8e78" }}>ยังไม่มีข้อมูลราคาจากบิลในปีนี้</div>
+            ) : (
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 620 }}>
+                <thead><tr>
+                  <th style={{ ...th, textAlign: "left" }}>เดือน</th>
+                  <th style={th}>เฉลี่ยรวม/แผง</th>
+                  {trend.berIds.map((pid) => <th key={pid} style={th}>{PRODUCT_BY_ID[pid]?.name || pid}</th>)}
+                </tr></thead>
+                <tbody>
+                  {trend.rows.map((r, i) => {
+                    const prev = trend.rows[i - 1];
+                    const up = prev && prev.avgAll != null && r.avgAll != null ? r.avgAll - prev.avgAll : null;
+                    return (
+                      <tr key={r.ym}>
+                        <td style={{ ...td, textAlign: "left", fontWeight: 700 }}>{ymTH(r.ym)}</td>
+                        <td style={{ ...td, fontWeight: 800, color: ACCENT_DK }}>{r.avgAll != null ? fmt1(r.avgAll) : "—"}{up != null && Math.abs(up) >= 0.05 ? <span style={{ fontSize: 11, fontWeight: 700, color: up > 0 ? "#15803D" : "#B91C1C" }}> {up > 0 ? "▲" : "▼"}{fmt1(Math.abs(up))}</span> : null}</td>
+                        {trend.berIds.map((pid) => <td key={pid} style={td}>{r.ber[pid] != null ? fmt1(r.ber[pid]) : "—"}</td>)}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+            <div style={{ fontSize: 11, color: "#9b8e78", marginTop: 8 }}>ราคาเฉลี่ยถ่วงน้ำหนักตามจำนวนแผงที่ขายจริงในบิลของเดือนนั้น · ▲▼ = เทียบเดือนก่อนหน้า · เก็บสะสมทุกเดือนเพื่อดูแนวโน้มราคาทั้งปี</div>
           </div>
         </div>
       )}
