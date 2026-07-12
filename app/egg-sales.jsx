@@ -1141,14 +1141,21 @@ export default function App() {
     return m;
   }, [rearingByDate]);
   const feedCostByMonth = useMemo(() => {
-    if (!feedPrice) return {};
+    // ราคา/กก. ต่อเดือน = ถัวเฉลี่ยถ่วงน้ำหนักจากบิลรับซื้ออาหารจริง (สะสมถึงสิ้นเดือน) — รองรับราคาผันผวนต่อบิล/ซัพพลายเออร์ ; เดือนที่ยังไม่มีบิลราคา → ใช้ราคาที่ตั้งเอง (สำรอง)
+    const priced = (feedDeliveries || [])
+      .filter((d) => (parseFloat(d.pricePerKg) || 0) > 0 && (parseFloat(d.kg) || 0) > 0)
+      .map((d) => ({ ym: (d.date || "").slice(0, 7), kg: parseFloat(d.kg), price: parseFloat(d.pricePerKg) }));
+    const wacAsOf = (ym) => { let ck = 0, cc = 0; priced.forEach((d) => { if (d.ym && d.ym <= ym) { ck += d.kg; cc += d.kg * d.price; } }); return ck > 0 ? cc / ck : null; };
     const m = {};
     Object.entries(feedUseByMonth).forEach(([ym, v]) => {
-      m[ym] = { total: v.kg * feedPrice, kg: v.kg, byHouse: {} };
-      Object.entries(v.byHouse).forEach(([hid, kg]) => { m[ym].byHouse[hid] = kg * feedPrice; });
+      const wac = wacAsOf(ym);
+      const price = wac != null ? wac : (feedPrice || 0);
+      if (!price) return;
+      m[ym] = { total: v.kg * price, kg: v.kg, price, fromPurchase: wac != null, byHouse: {} };
+      Object.entries(v.byHouse).forEach(([hid, kg]) => { m[ym].byHouse[hid] = kg * price; });
     });
     return m;
-  }, [feedUseByMonth, feedPrice]);
+  }, [feedUseByMonth, feedPrice, feedDeliveries]);
 
   // สต็อกแผงดีในฟาร์ม + ใบรับแผงคืน (RT) — เก็บถาวร (เดิมอยู่แค่ในหน่วยความจำ รีเฟรชแล้วหาย)
   const [trayStock, setTrayStock] = useState(() => { try { return { ใหญ่: 1240, เล็ก: 860, ...JSON.parse(localStorage.getItem("eggTrayStock") || "{}") }; } catch { return { ใหญ่: 1240, เล็ก: 860 }; } });
@@ -1307,7 +1314,7 @@ export default function App() {
       {view === "stock" && <StockView salesByDay={salesByDay} productionByDate={productionByDate} defaultDay={isoFromTs(Date.now())} stockCounts={stockCounts} closeMeta={closeMeta} refPrices={refPrices} onCloseDay={closeDay} onReopenDay={reopenDay} />}
       {view === "production" && <ProductionView houses={houses} setHouses={setHouses} prodDate={prodDate} setProdDate={setProdDate} production={productionByDate} flocks={flocks} />}
       {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={saveRearing} flocks={flocks} saveFlock={saveFlock} production={productionByDate} medTrials={medTrials} medStock={medStock} medInfo={medInfo} vaccines={vaccines} addVaccine={addVaccine} deleteVaccine={deleteVaccine} labTests={labTests} addLabTest={addLabTest} deleteLabTest={deleteLabTest} />}
-      {view === "feed" && <FeedView rearingByDate={rearingByDate} flocks={flocks} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} feedPrice={feedPrice} setFeedPrice={setFeedPrice} feedUseByMonth={feedUseByMonth} />}
+      {view === "feed" && <FeedView rearingByDate={rearingByDate} flocks={flocks} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} feedPrice={feedPrice} setFeedPrice={setFeedPrice} feedUseByMonth={feedUseByMonth} feedCostByMonth={feedCostByMonth} />}
       {view === "med" && <MedView production={productionByDate} medStock={medStock} medInfo={medInfo} medReceipts={medReceipts} addMedItem={addMedItem} updateMedItem={updateMedItem} addMedReceipt={addMedReceipt} medCostByMonth={medCostByMonth} canManage={currentRole === "owner" || currentRole === "medclerk"} />}
       {view === "trial" && <TrialView medTrials={medTrials} addMedTrial={addMedTrial} deleteMedTrial={deleteMedTrial} production={productionByDate} rearingByDate={rearingByDate} />}
       {view === "health" && <HealthHubView production={productionByDate} flocks={flocks} vaccines={vaccines} addVaccine={addVaccine} deleteVaccine={deleteVaccine} />}
@@ -3397,6 +3404,29 @@ function eggPriceTrend(bills, year) {
   });
   return { rows, berIds };
 }
+// ราคาไข่ล่าสุดที่ขายให้ลูกค้าแต่ละคน (ต่อสินค้า) — เปรียบเทียบทุกคน + อ้างอิงราคาล่าสุดรวม
+function latestPriceByCustomer(bills) {
+  const seen = new Set();
+  const byCust = {};   // custId → { lastDate, lastTs, prices:{pid:{price,date,ts}} }
+  (bills || []).forEach((b) => {
+    const cid = b.customerId; if (!cid) return;
+    const date = b.workDay || isoFromTs(b.ts || 0), ts = b.ts || 0;
+    (b.items || []).forEach((it) => {
+      const pid = it.productId, price = parseFloat(it.price) || 0;
+      if (!pid || price <= 0) return;
+      seen.add(pid);
+      const c = byCust[cid] = byCust[cid] || { lastDate: "", lastTs: 0, prices: {} };
+      if (date > c.lastDate || (date === c.lastDate && ts >= c.lastTs)) { c.lastDate = date; c.lastTs = ts; }
+      const cur = c.prices[pid];
+      if (!cur || date > cur.date || (date === cur.date && ts >= cur.ts)) c.prices[pid] = { price, date, ts };
+    });
+  });
+  const productIds = ALL_PRODUCTS.map((p) => p.id).filter((pid) => seen.has(pid));
+  const refLatest = {};
+  productIds.forEach((pid) => { let best = null; Object.values(byCust).forEach((c) => { const p = c.prices[pid]; if (p && (!best || p.date > best.date || (p.date === best.date && p.ts > best.ts))) best = p; }); refLatest[pid] = best ? best.price : null; });
+  const customers = CUSTOMERS.filter((c) => byCust[c.id]).map((c) => ({ id: c.id, name: c.name, lastDate: byCust[c.id].lastDate, prices: byCust[c.id].prices }));
+  return { productIds, customers, refLatest };
+}
 function HouseEconView({ production = {}, flocks = {}, expenses = [], medCostByMonth = {}, feedCostByMonth = {}, feedUseByMonth = {}, feedPrice = 0, refPrices = {}, bills = [] }) {
   const rates = useMemo(() => { try { return { breed: 0.5, depre: 0.3, ...JSON.parse(localStorage.getItem("eggCostRates") || "{}") }; } catch { return { breed: 0.5, depre: 0.3 }; } }, []);
   const months = useMemo(() => {
@@ -3420,6 +3450,8 @@ function HouseEconView({ production = {}, flocks = {}, expenses = [], medCostByM
   const td = { padding: "7px 8px", fontSize: 13, borderBottom: "1px solid #f3eee2", textAlign: "right", whiteSpace: "nowrap" };
   const money = (v) => (v < 0 ? "-" : "") + fmt(Math.abs(Math.round(v)));
   const recBg = { cull: { bg: "#FEF2F2", c: "#B91C1C" }, watch: { bg: "#FFF7EC", c: "#B45309" }, ok: { bg: "#F0FDF4", c: "#15803D" } };
+  const noFeedCost = (feedUseByMonth[curYm]?.kg > 0) && !(feedCostByMonth[curYm]?.price > 0);   // เดือนนี้กินอาหารแต่ยังไม่มีราคา → ต้นทุนอาหารยังไม่ถูกคิด
+  const priceByCust = useMemo(() => latestPriceByCustomer(bills), [bills]);
   return (
     <div style={S.wide}>
       <div style={S.subBar}>
@@ -3440,7 +3472,7 @@ function HouseEconView({ production = {}, flocks = {}, expenses = [], medCostByM
             <SummaryCard icon={<AlertCircle size={18} />} label="ควรพิจารณาปลด" value={cullHouses.length} tone={cullHouses.length ? "red" : "green"} unit="หลัง" sub={watchHouses.length ? `เฝ้าระวังอีก ${watchHouses.length} หลัง` : "ไม่มีหลังเสี่ยง"} />
           </div>
 
-          {!feedPrice && <div style={{ background: "#FFFBEB", border: "1.5px solid #FDE68A", borderRadius: 12, padding: "9px 14px", margin: "12px 0 0", fontSize: 12.5, color: "#B45309", fontWeight: 700 }}>⚠️ ยังไม่ได้ตั้งราคาอาหาร (บาท/กก.) — ต้นทุนค่าอาหารยังไม่ถูกนำมาคิด · ตั้งได้ในหน้า “อาหารไก่”</div>}
+          {noFeedCost && <div style={{ background: "#FFFBEB", border: "1.5px solid #FDE68A", borderRadius: 12, padding: "9px 14px", margin: "12px 0 0", fontSize: 12.5, color: "#B45309", fontWeight: 700 }}>⚠️ เดือนนี้ยังไม่มีราคาอาหาร — ต้นทุนค่าอาหารยังไม่ถูกนำมาคิด · ใส่ราคา/กก. ตอน “รับอาหารเข้า” หรือตั้งราคาสำรองในหน้า “อาหารไก่”</div>}
 
           {(cullHouses.length > 0 || watchHouses.length > 0) && (
             <div style={{ ...S.dashCard, marginTop: 14 }}>
@@ -3528,6 +3560,42 @@ function HouseEconView({ production = {}, flocks = {}, expenses = [], medCostByM
               </table>
             )}
             <div style={{ fontSize: 11, color: "#9b8e78", marginTop: 8 }}>ราคาเฉลี่ยถ่วงน้ำหนักตามจำนวนแผงที่ขายจริงในบิลของเดือนนั้น · ▲▼ = เทียบเดือนก่อนหน้า · เก็บสะสมทุกเดือนเพื่อดูแนวโน้มราคาทั้งปี</div>
+          </div>
+
+          {/* ราคาไข่ล่าสุดต่อลูกค้า — เปรียบเทียบทุกคน */}
+          <div style={{ ...S.dashCard, marginTop: 14, overflowX: "auto" }}>
+            <div style={S.dashCardTitle}><CircleDollarSign size={16} /> ราคาไข่ล่าสุดต่อลูกค้า <span style={{ fontSize: 12, fontWeight: 600, color: "#9b8e78" }}>(เปรียบเทียบทุกคน · บาท/แผง)</span></div>
+            {priceByCust.customers.length === 0 ? (
+              <div style={{ padding: "14px 6px", color: "#9b8e78" }}>ยังไม่มีข้อมูลราคาจากบิลขาย</div>
+            ) : (
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 640 }}>
+                <thead><tr>
+                  <th style={{ ...th, textAlign: "left" }}>ลูกค้า</th>
+                  {priceByCust.productIds.map((pid) => <th key={pid} style={th}>{PRODUCT_BY_ID[pid]?.name || pid}</th>)}
+                  <th style={th}>ขายล่าสุด</th>
+                </tr></thead>
+                <tbody>
+                  <tr>
+                    <td style={{ ...td, textAlign: "left", fontWeight: 800, color: "#7a6f5c" }}>ราคาล่าสุดรวม (อ้างอิง)</td>
+                    {priceByCust.productIds.map((pid) => <td key={pid} style={{ ...td, fontWeight: 800, color: ACCENT_DK, background: "#FBF7EE" }}>{priceByCust.refLatest[pid] != null ? fmt1(priceByCust.refLatest[pid]) : "—"}</td>)}
+                    <td style={td} />
+                  </tr>
+                  {priceByCust.customers.map((c) => (
+                    <tr key={c.id}>
+                      <td style={{ ...td, textAlign: "left", fontWeight: 700 }}>{c.name}</td>
+                      {priceByCust.productIds.map((pid) => {
+                        const p = c.prices[pid], ref = priceByCust.refLatest[pid];
+                        if (!p) return <td key={pid} style={{ ...td, color: "#d6cdbb" }}>—</td>;
+                        const below = ref != null && p.price < ref - 0.001, above = ref != null && p.price > ref + 0.001;
+                        return <td key={pid} style={{ ...td, fontWeight: 700, color: below ? "#B45309" : above ? "#15803D" : INK, background: below ? "#FFF7EC" : "transparent" }} title={`ขายล่าสุด ${toThaiDate(p.date, false)}`}>{fmt1(p.price)}{below ? " ▾" : above ? " ▴" : ""}</td>;
+                      })}
+                      <td style={{ ...td, color: "#9b8e78", fontSize: 12 }}>{toThaiDate(c.lastDate, false)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            <div style={{ fontSize: 11, color: "#9b8e78", marginTop: 8 }}>ราคาต่อแผงจากบิลล่าสุดของลูกค้าแต่ละคนต่อสินค้า · เทียบกับ “ราคาล่าสุดรวม” (ราคาใหม่สุดที่เคยขายสินค้านั้น): <b style={{ color: "#B45309" }}>▾ ส้ม</b> = ต่ำกว่าราคาล่าสุด (ยังไม่ปรับ/ให้ราคาพิเศษ) · <b style={{ color: "#15803D" }}>▴ เขียว</b> = สูงกว่า</div>
           </div>
         </div>
       )}
@@ -5308,14 +5376,16 @@ function FeedDeliveryModal({ houseIds, defaultDate, deliveries, onAdd, onDelete,
   const [hid, setHid] = useState(houseIds[0] || "H2");
   const [silo, setSilo] = useState("1");
   const [kg, setKg] = useState("");
+  const [price, setPrice] = useState("");
+  const [supplier, setSupplier] = useState("");
   const [by, setBy] = useState("");
   const inp = { width: "100%", padding: "9px 10px", border: "1.5px solid #e3ddd0", borderRadius: 9, fontSize: 14.5, fontFamily: "inherit", outline: "none" };
   const lbl = { display: "block", fontSize: 12, fontWeight: 700, color: INK, marginBottom: 3 };
   const dayList = (deliveries || []).filter((x) => x.date === date);
   const save = () => {
     if (!(parseFloat(kg) > 0)) return;
-    onAdd({ id: "fd" + Date.now(), date, houseId: hid, silo, kg: parseFloat(kg), by: by.trim(), ts: Date.now() });
-    setKg("");
+    onAdd({ id: "fd" + Date.now(), date, houseId: hid, silo, kg: parseFloat(kg), pricePerKg: parseFloat(price) || 0, supplier: supplier.trim(), by: by.trim(), ts: Date.now() });
+    setKg("");   // คงราคา/ซัพพลายเออร์ไว้ (รถคันเดียวมักส่งหลายเล้า/ไซโลราคาเดียวกัน)
   };
   return (
     <div style={S.modalOverlay} onClick={onClose}>
@@ -5331,23 +5401,34 @@ function FeedDeliveryModal({ houseIds, defaultDate, deliveries, onAdd, onDelete,
           <div style={{ flex: 0.8 }}><label style={lbl}>ไซโล</label>
             <select value={silo} onChange={(e) => setSilo(e.target.value)} style={inp}><option value="1">ไซโล 1</option><option value="2">ไซโล 2</option></select></div>
         </div>
-        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
           <div style={{ flex: 1 }}><label style={lbl}>น้ำหนักอาหาร (กก.)</label>
             <input style={{ ...inp, textAlign: "right", fontWeight: 700 }} inputMode="decimal" placeholder="0" autoFocus value={kg}
               onChange={(e) => setKg(e.target.value.replace(/[^0-9.]/g, "").replace(/(\..*)\./g, "$1"))}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); save(); } }} /></div>
+          <div style={{ flex: 1 }}><label style={lbl}>ราคา/กก. (บาท)</label>
+            <input style={{ ...inp, textAlign: "right", fontWeight: 700, color: "#B45309" }} inputMode="decimal" placeholder="ผันผวนได้" value={price}
+              onChange={(e) => setPrice(e.target.value.replace(/[^0-9.]/g, "").replace(/(\..*)\./g, "$1"))}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); save(); } }} /></div>
+        </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <div style={{ flex: 1 }}><label style={lbl}>ซัพพลายเออร์ / ร้านอาหารสัตว์</label>
+            <input style={inp} placeholder="ชื่อร้าน/บริษัท (ถ้ามี)" value={supplier} onChange={(e) => setSupplier(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); save(); } }} /></div>
           <div style={{ flex: 1 }}><label style={lbl}>ผู้บันทึก (เสมียน)</label>
             <input style={inp} placeholder="ชื่อผู้รับของ" value={by} onChange={(e) => setBy(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); save(); } }} /></div>
         </div>
+        {parseFloat(kg) > 0 && parseFloat(price) > 0 && <div style={{ fontSize: 12.5, color: "#B45309", fontWeight: 700, marginBottom: 8 }}>มูลค่าบิลนี้ ≈ {fmt(Math.round(parseFloat(kg) * parseFloat(price)))} บาท ({fmt1(parseFloat(kg))} กก. × {fmt1(parseFloat(price))} บ./กก.)</div>}
         <button style={{ ...S.primaryBtn, marginBottom: 14, opacity: parseFloat(kg) > 0 ? 1 : 0.5 }} disabled={!(parseFloat(kg) > 0)} onClick={save}>＋ บันทึกรับอาหาร {hid} · ไซโล {silo}{parseFloat(kg) > 0 ? ` · ${fmt1(parseFloat(kg))} กก.` : ""}</button>
         <div style={{ fontSize: 12.5, fontWeight: 800, color: "#7a6f5c", marginBottom: 6 }}>รายการรับของ {toThaiDate(date, false)} · {dayList.length} รายการ</div>
         {dayList.length === 0 ? (
           <div style={{ fontSize: 12.5, color: "#9b8e78", padding: "8px 0 2px" }}>ยังไม่มีรายการรับอาหารของวันนี้</div>
         ) : dayList.map((x) => (
-          <div key={x.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "#FDFAF3", border: "1px solid #eee3cd", borderRadius: 9, padding: "7px 10px", marginBottom: 6, fontSize: 13 }}>
+          <div key={x.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "#FDFAF3", border: "1px solid #eee3cd", borderRadius: 9, padding: "7px 10px", marginBottom: 6, fontSize: 13, flexWrap: "wrap" }}>
             <span style={{ fontWeight: 800 }}>{x.houseId}</span>
             <span>ไซโล {x.silo}</span>
             <span style={{ fontWeight: 800, color: "#B45309" }}>{fmt1(x.kg)} กก.</span>
+            {x.pricePerKg > 0 ? <span style={{ color: "#B45309" }}>@ {fmt1(x.pricePerKg)} บ./กก.</span> : null}
+            {x.supplier ? <span style={{ color: "#9b8e78" }}>· {x.supplier}</span> : null}
             {x.by ? <span style={{ color: "#9b8e78" }}>โดย {x.by}</span> : null}
             <button onClick={() => onDelete(x.id)} title="ลบรายการ" style={{ marginLeft: "auto", border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 7, padding: "2px 8px", cursor: "pointer", fontWeight: 800 }}>✕</button>
           </div>
@@ -5361,7 +5442,10 @@ function FeedDeliveryModal({ houseIds, defaultDate, deliveries, onAdd, onDelete,
    หน้าจอ: อาหารไก่ — คงเหลือไซโล + เตือนใกล้หมด + รับอาหาร(เสมียน) + รีเช็ค 2 ฝั่ง
    (การกรอก "รับ/ใช้" รายวันยังอยู่ในแท็บ เก็บข้อมูลการเลี้ยง — หน้านี้คือมุมบริหารอาหาร)
 ============================================================ */
-function FeedView({ rearingByDate = {}, flocks = {}, production = {}, feedDeliveries = [], addFeedDelivery, deleteFeedDelivery, feedPrice = 0, setFeedPrice, feedUseByMonth = {} }) {
+function FeedView({ rearingByDate = {}, flocks = {}, production = {}, feedDeliveries = [], addFeedDelivery, deleteFeedDelivery, feedPrice = 0, setFeedPrice, feedUseByMonth = {}, feedCostByMonth = {} }) {
+  // ราคาถัวเฉลี่ยถ่วงน้ำหนักจากบิลรับซื้ออาหารจริง (ทั้งหมด) — โชว์เป็นราคาอ้างอิง
+  const pricedDel = (feedDeliveries || []).filter((d) => (parseFloat(d.pricePerKg) || 0) > 0 && (parseFloat(d.kg) || 0) > 0);
+  const feedWac = pricedDel.length ? pricedDel.reduce((s, d) => s + parseFloat(d.kg) * parseFloat(d.pricePerKg), 0) / pricedDel.reduce((s, d) => s + parseFloat(d.kg), 0) : null;
   const prodDates = Object.keys(production).sort();
   const houseIds = [...new Set([...(production[prodDates[prodDates.length - 1]] || []).map((h) => h.id), ...HOUSE_IDS])];   // รวมหลังใหม่ที่ยังไม่มีผลผลิต (เช่น H7)
   const rearDates = Object.keys(rearingByDate).sort();
@@ -5422,11 +5506,16 @@ function FeedView({ rearingByDate = {}, flocks = {}, production = {}, feedDelive
       <div style={S.subBar}>
         <span style={S.subBarTitle}>อาหารไก่ 🌾{anyAct ? <span style={{ fontSize: 12.5, fontWeight: 600, color: "#9b8e78" }}> · คงเหลือทดจากบันทึกการเลี้ยง</span> : null}</span>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          {feedWac != null && (
+            <span style={{ display: "inline-flex", gap: 6, alignItems: "center", fontSize: 12.5, fontWeight: 800, color: "#B45309", background: "#FFF7EC", border: "1.5px solid #F5DEB9", borderRadius: 999, padding: "6px 12px" }}>
+              📊 ราคาถัวเฉลี่ยจากรับซื้อจริง {fmt1(feedWac)} บ./กก. <span style={{ fontWeight: 600, color: "#9b8e78" }}>({pricedDel.length} บิล)</span>
+            </span>
+          )}
           <span style={{ display: "inline-flex", gap: 6, alignItems: "center", fontSize: 12.5, fontWeight: 700, color: "#7a6f5c", background: "#fff", border: "1px solid #eee3cd", borderRadius: 999, padding: "6px 12px" }}>
-            ราคาอาหาร
+            {feedWac != null ? "ราคาสำรอง" : "ราคาอาหาร"}
             <input inputMode="decimal" value={feedPrice || ""} placeholder="0" onChange={(e) => setFeedPrice && setFeedPrice(parseFloat(e.target.value.replace(/[^0-9.]/g, "")) || 0)}
-              style={{ width: 58, padding: "3px 7px", border: `1.5px solid ${feedPrice ? "#86C99A" : "#F5A9A9"}`, borderRadius: 7, fontSize: 13, textAlign: "right", fontFamily: "inherit", fontWeight: 800, outline: "none" }} />
-            บ./กก. {feedPrice ? "✓" : <span style={{ color: "#B91C1C" }}>← ตั้งเพื่อคิดค่าอาหารอัตโนมัติ</span>}
+              style={{ width: 58, padding: "3px 7px", border: `1.5px solid ${feedPrice || feedWac != null ? "#86C99A" : "#F5A9A9"}`, borderRadius: 7, fontSize: 13, textAlign: "right", fontFamily: "inherit", fontWeight: 800, outline: "none" }} />
+            บ./กก. {feedWac != null ? <span style={{ fontWeight: 600, color: "#9b8e78" }}>(ใช้เดือนที่ยังไม่มีบิลราคา)</span> : feedPrice ? "✓" : <span style={{ color: "#B91C1C" }}>← ตั้งราคา หรือใส่ราคาตอนรับอาหาร</span>}
           </span>
           <button onClick={() => setShowDelivery(true)} style={{ padding: "8px 16px", borderRadius: 999, border: "1.5px solid #B45309", background: "#B45309", color: "#fff", fontSize: 13.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>🚚 รับอาหารเข้า (เสมียน)</button>
         </div>
@@ -5499,18 +5588,19 @@ function FeedView({ rearingByDate = {}, flocks = {}, production = {}, feedDelive
             <tbody>
               {Object.keys(feedUseByMonth).sort().reverse().map((ym) => {
                 const v = feedUseByMonth[ym];
+                const fc = feedCostByMonth[ym];
                 return (
                   <tr key={ym}>
                     <td style={{ ...td, textAlign: "left", fontWeight: 800 }}>{toThaiDate(ym + "-01").split(" ").slice(1).join(" ")}</td>
                     {houseIds.map((h) => <td key={h} style={td}>{v.byHouse[h] ? fmt1(v.byHouse[h]) : <span style={{ color: "#d6cdbb" }}>·</span>}</td>)}
                     <td style={{ ...td, fontWeight: 800, background: "#FDF8EE" }}>{fmt1(v.kg)}</td>
-                    <td style={{ ...td, fontWeight: 800, background: "#FEF8F0", color: feedPrice ? "#B45309" : "#c9c0ad" }}>{feedPrice ? fmt(Math.round(v.kg * feedPrice)) : "ตั้งราคาก่อน"}</td>
+                    <td style={{ ...td, fontWeight: 800, background: "#FEF8F0", color: fc ? "#B45309" : "#c9c0ad" }} title={fc ? `@ ${fmt1(fc.price)} บ./กก. ${fc.fromPurchase ? "(ถัวเฉลี่ยรับซื้อจริง)" : "(ราคาสำรอง)"}` : ""}>{fc ? fmt(Math.round(fc.total)) : "ตั้งราคาก่อน"}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-          <div style={{ fontSize: 11.5, color: "#9b8e78", padding: "6px 14px 12px" }}>ค่าอาหาร = กก.ที่ใช้ (ไซโล 1+2 จากบันทึกการเลี้ยง) × ราคาอาหาร — เข้าบัญชีต้นทุนหมวด "ค่าอาหาร" อัตโนมัติ (🌾)</div>
+          <div style={{ fontSize: 11.5, color: "#9b8e78", padding: "6px 14px 12px" }}>ค่าอาหาร = กก.ที่ใช้ (ไซโล 1+2 จากบันทึกการเลี้ยง) × ราคา/กก. — ราคาใช้ <b>ถัวเฉลี่ยถ่วงน้ำหนักจากบิลรับซื้อจริง</b> (สะสมถึงเดือนนั้น) ; เดือนที่ยังไม่มีบิลราคา ใช้ราคาสำรอง — เข้าบัญชีต้นทุนหมวด "ค่าอาหาร" อัตโนมัติ (🌾)</div>
         </div>
       )}
 
@@ -5546,6 +5636,8 @@ function FeedView({ rearingByDate = {}, flocks = {}, production = {}, feedDelive
             <span style={{ fontWeight: 800 }}>{x.houseId}</span>
             <span>ไซโล {x.silo}</span>
             <span style={{ fontWeight: 800, color: "#B45309" }}>{fmt1(x.kg)} กก.</span>
+            {x.pricePerKg > 0 ? <span style={{ fontWeight: 700, color: "#B45309" }}>@ {fmt1(x.pricePerKg)} บ./กก.</span> : null}
+            {x.supplier ? <span style={{ color: "#9b8e78" }}>· {x.supplier}</span> : null}
             {x.by ? <span style={{ color: "#9b8e78" }}>โดย {x.by}</span> : null}
             <button onClick={() => deleteFeedDelivery(x.id)} title="ลบรายการ" style={{ marginLeft: "auto", border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 7, padding: "2px 8px", cursor: "pointer", fontWeight: 800 }}>✕</button>
           </div>
