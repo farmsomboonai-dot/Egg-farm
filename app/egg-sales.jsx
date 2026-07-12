@@ -15,11 +15,80 @@ const supabase = (typeof window !== "undefined" && window.SB_URL && window.SB_AN
   : null;
 if (supabase) {
   console.log("[Supabase] เชื่อมต่อ:", window.SB_URL);
-  supabase.from("products").select("id", { count: "exact", head: true })
-    .then(({ error, count }) => console.log(error ? "[Supabase] query error: " + error.message : "[Supabase] ✓ ตาราง products = " + count + " แถว"))
-    .catch((e) => console.log("[Supabase] ✗ " + (e && e.message)));
 } else {
   console.log("[Supabase] ยังไม่ตั้งค่า — ใช้ localStorage");
+}
+
+/* ============================================================
+   Supabase auto-sync — mirror localStorage (คีย์ egg*) ↔ ตาราง app_snapshot
+   - เขียน localStorage ทุกครั้ง → อัปขึ้นคลาวด์อัตโนมัติ (debounce 1 วิ)
+   - เปิดแอป → ดึงจากคลาวด์ คีย์ที่ใหม่กว่าในเครื่อง (last-write-wins ตามเวลา)
+   - ไม่มี Supabase (deploy สาธารณะ ไม่ใส่คีย์) → ทำงาน localStorage เหมือนเดิม
+   หมายเหตุ: ข้อมูลต่อเครื่อง (deviceId/syncMeta/บทบาทที่เลือก) ไม่ sync
+============================================================ */
+const SB_TABLE = "app_snapshot";
+const SB_SYNC_RE = /^egg/;
+const SB_SKIP = new Set(["eggDeviceId", "eggSyncMeta", "eggCurrentRole", "eggAccessLog"]);
+function sbDeviceId() {
+  let d = null; try { d = localStorage.getItem("eggDeviceId"); } catch (e) {}
+  if (!d) { d = "dev-" + Math.random().toString(36).slice(2, 9); try { localStorage.setItem("eggDeviceId", d); } catch (e) {} }
+  return d;
+}
+function sbGetMeta() { try { return JSON.parse(localStorage.getItem("eggSyncMeta") || "{}"); } catch (e) { return {}; } }
+function sbSetMeta(m) { try { localStorage.setItem("eggSyncMeta", JSON.stringify(m)); } catch (e) {} }
+let __sbQueue = {}, __sbLast = {}, __sbTimer = null, __sbHydrating = false;
+function sbQueueKey(key, valueStr) {
+  if (!supabase || __sbHydrating || SB_SKIP.has(key) || !SB_SYNC_RE.test(key)) return;
+  if (__sbLast[key] === valueStr) return;   // ค่าไม่เปลี่ยน → ไม่อัปซ้ำ (กันแค่โหลดหน้าแล้ว re-write ไปทับ edit ของอุปกรณ์อื่น)
+  __sbLast[key] = valueStr;
+  let data; try { data = JSON.parse(valueStr); } catch (e) { data = valueStr; }
+  __sbQueue[key] = data;
+  clearTimeout(__sbTimer);
+  __sbTimer = setTimeout(sbFlush, 1000);
+}
+async function sbFlush() {
+  if (!supabase) return;
+  const keys = Object.keys(__sbQueue); if (!keys.length) return;
+  const now = new Date().toISOString(), dev = sbDeviceId();
+  const rows = keys.map((key) => { const data = __sbQueue[key]; return { key, data, item_count: Array.isArray(data) ? data.length : (data && typeof data === "object" ? Object.keys(data).length : null), snapshot_at: now, device: dev }; });
+  __sbQueue = {};
+  try {
+    const { error } = await supabase.from(SB_TABLE).upsert(rows, { onConflict: "key" });
+    if (error) { console.warn("[sync] อัปขึ้นคลาวด์ไม่สำเร็จ:", error.message); return; }
+    const meta = sbGetMeta(); keys.forEach((k) => { meta[k] = now; }); sbSetMeta(meta);
+    console.log("[sync] ⬆ อัปขึ้นคลาวด์ " + keys.length + " รายการ");
+  } catch (e) { console.warn("[sync] อัปขึ้นคลาวด์ error:", e && e.message); }
+}
+async function pullFromCloud() {
+  if (!supabase) return { applied: 0 };
+  let res; try { res = await supabase.from(SB_TABLE).select("key,data,snapshot_at"); } catch (e) { console.warn("[sync] ดึงคลาวด์ error:", e && e.message); return { applied: 0 }; }
+  if (res.error || !Array.isArray(res.data)) { if (res.error) console.warn("[sync] ดึงคลาวด์ไม่สำเร็จ:", res.error.message); return { applied: 0 }; }
+  const meta = sbGetMeta(); let applied = 0;
+  __sbHydrating = true;
+  try {
+    res.data.forEach((row) => {
+      const key = row.key; if (!key || SB_SKIP.has(key) || !SB_SYNC_RE.test(key)) return;
+      const cloudTs = row.snapshot_at || "", localTs = meta[key] || "";
+      const hasLocal = (function () { try { return localStorage.getItem(key) != null; } catch (e) { return false; } })();
+      if (!hasLocal || cloudTs > localTs) {
+        const str = JSON.stringify(row.data);
+        try { localStorage.setItem(key, str); meta[key] = cloudTs; __sbLast[key] = str; applied++; } catch (e) {}
+      } else {
+        try { __sbLast[key] = localStorage.getItem(key); } catch (e) {}   // เก็บของเดิม กัน mount เขียนซ้ำแล้วอัปทับ
+      }
+    });
+  } finally { __sbHydrating = false; }
+  sbSetMeta(meta);
+  if (applied) console.log("[sync] ⬇ ดึงจากคลาวด์ " + applied + " รายการ");
+  return { applied };
+}
+// ดักการเขียน localStorage → mirror ขึ้นคลาวด์
+if (typeof window !== "undefined" && !window.__eggSyncWrapped) {
+  window.__eggSyncWrapped = true;
+  try {
+    const __origSet = localStorage.setItem.bind(localStorage);
+    localStorage.setItem = function (k, v) { __origSet(k, v); try { sbQueueKey(k, v); } catch (e) {} };
+  } catch (e) {}
 }
 
 // LINE relay (ผ่าน Edge Function line-bot) — ตั้งค่าใน supabase-config.js: SB_FN_URL + SB_FARM_KEY
@@ -8633,6 +8702,16 @@ const CSS = `
    ส่วนนี้เพิ่มต่อท้ายคอมโพเนนต์ ไม่ต้องแก้ปกติ
    ============================================================ */
 import { createRoot } from "react-dom/client";
-const __boot = document.getElementById("boot");
-if (__boot) __boot.remove();
-createRoot(document.getElementById("root")).render(React.createElement(App));
+const __mount = () => {
+  const __boot = document.getElementById("boot");
+  if (__boot) __boot.remove();
+  createRoot(document.getElementById("root")).render(React.createElement(App));
+};
+// ดึงข้อมูลจากคลาวด์ก่อน render (มี timeout กันค้าง ถ้าเน็ตช้า/ล่ม → เปิดด้วย localStorage) แล้วค่อยแสดงแอป
+(async () => {
+  if (supabase) {
+    try { await Promise.race([pullFromCloud().catch(() => {}), new Promise((r) => setTimeout(r, 3500))]); }
+    catch (e) {}
+  }
+  __mount();
+})();
