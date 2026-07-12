@@ -835,7 +835,7 @@ const TOPIC_LABELS = {
   sales: "ขายไข่", bills: "ประวัติบิล", account: "บัญชีลูกหนี้", tray: "บัญชีแผงไข่",
   stock: "สต๊อคไข่ประจำวัน", production: "ผลผลิตประจำวัน", dash: "แดชบอร์ด", manage: "แดชบอร์ดผู้บริหาร",
   booking: "จองออเดอร์", plan: "วางแผนออเดอร์", rear: "เก็บข้อมูลการเลี้ยง",
-  feed: "อาหารไก่", med: "ยาและวิตามิน", trial: "ทดลอง·ติดตามผล", health: "สุขภาพไก่", cost: "บัญชีต้นทุน", houseecon: "คุ้มค่ารายหลัง",
+  feed: "อาหารไก่", med: "ยาและวิตามิน", trial: "ทดลอง·ติดตามผล", health: "สุขภาพไก่", cost: "บัญชีต้นทุน", houseecon: "ประสิทธิภาพไก่",
 };
 const ALL_TOPIC_IDS = Object.keys(TOPIC_LABELS);
 const DEFAULT_ROLES = [
@@ -1294,7 +1294,7 @@ export default function App() {
             { id: "trial", icon: <TrendingUp size={16} />, label: "ทดลอง·ติดตามผล", c: "#0891B2" },
             { id: "health", icon: <Stethoscope size={16} />, label: "สุขภาพไก่", c: "#E11D48" },
             { id: "cost", icon: <Calculator size={16} />, label: "บัญชีต้นทุน", c: "#A16207" },
-            { id: "houseecon", icon: <CircleDollarSign size={16} />, label: "คุ้มค่ารายหลัง", c: "#047857" },
+            { id: "houseecon", icon: <CircleDollarSign size={16} />, label: "ประสิทธิภาพไก่", c: "#047857" },
             { id: "roles", icon: <Settings size={16} />, label: "ตั้งค่าสิทธิ์", c: "#6D28D9", ownerOnly: true, action: true },
           ].filter((t) => t.ownerOnly ? roleObj.id === "owner" : allowedTopics.includes(t.id)).map((t) => (
             <button
@@ -3457,7 +3457,7 @@ function HouseEconView({ production = {}, flocks = {}, expenses = [], medCostByM
   return (
     <div style={S.wide}>
       <div style={S.subBar}>
-        <span style={S.subBarTitle}>คุ้มค่า·กำไรรายหลัง{curYm ? <span style={{ fontSize: 13, fontWeight: 700, color: ACCENT_DK }}> · {ymTH(curYm)}</span> : null}</span>
+        <span style={S.subBarTitle}>ประสิทธิภาพไก่ · คุ้มค่ารายหลัง{curYm ? <span style={{ fontSize: 13, fontWeight: 700, color: ACCENT_DK }}> · {ymTH(curYm)}</span> : null}</span>
         <div style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: "auto" }}>
           <button disabled={idx <= 0} onClick={() => setYm(months[idx - 1])} style={{ ...S.ghostBtn, padding: "6px 12px", opacity: idx <= 0 ? 0.4 : 1 }}>‹ เดือนก่อน</button>
           <button disabled={idx >= months.length - 1} onClick={() => setYm(months[idx + 1])} style={{ ...S.ghostBtn, padding: "6px 12px", opacity: idx >= months.length - 1 ? 0.4 : 1 }}>เดือนถัดไป ›</button>
