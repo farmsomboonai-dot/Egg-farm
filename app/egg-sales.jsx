@@ -575,6 +575,7 @@ const REF_PRICE_FALLBACK = { n0: 130, n1: 120, n2: 110, n3: 100, n4: 90, n5: 85,
 const DIFF_REASONS = ["แตก", "หาย", "แถม", "นับพลาด", "อื่นๆ"];
 // หมวดต้นทุน 6 หมวด (บัญชีต้นทุน — ตาม roadmap ต้นทุนต่อหลังต่อรุ่น)
 const EXPENSE_CATS = ["ค่าไฟ", "ค่าแรง", "ค่าอาหาร", "ค่ายา+วัสดุสิ้นเปลือง", "ค่าสายพันธุ์", "ค่าเสื่อมโรงเรือน"];
+const FEED_SUPPLIERS = ["JBF", "หนองบัวฟีดมิลล์"];   // ซัพพลายเออร์อาหารไก่ (เลือกตอนรับอาหารเข้า)
 
 // ---------- สต๊อกยาและวิตามิน — จากชีต "สรุปยอดคงเหลือ ยา" ณ 7/7/69 (ยารักษา) ----------
 // opening = คงเหลือ ณ วันตั้งต้น (since) ; เบิกใช้ = ระบบดึงจากบันทึกให้ยารายวัน (จับคู่ด้วยชื่อ) ; ราคา = บาท/หน่วย
@@ -1294,11 +1295,12 @@ export default function App() {
             { id: "health", icon: <Stethoscope size={16} />, label: "สุขภาพไก่", c: "#E11D48" },
             { id: "cost", icon: <Calculator size={16} />, label: "บัญชีต้นทุน", c: "#A16207" },
             { id: "houseecon", icon: <CircleDollarSign size={16} />, label: "คุ้มค่ารายหลัง", c: "#047857" },
-          ].filter((t) => allowedTopics.includes(t.id)).map((t) => (
+            { id: "roles", icon: <Settings size={16} />, label: "ตั้งค่าสิทธิ์", c: "#6D28D9", ownerOnly: true, action: true },
+          ].filter((t) => t.ownerOnly ? roleObj.id === "owner" : allowedTopics.includes(t.id)).map((t) => (
             <button
               key={t.id}
               style={{ ...S.navBtn, border: `1.5px solid ${t.c}`, ...(view === t.id ? { background: t.c, color: "#fff", borderColor: t.c } : { color: t.c }) }}
-              onClick={() => setView(t.id)}
+              onClick={() => t.action && t.id === "roles" ? setShowRoleSettings(true) : setView(t.id)}
             >
               {t.icon} {t.label}
             </button>
@@ -5412,8 +5414,11 @@ function FeedDeliveryModal({ houseIds, defaultDate, deliveries, onAdd, onDelete,
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); save(); } }} /></div>
         </div>
         <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-          <div style={{ flex: 1 }}><label style={lbl}>ซัพพลายเออร์ / ร้านอาหารสัตว์</label>
-            <input style={inp} placeholder="ชื่อร้าน/บริษัท (ถ้ามี)" value={supplier} onChange={(e) => setSupplier(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); save(); } }} /></div>
+          <div style={{ flex: 1 }}><label style={lbl}>ซัพพลายเออร์</label>
+            <select style={inp} value={supplier} onChange={(e) => setSupplier(e.target.value)}>
+              <option value="">— เลือกซัพพลายเออร์ —</option>
+              {FEED_SUPPLIERS.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select></div>
           <div style={{ flex: 1 }}><label style={lbl}>ผู้บันทึก (เสมียน)</label>
             <input style={inp} placeholder="ชื่อผู้รับของ" value={by} onChange={(e) => setBy(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); save(); } }} /></div>
         </div>
