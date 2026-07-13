@@ -15,11 +15,105 @@ const supabase = (typeof window !== "undefined" && window.SB_URL && window.SB_AN
   : null;
 if (supabase) {
   console.log("[Supabase] เชื่อมต่อ:", window.SB_URL);
-  supabase.from("products").select("id", { count: "exact", head: true })
-    .then(({ error, count }) => console.log(error ? "[Supabase] query error: " + error.message : "[Supabase] ✓ ตาราง products = " + count + " แถว"))
-    .catch((e) => console.log("[Supabase] ✗ " + (e && e.message)));
 } else {
   console.log("[Supabase] ยังไม่ตั้งค่า — ใช้ localStorage");
+}
+
+/* ============================================================
+   Supabase auto-sync — mirror localStorage (คีย์ egg*) ↔ ตาราง app_snapshot
+   - เขียน localStorage ทุกครั้ง → อัปขึ้นคลาวด์อัตโนมัติ (debounce 1 วิ)
+   - เปิดแอป → ดึงจากคลาวด์ คีย์ที่ใหม่กว่าในเครื่อง (last-write-wins ตามเวลา)
+   - ไม่มี Supabase (deploy สาธารณะ ไม่ใส่คีย์) → ทำงาน localStorage เหมือนเดิม
+   หมายเหตุ: ข้อมูลต่อเครื่อง (deviceId/syncMeta/บทบาทที่เลือก) ไม่ sync
+============================================================ */
+const SB_TABLE = "app_snapshot";
+const SB_SYNC_RE = /^egg/;
+const SB_SKIP = new Set(["eggDeviceId", "eggSyncMeta", "eggCurrentRole", "eggAccessLog"]);
+function sbDeviceId() {
+  let d = null; try { d = localStorage.getItem("eggDeviceId"); } catch (e) {}
+  if (!d) { d = "dev-" + Math.random().toString(36).slice(2, 9); try { localStorage.setItem("eggDeviceId", d); } catch (e) {} }
+  return d;
+}
+function sbGetMeta() { try { return JSON.parse(localStorage.getItem("eggSyncMeta") || "{}"); } catch (e) { return {}; } }
+function sbSetMeta(m) { try { localStorage.setItem("eggSyncMeta", JSON.stringify(m)); } catch (e) {} }
+let __sbQueue = {}, __sbLast = {}, __sbTimer = null, __sbHydrating = false;
+function sbQueueKey(key, valueStr) {
+  if (!supabase || __sbHydrating || SB_SKIP.has(key) || !SB_SYNC_RE.test(key)) return;
+  if (__sbLast[key] === valueStr) return;   // ค่าไม่เปลี่ยน → ไม่อัปซ้ำ (กันแค่โหลดหน้าแล้ว re-write ไปทับ edit ของอุปกรณ์อื่น)
+  __sbLast[key] = valueStr;
+  let data; try { data = JSON.parse(valueStr); } catch (e) { data = valueStr; }
+  __sbQueue[key] = data;
+  clearTimeout(__sbTimer);
+  __sbTimer = setTimeout(sbFlush, 1000);
+}
+async function sbFlush() {
+  if (!supabase) return;
+  const keys = Object.keys(__sbQueue); if (!keys.length) return;
+  const now = new Date().toISOString(), dev = sbDeviceId();
+  const rows = keys.map((key) => { const data = __sbQueue[key]; return { key, data, item_count: Array.isArray(data) ? data.length : (data && typeof data === "object" ? Object.keys(data).length : null), snapshot_at: now, device: dev }; });
+  __sbQueue = {};
+  try {
+    const { error } = await supabase.from(SB_TABLE).upsert(rows, { onConflict: "key" });
+    if (error) { console.warn("[sync] อัปขึ้นคลาวด์ไม่สำเร็จ:", error.message); return; }
+    const meta = sbGetMeta(); keys.forEach((k) => { meta[k] = now; }); sbSetMeta(meta);
+    console.log("[sync] ⬆ อัปขึ้นคลาวด์ " + keys.length + " รายการ");
+  } catch (e) { console.warn("[sync] อัปขึ้นคลาวด์ error:", e && e.message); }
+}
+async function pullFromCloud() {
+  if (!supabase) return { applied: 0 };
+  let res; try { res = await supabase.from(SB_TABLE).select("key,data,snapshot_at"); } catch (e) { console.warn("[sync] ดึงคลาวด์ error:", e && e.message); return { applied: 0 }; }
+  if (res.error || !Array.isArray(res.data)) { if (res.error) console.warn("[sync] ดึงคลาวด์ไม่สำเร็จ:", res.error.message); return { applied: 0 }; }
+  const meta = sbGetMeta(); let applied = 0, kept = 0;
+  const cloudKeys = new Set();
+  __sbHydrating = true;
+  try {
+    res.data.forEach((row) => {
+      const key = row.key; if (!key || SB_SKIP.has(key) || !SB_SYNC_RE.test(key)) return;
+      cloudKeys.add(key);
+      const cloudTs = row.snapshot_at || "", localTs = meta[key] || "";
+      let localStr = null; try { localStr = localStorage.getItem(key); } catch (e) {}
+      if (localStr != null && !localTs) {
+        // เครื่องนี้มีข้อมูลคีย์นี้อยู่ก่อนแล้วแต่ยังไม่เคย sync (เช่น พนักงานใช้เวอร์ชันก่อนต่อคลาวด์)
+        // → ห้ามให้คลาวด์ทับ: ถ้าข้อมูลต่างกัน ให้ของเครื่องชนะ แล้วอัปขึ้นคลาวด์แทน
+        __sbLast[key] = localStr;
+        if (localStr === JSON.stringify(row.data)) { meta[key] = cloudTs; }
+        else { let d; try { d = JSON.parse(localStr); } catch (e) { d = localStr; } __sbQueue[key] = d; kept++; }
+        return;
+      }
+      if (localStr == null || cloudTs > localTs) {
+        const str = JSON.stringify(row.data);
+        try { localStorage.setItem(key, str); meta[key] = cloudTs; __sbLast[key] = str; applied++; } catch (e) {}
+      } else {
+        __sbLast[key] = localStr;   // เก็บของเดิม กัน mount เขียนซ้ำแล้วอัปทับ
+      }
+    });
+    // คีย์ egg* ที่มีในเครื่องแต่คลาวด์ยังไม่มี → อัปขึ้นคลาวด์ให้ครบทุกรายการ
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key || cloudKeys.has(key) || SB_SKIP.has(key) || !SB_SYNC_RE.test(key)) continue;
+        const s = localStorage.getItem(key); if (s == null) continue;
+        __sbLast[key] = s;
+        let d; try { d = JSON.parse(s); } catch (e) { d = s; }
+        __sbQueue[key] = d; kept++;
+      }
+    } catch (e) {}
+  } finally { __sbHydrating = false; }
+  sbSetMeta(meta);
+  if (applied) console.log("[sync] ⬇ ดึงจากคลาวด์ " + applied + " รายการ");
+  if (kept) {
+    console.log("[sync] ⬆ พบข้อมูลในเครื่องที่ยังไม่เคย sync " + kept + " คีย์ — ใช้ของเครื่องเป็นหลัก กำลังอัปขึ้นคลาวด์");
+    clearTimeout(__sbTimer); __sbTimer = setTimeout(sbFlush, 1000);
+  }
+  return { applied };
+}
+// ดักการเขียน localStorage → mirror ขึ้นคลาวด์
+if (typeof window !== "undefined" && !window.__eggSyncWrapped) {
+  window.__eggSyncWrapped = true;
+  try {
+    const __origSet = localStorage.setItem.bind(localStorage);
+    localStorage.setItem = function (k, v) { __origSet(k, v); try { sbQueueKey(k, v); } catch (e) {} };
+  } catch (e) {}
 }
 
 // LINE relay (ผ่าน Edge Function line-bot) — ตั้งค่าใน supabase-config.js: SB_FN_URL + SB_FARM_KEY
@@ -1310,7 +1404,7 @@ export default function App() {
 
       {view === "sales" && <SalesView stock={stock} addBill={addBill} bills={activeBills} payments={payments} trayStock={trayStock} setTrayStock={setTrayStock} trayRecords={trayRecords} trayEvents={trayEvents} drafts={drafts} setDrafts={setDrafts} />}
       {view === "bills" && <BillHistoryView bills={bills} payments={payments} cancelBill={cancelBill} />}
-      {view === "account" && <AccountView bills={activeBills} payments={payments} recordPayment={recordPayment} />}
+      {view === "account" && <AccountView bills={activeBills} payments={payments} recordPayment={recordPayment} isOwner={currentRole === "owner"} />}
       {view === "dash" && <DashboardView bills={activeBills} payments={payments} production={productionByDate} rearingByDate={rearingByDate} flocks={flocks} />}
       {view === "manage" && <ManageDashView production={productionByDate} rearingByDate={rearingByDate} flocks={flocks} />}
       {view === "stock" && <StockView salesByDay={salesByDay} productionByDate={productionByDate} defaultDay={isoFromTs(Date.now())} stockCounts={stockCounts} closeMeta={closeMeta} refPrices={refPrices} onCloseDay={closeDay} onReopenDay={reopenDay} />}
@@ -1772,17 +1866,16 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
             </div>
           )}
 
-          {/* ชำระเงิน — โอนบัญชีธนาคาร / สแกน QR */}
+          {/* ชำระเงิน — โอนเข้าบัญชีธนาคารเท่านั้น (นโยบายงดเงินสด/เช็ค · เอา QR ออกแล้ว) */}
           <div style={S.qrBox}>
             <div style={S.qrLeft}>
-              <div style={S.qrTitle}>สแกน QR เพื่อชำระเงิน</div>
+              <div style={S.qrTitle}>ชำระโดยโอนเข้าบัญชี</div>
               <div style={{ ...S.qrName, fontWeight: 700, color: INK }}>{COMPANY.bankName} · {COMPANY.bankAcctType}</div>
               <div style={S.qrId}>เลขที่บัญชี {COMPANY.bankAcctNo}</div>
               <div style={S.qrId}>ชื่อบัญชี {COMPANY.bankAcctName}</div>
               <div style={S.qrId}>วันที่ชำระ {b.date}</div>
               <div style={S.qrAmount}>{fmt2(b.netPay ?? (b.grandTotal ?? b.total))} บาท</div>
             </div>
-            <PromptPayQR id={COMPANY.promptpayId} amount={b.netPay ?? (b.grandTotal ?? b.total)} />
           </div>
 
           <div style={S.noteSignBox}>
@@ -2558,13 +2651,12 @@ function BillDetail({ bill, payment, onBack, onCancel }) {
         {!b.cancelled && !(payment && payment.paid >= b.total) && (
           <div style={S.qrBox}>
             <div style={S.qrLeft}>
-              <div style={S.qrTitle}>สแกน QR เพื่อชำระเงิน</div>
+              <div style={S.qrTitle}>ชำระโดยโอนเข้าบัญชี</div>
               <div style={{ ...S.qrName, fontWeight: 700, color: INK }}>{COMPANY.bankName} · {COMPANY.bankAcctType}</div>
               <div style={S.qrId}>เลขที่บัญชี {COMPANY.bankAcctNo}</div>
               <div style={S.qrId}>ชื่อบัญชี {COMPANY.bankAcctName}</div>
               <div style={S.qrAmount}>{fmt2(b.total - (payment?.paid || 0))} บาท</div>
             </div>
-            <PromptPayQR id={COMPANY.promptpayId} amount={b.total - (payment?.paid || 0)} />
           </div>
         )}
         <div style={S.noteFooter}>
@@ -2632,7 +2724,7 @@ function MonthBar({ months = [], value, onChange }) {
   );
 }
 
-function AccountView({ bills, payments, recordPayment }) {
+function AccountView({ bills, payments, recordPayment, isOwner }) {
   const [payModal, setPayModal] = useState(null);
   const [month, setMonth] = useState("");   // "" = ทุกเดือน
   const months = useMemo(() => [...new Set((bills || []).map(billYM))].sort(), [bills]);
@@ -2722,7 +2814,7 @@ function AccountView({ bills, payments, recordPayment }) {
           </table>
         </div>
       </div>
-      {payModal && <PaymentModal bill={payModal} current={payments[payModal.no]?.paid || 0} onClose={() => setPayModal(null)} onPay={(amt, method, slip) => { recordPayment(payModal.no, amt, method, slip); setPayModal(null); }} />}
+      {payModal && <PaymentModal bill={payModal} current={payments[payModal.no]?.paid || 0} isOwner={isOwner} onClose={() => setPayModal(null)} onPay={(amt, method, slip) => { recordPayment(payModal.no, amt, method, slip); setPayModal(null); }} />}
     </div>
   );
 }
@@ -2752,22 +2844,40 @@ function SlipThumb({ src, size = 56, label }) {
   );
 }
 
-function PaymentModal({ bill, current, onClose, onPay }) {
+function PaymentModal({ bill, current, onClose, onPay, isOwner }) {
   const owed = bill.total - current;
   const [amount, setAmount] = useState(String(owed));
-  const [method, setMethod] = useState("โอน");
+  const method = "โอน";                        // นโยบาย: รับเฉพาะโอนเงินเท่านั้น (งดเงินสด/เช็ค)
+  const [ownerConfirm, setOwnerConfirm] = useState(false);  // ขั้นยืนยันปิดบิลโดยเจ้าของ
   const [slip, setSlip] = useState(null);      // รูปสลิป (data URL)
   const [slipName, setSlipName] = useState("");
   const [dragging, setDragging] = useState(false);  // กำลังลากรูปมาวางในโมดัล
+  const [ocr, setOcr] = useState({ status: "idle", nums: [] });   // ผลอ่านยอดเงินจากสลิป: idle|checking|done|error
+  const [override, setOverride] = useState(false);  // ผู้ใช้ยืนยันเองเมื่อตรวจยอดอัตโนมัติไม่ผ่าน
   const amt = parseFloat(amount) || 0;
-  const needSlip = method === "โอน";           // โอนเงินต้องแนบสลิปทุกครั้ง
-  const valid = amt > 0 && (!needSlip || !!slip);
+  const slipHasAmt = ocr.status === "done" && ocr.nums.some((n) => Math.abs(n - amt) < 0.005);
+  const slipChecked = ocr.status === "done" || ocr.status === "error";
+  const valid = amt > 0 && !!slip && (slipHasAmt || (slipChecked && override));
+
+  // อ่านตัวเลขทั้งหมดในรูปสลิปด้วย OCR (ทำงานในเครื่อง ไม่อัปโหลดรูป) เก็บไว้เทียบกับยอดที่รับ
+  const checkSlip = (dataUrl) => {
+    setOverride(false);
+    if (!window.Tesseract) { setOcr({ status: "error", nums: [] }); return; }
+    setOcr({ status: "checking", nums: [] });
+    window.Tesseract.recognize(dataUrl, "eng")
+      .then(({ data }) => {
+        const nums = [...new Set(((data && data.text) || "").match(/(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?/g) || [])]
+          .map((s) => parseFloat(s.replace(/,/g, ""))).filter((n) => n > 0);
+        setOcr({ status: "done", nums });
+      })
+      .catch(() => setOcr({ status: "error", nums: [] }));
+  };
 
   const handleFile = (file) => {
     if (!file) return;
     if (!file.type.startsWith("image/")) { alert("กรุณาเลือกไฟล์รูปภาพ"); return; }
     const reader = new FileReader();
-    reader.onload = () => { setSlip(reader.result); setSlipName(file.name || "สลิป"); };
+    reader.onload = () => { setSlip(reader.result); setSlipName(file.name || "สลิป"); checkSlip(reader.result); };
     reader.readAsDataURL(file);
   };
   const onPickFile = (e) => handleFile(e.target.files && e.target.files[0]);
@@ -2806,40 +2916,70 @@ function PaymentModal({ bill, current, onClose, onPay }) {
         </div>
         <div style={{ marginBottom: 16 }}>
           <label style={S.ciLabel}>วิธีชำระ</label>
-          <div style={{ display: "flex", gap: 8 }}>
-            {["เงินสด", "โอน", "เช็ค"].map((m) => (
-              <button key={m} style={{ ...S.methodBtn, ...(method === m ? S.methodBtnActive : {}) }} onClick={() => setMethod(m)}>{m}</button>
-            ))}
+          <div style={{ padding: "9px 12px", background: "#FAF6EE", border: "1.5px solid #E0D8C6", borderRadius: 9, fontSize: 14, fontWeight: 700, color: INK }}>
+            โอนเงินเท่านั้น <span style={{ fontSize: 12, fontWeight: 600, color: "#9b8e78" }}>(งดรับเงินสด/เช็ค · ระบบตรวจยอดจากสลิปให้อัตโนมัติ)</span>
           </div>
         </div>
         <div style={{ marginBottom: 16 }}>
           <label style={S.ciLabel}>
-            รูปสลิปการโอน {needSlip
-              ? <span style={{ color: "#B91C1C", fontWeight: 700 }}>* จำเป็น</span>
-              : <span style={{ color: "#9b9384" }}>(ถ้ามี)</span>}
+            รูปสลิปการโอน <span style={{ color: "#B91C1C", fontWeight: 700 }}>* จำเป็น</span>
           </label>
           {slip ? (
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 6 }}>
               <SlipThumb src={slip} size={64} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{slipName || "แนบรูปแล้ว"}</div>
-                <button style={{ ...S.ghostBtn, padding: "4px 10px", marginTop: 4, fontSize: 12.5 }} onClick={() => { setSlip(null); setSlipName(""); }}>เปลี่ยน / ลบรูป</button>
+                {ocr.status === "checking" && <div style={{ fontSize: 12.5, color: "#B45309", fontWeight: 700, marginTop: 3 }}>⏳ กำลังอ่านยอดเงินจากสลิป…</div>}
+                {ocr.status === "done" && (slipHasAmt
+                  ? <div style={{ fontSize: 12.5, color: "#15803D", fontWeight: 700, marginTop: 3 }}>✓ ตรวจสลิปแล้ว — พบยอด {fmt2(amt)} บาท ตรงกับยอดที่รับ</div>
+                  : <div style={{ fontSize: 12.5, color: "#B91C1C", fontWeight: 700, marginTop: 3 }}>⚠️ ยอดในสลิปไม่ตรงกับ {fmt2(amt)} บาท{ocr.nums.length ? ` — ตัวเลขที่อ่านได้: ${ocr.nums.slice(0, 6).map((n) => fmt2(n)).join(" / ")}` : " — อ่านตัวเลขไม่พบ"}</div>)}
+                {ocr.status === "error" && <div style={{ fontSize: 12.5, color: "#B45309", fontWeight: 700, marginTop: 3 }}>❓ อ่านสลิปอัตโนมัติไม่ได้ — กรุณาตรวจยอดด้วยตาก่อนบันทึก</div>}
+                <button style={{ ...S.ghostBtn, padding: "4px 10px", marginTop: 4, fontSize: 12.5 }} onClick={() => { setSlip(null); setSlipName(""); setOcr({ status: "idle", nums: [] }); setOverride(false); }}>เปลี่ยน / ลบรูป</button>
               </div>
             </div>
           ) : (
-            <label style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 6, padding: "18px 12px", border: `1.5px dashed ${needSlip ? "#E0A875" : "#dcd5c7"}`, borderRadius: 10, background: needSlip ? "#FDF6EE" : "#FAF8F2", color: "#8a8170", fontSize: 13, cursor: "pointer", textAlign: "center" }}>
+            <label style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 6, padding: "18px 12px", border: "1.5px dashed #E0A875", borderRadius: 10, background: "#FDF6EE", color: "#8a8170", fontSize: 13, cursor: "pointer", textAlign: "center" }}>
               <ImageIcon size={22} color={ACCENT_DK} />
               <span>แตะเพื่อเลือก / ถ่ายรูป · ลากรูปมาวาง · วาง (Ctrl+V)</span>
               <input type="file" accept="image/*" style={{ display: "none" }} onChange={onPickFile} />
             </label>
           )}
         </div>
-        <button style={{ ...S.primaryBtn, ...(valid ? {} : S.confirmBtnDisabled) }} disabled={!valid} onClick={() => onPay(amt, method, slip)}>
+        {slip && slipChecked && !slipHasAmt && (
+          <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12.5, color: "#7A4F16", background: "#FDF6EE", border: "1.5px solid #E0A875", borderRadius: 9, padding: "8px 10px", marginBottom: 10, cursor: "pointer" }}>
+            <input type="checkbox" checked={override} onChange={(e) => setOverride(e.target.checked)} style={{ marginTop: 2 }} />
+            <span>ตรวจยอดด้วยตาแล้ว ยืนยันว่าสลิปนี้ถูกต้อง (ระบบจะระบุ "ข้ามตรวจสลิป" ไว้ในประวัติ)</span>
+          </label>
+        )}
+        <button style={{ ...S.primaryBtn, ...(valid ? {} : S.confirmBtnDisabled) }} disabled={!valid} onClick={() => onPay(amt, slipHasAmt ? "โอน" : "โอน · ข้ามตรวจสลิป", slip)}>
           บันทึกรับชำระ {fmt(amt)} บาท
         </button>
-        {needSlip && !slip && (
+        {!slip && (
           <div style={{ fontSize: 12.5, color: "#B91C1C", textAlign: "center", marginTop: 8 }}>
             * แนบรูปสลิปการโอนก่อน จึงจะปิดบิลได้
+          </div>
+        )}
+        {/* สิทธิ์เจ้าของ: ปิดบิลคงค้างโดยไม่แนบสลิป — บัญชีบันทึกเสมือนรับเงินครบ (สต๊อกถูกตัดตั้งแต่ออกบิลอยู่แล้ว) */}
+        {isOwner && owed > 0 && (
+          <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1.5px dashed #e3ddd0" }}>
+            {!ownerConfirm ? (
+              <button style={{ ...S.ghostBtn, width: "100%", color: "#7C3AED", borderColor: "#C4B5FD", fontWeight: 700 }} onClick={() => setOwnerConfirm(true)}>
+                👑 ปิดบิลโดยเจ้าของ (ไม่แนบสลิป)
+              </button>
+            ) : (
+              <div style={{ background: "#F5F3FF", border: "1.5px solid #C4B5FD", borderRadius: 10, padding: "12px 14px" }}>
+                <div style={{ fontSize: 13.5, fontWeight: 800, color: "#5B21B6", marginBottom: 4 }}>ยืนยันปิดบิล {bill.no}?</div>
+                <div style={{ fontSize: 12.5, color: "#6b6358", marginBottom: 10 }}>
+                  บัญชีจะบันทึกว่า<b>รับชำระครบ {fmt(owed)} บาท</b> (ระบุ "ปิดโดยเจ้าของ" ในประวัติ) · ไม่ต้องแนบสลิป · สต๊อกไข่ถูกตัดตามปกติตั้งแต่ออกบิลแล้ว
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button style={{ ...S.ghostBtn, flex: 1 }} onClick={() => setOwnerConfirm(false)}>ยกเลิก</button>
+                  <button style={{ ...S.primaryBtn, flex: 2, background: "#7C3AED" }} onClick={() => onPay(owed, "ปิดโดยเจ้าของ", null)}>
+                    👑 ยืนยันปิดบิล {fmt(owed)} บาท
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -3805,11 +3945,24 @@ function CloseDayModal({ dayTH, rows, initial, initialMeta, refPrices = {}, onCl
     rows.forEach((r) => { const v = initial && initial[r.pid] != null ? initial[r.pid] : r.computedRemain; init[r.pid] = String(v); });
     return init;
   });
-  const [reasons, setReasons] = useState(() => (initialMeta && initialMeta.reasons) ? { ...initialMeta.reasons } : {});
+  // เหตุผลที่บันทึกเป็น "อื่นๆ: <รายละเอียด>" แยกกลับเป็น select=อื่นๆ + ข้อความ ตอนเปิดแก้ไข
+  const [reasons, setReasons] = useState(() => {
+    const src = (initialMeta && initialMeta.reasons) || {};
+    const out = {};
+    Object.entries(src).forEach(([pid, v]) => { out[pid] = String(v).startsWith("อื่นๆ") ? "อื่นๆ" : v; });
+    return out;
+  });
+  const [otherTexts, setOtherTexts] = useState(() => {
+    const src = (initialMeta && initialMeta.reasons) || {};
+    const out = {};
+    Object.entries(src).forEach(([pid, v]) => { if (String(v).startsWith("อื่นๆ")) out[pid] = String(v).replace(/^อื่นๆ:?\s*/, ""); });
+    return out;
+  });
   const [by, setBy] = useState((initialMeta && initialMeta.by) || "");
   const [note, setNote] = useState((initialMeta && initialMeta.note) || "");
   const setC = (pid, v) => setCounts((p) => ({ ...p, [pid]: v.replace(/[^\d]/g, "") }));
   const setReason = (pid, v) => setReasons((p) => ({ ...p, [pid]: v }));
+  const setOtherText = (pid, v) => setOtherTexts((p) => ({ ...p, [pid]: v }));
   const numOf = (pid) => parseInt(counts[pid], 10) || 0;
   const priceOf = (pid) => refPrices[pid] || 0;
   const totComputed = rows.reduce((s, r) => s + r.computedRemain, 0);
@@ -3820,7 +3973,14 @@ function CloseDayModal({ dayTH, rows, initial, initialMeta, refPrices = {}, onCl
   const dText = (d) => d === 0 ? "—" : (d > 0 ? "+" + fmt(d) : fmt(d));
   const save = () => {
     const out = {}, rs = {};
-    rows.forEach((r) => { out[r.pid] = numOf(r.pid); const d = numOf(r.pid) - r.computedRemain; if (d !== 0 && reasons[r.pid]) rs[r.pid] = reasons[r.pid]; });
+    rows.forEach((r) => {
+      out[r.pid] = numOf(r.pid);
+      const d = numOf(r.pid) - r.computedRemain;
+      if (d !== 0 && reasons[r.pid]) {
+        const txt = (otherTexts[r.pid] || "").trim();
+        rs[r.pid] = reasons[r.pid] === "อื่นๆ" && txt ? `อื่นๆ: ${txt}` : reasons[r.pid];
+      }
+    });
     onSave(out, { by: by.trim(), note: note.trim(), reasons: rs, at: Date.now() });
   };
   const thSt = { padding: "6px 6px", color: "#6b6358", fontWeight: 700, position: "sticky", top: 0, background: "#fff", fontSize: 12 };
@@ -3865,6 +4025,10 @@ function CloseDayModal({ dayTH, rows, initial, initialMeta, refPrices = {}, onCl
                         <option value="">{d === 0 ? "—" : "เลือก…"}</option>
                         {DIFF_REASONS.map((x) => <option key={x} value={x}>{x}</option>)}
                       </select>
+                      {d !== 0 && reasons[r.pid] === "อื่นๆ" && (
+                        <input value={otherTexts[r.pid] || ""} onChange={(e) => setOtherText(r.pid, e.target.value)} placeholder="ระบุสาเหตุ เช่น แจกลูกน้อง"
+                          style={{ display: "block", marginTop: 4, padding: "5px 7px", border: "1.5px solid #E0A875", background: "#FDF6EE", borderRadius: 7, fontSize: 12.5, width: "100%", boxSizing: "border-box" }} />
+                      )}
                     </td>
                   </tr>
                 );
@@ -4635,7 +4799,9 @@ function HouseEditModal({ house, defaultDate, onClose, onSave }) {
 ============================================================ */
 const nf = (v) => { const n = parseFloat(String(v ?? "").replace(/,/g, "")); return isNaN(n) ? 0 : n; };
 const shiftDayISO = (iso, delta) => { const [y, m, d] = iso.split("-").map(Number); const dt = new Date(y, m - 1, d + delta); return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`; };
-const emptyRearing = () => ({ loss: { cull: "", deadAm: "", deadPm: "", deadWt: "" }, feed: { no: "", s1open: "", s1recv: "", s1used: "", s2open: "", s2recv: "", s2used: "" }, water: { m1: "", m2: "", m3: "", m4: "", m5: "", m6: "" }, light: { hours: "", lux: "" }, meds: "", medsList: [], note: "" });   // deadWt = นน.ไก่ตายชั่งรวม (กก.) · sNopen = อาหารยกมาจากวันก่อน · medsList = ยา/สารเสริมหลายรายการ [{name,period,qty,water,time}]
+const emptyRearing = () => ({ loss: { cull: "", deadAm: "", deadPm: "", deadWtAm: "", deadWtPm: "", deadWt: "" }, feed: { no: "", s1open: "", s1recv: "", s1used: "", s2open: "", s2recv: "", s2used: "" }, water: { m1: "", m2: "", m3: "", m4: "", m5: "", m6: "" }, light: { hours: "", lux: "" }, meds: "", medsList: [], note: "" });   // deadWtAm/Pm = นน.ไก่ตายชั่งแยกเช้า/บ่าย (กก.) · deadWt = ข้อมูลเก่าที่ชั่งรวม (คงไว้ให้อ่านย้อนหลังได้) · sNopen = อาหารยกมาจากวันก่อน · medsList = ยา/สารเสริมหลายรายการ [{name,period,qty,water,time}]
+// นน.ไก่ตายรวมของวัน (กก.) — รวมเช้า+บ่าย และบวกค่าเก่าแบบชั่งรวม (บันทึกก่อนแยกช่อง) ให้รายงานเก่าไม่เพี้ยน
+const deadWtOf = (loss) => nf(loss?.deadWtAm) + nf(loss?.deadWtPm) + nf(loss?.deadWt);
 // สรุปยา/สารเสริมสั้น ๆ สำหรับตาราง เช่น "Enro 13 ขวด · Calcium 2 ขวด" (ข้อมูลเก่าใช้ข้อความ meds เดิม)
 const medsSummary = (r) => {
   if (r?.medsList?.length) return r.medsList.filter((m) => m.name).map((m) => `${m.name}${m.qty ? " " + m.qty + " ขวด" : ""}`).join(" · ");
@@ -4963,6 +5129,63 @@ function LabTestModal({ houseId, rows = [], onAdd, onDelete, onClose }) {
 
 /* กรอกข้อมูลการเลี้ยงประจำวัน ต่อโรงเรือน (ครบทุกช่องตามฟอร์มกระดาษ)
    birds = ไก่คงเหลือต้นวัน (จากรุ่นการเลี้ยง หรือยอดไก่หน้าผลผลิต) — ใช้คิดกินเฉลี่ย/ตัวแบบสด */
+// หมวดของยา/สารเสริม — จัดกลุ่มจากคำอธิบาย (desc) ให้ dropdown เลือกยาอ่านง่าย มีหัวข้อ+เส้นแบ่งชัดเจน
+const MED_CAT_ORDER = ["ยารักษา", "วิตามิน/สารเสริม", "โปรไบโอติก", "สมุนไพร", "ยาฆ่าแมลง/กำจัดไร", "ยาถ่ายพยาธิ", "อื่นๆ"];
+const MED_CAT_COLOR = { "ยารักษา": "#B91C1C", "วิตามิน/สารเสริม": "#B45309", "โปรไบโอติก": "#15803D", "สมุนไพร": "#0F766E", "ยาฆ่าแมลง/กำจัดไร": "#7C3AED", "ยาถ่ายพยาธิ": "#0369A1", "อื่นๆ": "#6b6358" };
+const medCatOf = (desc = "") => {
+  const d = String(desc).trim();
+  if (/^วิตามิน/.test(d)) return "วิตามิน/สารเสริม";
+  if (/^โปรไบโอติก/.test(d)) return "โปรไบโอติก";
+  if (/^สมุนไพร/.test(d)) return "สมุนไพร";
+  if (/^ยาฆ่าแมลง/.test(d)) return "ยาฆ่าแมลง/กำจัดไร";
+  if (/^ยาถ่ายพยาธิ/.test(d)) return "ยาถ่ายพยาธิ";
+  if (/^ยา/.test(d)) return "ยารักษา";
+  return "อื่นๆ";
+};
+
+// ช่องเลือกชื่อยา/สารเสริม — พิมพ์เพื่อกรอง + รายการแบ่งตามหมวด (หัวข้อสี/เส้นคั่น) แทน datalist เดิมที่อ่านยาก
+function MedNamePicker({ value, onChange, medStock = [], medInfo = {}, style }) {
+  const [open, setOpen] = useState(false);
+  const q = (value || "").trim().toLowerCase();
+  const items = medStock.filter((it) => !q || `${it.name} ${it.desc || ""}`.toLowerCase().includes(q));
+  const byCat = {};
+  items.forEach((it) => { const c = medCatOf(it.desc); (byCat[c] = byCat[c] || []).push(it); });
+  const groups = MED_CAT_ORDER.filter((c) => byCat[c] && byCat[c].length).map((c) => ({ cat: c, items: byCat[c] }));
+  return (
+    <div style={{ position: "relative" }}>
+      <input className="prodInput pfInsp" type="text" placeholder="พิมพ์เพื่อค้น หรือแตะเลือกจากรายการ…" value={value}
+        onChange={(e) => { onChange(e.target.value); if (!open) setOpen(true); }}
+        onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)}
+        style={style} />
+      {open && groups.length > 0 && (
+        <div style={{ position: "absolute", zIndex: 30, top: "100%", left: 0, right: 0, marginTop: 3, background: "#fff", border: "1.5px solid #5EEAD4", borderRadius: 10, boxShadow: "0 10px 26px rgba(0,0,0,.16)", maxHeight: 265, overflowY: "auto" }}>
+          {groups.map((g) => (
+            <div key={g.cat}>
+              <div style={{ position: "sticky", top: 0, zIndex: 1, background: "#CCFBF1", borderBottom: "1.5px solid #5EEAD4", padding: "5px 10px", fontSize: 11.5, fontWeight: 800, color: MED_CAT_COLOR[g.cat] || "#0F766E" }}>
+                {g.cat} · {g.items.length} รายการ
+              </div>
+              {g.items.map((it) => {
+                const remain = medInfo[(it.name || "").trim()]?.remain;
+                return (
+                  <div key={it.id} onMouseDown={(e) => { e.preventDefault(); onChange(it.name); setOpen(false); }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "#F0FDFA"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "#fff"; }}
+                    style={{ padding: "7px 10px", borderBottom: "1px solid #EDF5F2", cursor: "pointer", display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: INK, textAlign: "left" }}>{it.name}</div>
+                      {it.desc && <div style={{ fontSize: 11, color: "#8a8170", textAlign: "left" }}>{it.desc}</div>}
+                    </div>
+                    {remain != null && <div style={{ fontSize: 11.5, fontWeight: 700, color: remain > 0 ? "#0F766E" : "#B91C1C", whiteSpace: "nowrap" }}>เหลือ {fmt1(remain)} {it.unit || ""}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = null, waterPrev = null, feedMin = 4000, medStock = [], medInfo = {}, seqLabel = null, onSkip = null, onSave, onClose }) {
   const d0 = { ...emptyRearing(), ...(data || {}) };
   const [loss, setLoss] = useState({ ...emptyRearing().loss, ...(d0.loss || {}) });
@@ -5037,24 +5260,36 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = n
             {fw("cull", "ไก่คัด", <input {...numProps(2, "pfLoss")} value={loss.cull} onChange={(e) => setLoss((p) => ({ ...p, cull: int_(e.target.value) }))} />, "#B91C1C")}
             {fw("dam", "ตาย (เช้า)", <input {...numProps(3, "pfLoss")} value={loss.deadAm} onChange={(e) => setLoss((p) => ({ ...p, deadAm: int_(e.target.value) }))} />, "#B91C1C")}
             {fw("dpm", "ตาย (บ่าย)", <input {...numProps(4, "pfLoss")} value={loss.deadPm} onChange={(e) => setLoss((p) => ({ ...p, deadPm: int_(e.target.value) }))} />, "#B91C1C")}
-            {fw("dwt", "นน.ไก่ตายชั่งรวม (กก.)", <input {...numProps(5, "pfLoss")} value={loss.deadWt} onChange={(e) => setLoss((p) => ({ ...p, deadWt: dec(e.target.value) }))} />, "#B91C1C")}
+            <div />
+            {fw("dwtam", "นน.ไก่ตายเช้า (กก.)", <input {...numProps(5, "pfLoss")} value={loss.deadWtAm || ""} onChange={(e) => setLoss((p) => ({ ...p, deadWtAm: dec(e.target.value) }))} />, "#B91C1C")}
+            {fw("dwtpm", "นน.ไก่ตายบ่าย (กก.)", <input {...numProps(6, "pfLoss")} value={loss.deadWtPm || ""} onChange={(e) => setLoss((p) => ({ ...p, deadWtPm: dec(e.target.value) }))} />, "#B91C1C")}
+            {nf(loss.deadWt) > 0 && fw("dwt", "นน.ชั่งรวมแบบเก่า (กก.)", <input className="prodInput" type="text" inputMode="decimal" placeholder="0" style={cell} value={loss.deadWt} onChange={(e) => setLoss((p) => ({ ...p, deadWt: dec(e.target.value) }))} />, "#9b8e78")}
           </div>
           <div style={{ fontSize: 12, color: "#B91C1C", fontWeight: 700, margin: "6px 2px 4px", textAlign: "right" }}>
-            ตายรวมวันนี้ {fmt(deadTotal)} ตัว{nf(loss.deadWt) > 0 && deadTotal > 0 ? ` · ชั่งรวม ${fmt2(nf(loss.deadWt))} กก. · เฉลี่ย ${fmt2(nf(loss.deadWt) / deadTotal)} กก./ตัว` : ""}
+            {(() => {
+              const wAm = nf(loss.deadWtAm), wPm = nf(loss.deadWtPm), wTot = deadWtOf(loss);
+              const per = (w, n) => (w > 0 && n > 0 ? ` (เฉลี่ย ${fmt2(w / n)} กก./ตัว)` : "");
+              return <>
+                ตายรวมวันนี้ {fmt(deadTotal)} ตัว
+                {wAm > 0 ? <> · เช้า {fmt2(wAm)} กก.{per(wAm, nf(loss.deadAm))}</> : null}
+                {wPm > 0 ? <> · บ่าย {fmt2(wPm)} กก.{per(wPm, nf(loss.deadPm))}</> : null}
+                {wTot > 0 && deadTotal > 0 ? <> · <span style={{ background: "#FEE2E2", borderRadius: 6, padding: "1px 6px" }}>รวม {fmt2(wTot)} กก. · เฉลี่ย {fmt2(wTot / deadTotal)} กก./ตัว</span></> : null}
+              </>;
+            })()}
           </div>
         </div>
 
         <div style={section("#FEF6EC", "#FBD9A8", "#D97706")}>
           <div style={{ fontWeight: 800, color: "#B45309", fontSize: 13, marginBottom: 8 }}>🌾 อาหาร (กก.)</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9, marginBottom: 8 }}>
-            {fw("fno", "เบอร์อาหาร", <input ref={(el) => { refs.current[6] = el; }} onKeyDown={onKey(6)} onFocus={(e) => e.target.select()} className="prodInput pfFeed" type="text" placeholder="เช่น 324" style={{ ...cell, textAlign: "left" }} value={feed.no} onChange={(e) => setFeed((p) => ({ ...p, no: e.target.value }))} />, "#B45309")}
+            {fw("fno", "เบอร์อาหาร", <input ref={(el) => { refs.current[7] = el; }} onKeyDown={onKey(7)} onFocus={(e) => e.target.select()} className="prodInput pfFeed" type="text" placeholder="เช่น 324" style={{ ...cell, textAlign: "left" }} value={feed.no} onChange={(e) => setFeed((p) => ({ ...p, no: e.target.value }))} />, "#B45309")}
             <div /><div />
-            {fw("s1o", "ไซโล 1 · ยกมาจากวันก่อน", <input {...numProps(7, "pfFeed")} placeholder={fmt1(siloRemain.s1)} title="เว้นว่าง = ใช้ยอดทดต่อจากระบบ (คงเหลือเมื่อวาน) · กรอก = ตั้งยอดตามที่เช็คจริง" value={feed.s1open} onChange={(e) => setFeed((p) => ({ ...p, s1open: dec(e.target.value) }))} />, "#B45309")}
-            {fw("s1r", "ไซโล 1 · รับเข้า", <input {...numProps(8, "pfFeed")} value={feed.s1recv} onChange={(e) => setFeed((p) => ({ ...p, s1recv: dec(e.target.value) }))} />, "#B45309")}
-            {fw("s1u", "ไซโล 1 · ใช้ไป", <input {...numProps(9, "pfFeed")} value={feed.s1used} onChange={(e) => setFeed((p) => ({ ...p, s1used: dec(e.target.value) }))} />, "#B45309")}
-            {fw("s2o", "ไซโล 2 · ยกมาจากวันก่อน", <input {...numProps(10, "pfFeed")} placeholder={fmt1(siloRemain.s2)} title="เว้นว่าง = ใช้ยอดทดต่อจากระบบ (คงเหลือเมื่อวาน) · กรอก = ตั้งยอดตามที่เช็คจริง" value={feed.s2open} onChange={(e) => setFeed((p) => ({ ...p, s2open: dec(e.target.value) }))} />, "#B45309")}
-            {fw("s2r", "ไซโล 2 · รับเข้า", <input {...numProps(11, "pfFeed")} value={feed.s2recv} onChange={(e) => setFeed((p) => ({ ...p, s2recv: dec(e.target.value) }))} />, "#B45309")}
-            {fw("s2u", "ไซโล 2 · ใช้ไป", <input {...numProps(12, "pfFeed")} value={feed.s2used} onChange={(e) => setFeed((p) => ({ ...p, s2used: dec(e.target.value) }))} />, "#B45309")}
+            {fw("s1o", "ไซโล 1 · ยกมาจากวันก่อน", <input {...numProps(8, "pfFeed")} placeholder={fmt1(siloRemain.s1)} title="เว้นว่าง = ใช้ยอดทดต่อจากระบบ (คงเหลือเมื่อวาน) · กรอก = ตั้งยอดตามที่เช็คจริง" value={feed.s1open} onChange={(e) => setFeed((p) => ({ ...p, s1open: dec(e.target.value) }))} />, "#B45309")}
+            {fw("s1r", "ไซโล 1 · รับเข้า", <input {...numProps(9, "pfFeed")} value={feed.s1recv} onChange={(e) => setFeed((p) => ({ ...p, s1recv: dec(e.target.value) }))} />, "#B45309")}
+            {fw("s1u", "ไซโล 1 · ใช้ไป", <input {...numProps(10, "pfFeed")} value={feed.s1used} onChange={(e) => setFeed((p) => ({ ...p, s1used: dec(e.target.value) }))} />, "#B45309")}
+            {fw("s2o", "ไซโล 2 · ยกมาจากวันก่อน", <input {...numProps(11, "pfFeed")} placeholder={fmt1(siloRemain.s2)} title="เว้นว่าง = ใช้ยอดทดต่อจากระบบ (คงเหลือเมื่อวาน) · กรอก = ตั้งยอดตามที่เช็คจริง" value={feed.s2open} onChange={(e) => setFeed((p) => ({ ...p, s2open: dec(e.target.value) }))} />, "#B45309")}
+            {fw("s2r", "ไซโล 2 · รับเข้า", <input {...numProps(12, "pfFeed")} value={feed.s2recv} onChange={(e) => setFeed((p) => ({ ...p, s2recv: dec(e.target.value) }))} />, "#B45309")}
+            {fw("s2u", "ไซโล 2 · ใช้ไป", <input {...numProps(13, "pfFeed")} value={feed.s2used} onChange={(e) => setFeed((p) => ({ ...p, s2used: dec(e.target.value) }))} />, "#B45309")}
           </div>
           <div style={{ fontSize: 11.5, color: "#B45309", margin: "0 2px 6px" }}>ยกมา: เว้นว่าง = ระบบทดยอดคงเหลือของเมื่อวานให้อัตโนมัติ (เลขจาง ๆ ในช่อง) · กรอกเมื่อเช็คของจริงหน้าไซโล/วันแรกที่เริ่มใช้</div>
           <div style={{ fontSize: 12, color: "#92400E", margin: "0 2px 4px", display: "flex", justifyContent: "space-between" }}>
@@ -5075,7 +5310,7 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = n
         <div style={section("#EFF8FF", "#BAE0FD", "#0284C7")}>
           <div style={{ fontWeight: 800, color: "#0369A1", fontSize: 13, marginBottom: 8 }}>💧 มิเตอร์น้ำ (จดเลขมิเตอร์ 6 ตัว) · ระบบคิดผลต่างจากวันก่อนให้เอง</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9 }}>
-            {["m1", "m2", "m3", "m4", "m5", "m6"].map((k, i) => fw(k, `มิเตอร์ ${i + 1}`, <input {...numProps(13 + i, "pfWater")} value={water[k]} onChange={(e) => setWater((p) => ({ ...p, [k]: dec(e.target.value) }))} />, "#0369A1"))}
+            {["m1", "m2", "m3", "m4", "m5", "m6"].map((k, i) => fw(k, `มิเตอร์ ${i + 1}`, <input {...numProps(14 + i, "pfWater")} value={water[k]} onChange={(e) => setWater((p) => ({ ...p, [k]: dec(e.target.value) }))} />, "#0369A1"))}
           </div>
           {waterMlPerBird != null && stdWaterMl != null && (
             <div style={{ fontSize: 12, marginTop: 8, fontWeight: waterLow ? 800 : 600, color: waterLow ? "#B91C1C" : "#0369A1", background: waterLow ? "#FEF2F2" : "#F0F9FF", border: `1px solid ${waterLow ? "#FECACA" : "#BAE0FD"}`, borderRadius: 8, padding: "6px 9px" }}>
@@ -5086,12 +5321,11 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = n
 
         <div style={section("#F0FDFA", "#99F6E4", "#0D9488")}>
           <div style={{ fontWeight: 800, color: "#0F766E", fontSize: 13, marginBottom: 8 }}>💊 ยา / สารเสริม / วัคซีน · บันทึกได้หลายรายการต่อวัน · เลือกจากสต๊อก = ตัดสต๊อก+คิดต้นทุนอัตโนมัติ</div>
-          <datalist id="medstock-dl">{medStock.map((it) => <option key={it.id} value={it.name}>{it.desc ? `${it.desc}` : ""}</option>)}</datalist>
           {medsList.map((m, i) => (
             <div key={i} style={{ background: "#fff", border: "1px solid #99F6E4", borderRadius: 10, padding: "8px 8px 4px", marginBottom: 7 }}>
               <div style={{ display: "grid", gridTemplateColumns: "1.9fr 0.9fr auto", gap: 6, marginBottom: 6 }}>
-                <div><label style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: "#0F766E", marginBottom: 2 }}>ชื่อยา/สารเสริม (เลือกจากสต๊อก)</label>
-                  <input className="prodInput pfInsp" type="text" list="medstock-dl" placeholder="พิมพ์เพื่อค้นจากสต๊อกยา…" value={m.name} onChange={(e) => upMed(i, "name", e.target.value)} style={{ ...cell, textAlign: "left", padding: "6px 8px", fontSize: 13 }} />
+                <div><label style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: "#0F766E", marginBottom: 2 }}>ชื่อยา/สารเสริม (เลือกจากสต๊อก · แบ่งตามหมวด)</label>
+                  <MedNamePicker value={m.name} onChange={(v) => upMed(i, "name", v)} medStock={medStock} medInfo={medInfo} style={{ ...cell, textAlign: "left", padding: "6px 8px", fontSize: 13, width: "100%", boxSizing: "border-box" }} />
                   {(() => {
                     const nm = (m.name || "").trim(); if (!nm) return null;
                     const info = medInfo[nm];
@@ -6669,7 +6903,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
     const remainBirds = fl?.startCount ? fl.startCount - cum.total : null;
     const silo = feedRemain(rearingByDate, hid, day, fl);
     const deadToday = r ? nf(r.loss?.deadAm) + nf(r.loss?.deadPm) : 0;
-    const deadWt = r ? nf(r.loss?.deadWt) : 0;   // นน.ไก่ตายชั่งรวม (กก.)
+    const deadWt = r ? deadWtOf(r.loss) : 0;   // นน.ไก่ตายรวมเช้า+บ่าย (กก. · รวมข้อมูลเก่าแบบชั่งรวม)
     const feedUsed = r ? nf(r.feed?.s1used) + nf(r.feed?.s2used) : 0;
     const water = waterUsage(rearingByDate, hid, day);
     return {
@@ -6694,7 +6928,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
     const remain = fl?.startCount ? fl.startCount - cum.total : null;
     const silo = feedRemain(rearingByDate, selHouse, d, fl);
     const deadToday = nf(r?.loss?.deadAm) + nf(r?.loss?.deadPm);
-    const deadWt = nf(r?.loss?.deadWt);   // นน.ไก่ตายชั่งรวม (กก.)
+    const deadWt = deadWtOf(r?.loss);   // นน.ไก่ตายรวมเช้า+บ่าย (กก. · รวมข้อมูลเก่าแบบชั่งรวม)
     const feedUsed = nf(r?.feed?.s1used) + nf(r?.feed?.s2used);
     return {
       d, r, cum, remain, silo, deadToday, deadWt, feedUsed,
@@ -8633,6 +8867,16 @@ const CSS = `
    ส่วนนี้เพิ่มต่อท้ายคอมโพเนนต์ ไม่ต้องแก้ปกติ
    ============================================================ */
 import { createRoot } from "react-dom/client";
-const __boot = document.getElementById("boot");
-if (__boot) __boot.remove();
-createRoot(document.getElementById("root")).render(React.createElement(App));
+const __mount = () => {
+  const __boot = document.getElementById("boot");
+  if (__boot) __boot.remove();
+  createRoot(document.getElementById("root")).render(React.createElement(App));
+};
+// ดึงข้อมูลจากคลาวด์ก่อน render (มี timeout กันค้าง ถ้าเน็ตช้า/ล่ม → เปิดด้วย localStorage) แล้วค่อยแสดงแอป
+(async () => {
+  if (supabase) {
+    try { await Promise.race([pullFromCloud().catch(() => {}), new Promise((r) => setTimeout(r, 3500))]); }
+    catch (e) {}
+  }
+  __mount();
+})();
