@@ -3834,13 +3834,45 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
   };
   const nextDisabled = day >= todayISO;
 
-  // ลูกค้าที่มีการขายจริง (คอลัมน์) — เฉพาะวันปัจจุบัน (ยังไม่ปิดยอด)
+  // ลูกค้าที่มีการขายจริง (คอลัมน์) — แสดงทุกวันรวมถึงวันที่ปิดยอดแล้ว (ไว้ตรวจสอบย้อนหลัง)
   const activeCustomers = useMemo(() => {
-    if (reconciled) return [];
     const ids = new Set();
     Object.values(salesLog).forEach((perCust) => Object.entries(perCust).forEach(([cid, q]) => { if (q > 0) ids.add(cid); }));
     return CUSTOMERS.filter((c) => ids.has(c.id));
-  }, [salesByDay, day, reconciled]);
+  }, [salesByDay, day]);
+
+  // บีบตารางให้พอดีหน้าจอเสมอ — ลูกค้ากี่คนก็เห็นครบในหน้าเดียว (ยิ่งเยอะยิ่งลดฟอนต์/ระยะห่าง)
+  const nCust = activeCustomers.length;
+  const density = nCust <= 5 ? 0 : nCust <= 9 ? 1 : nCust <= 14 ? 2 : 3;
+  const fzTbl = [13, 12, 10.5, 9.5][density];
+  const fzCust = [12, 10.5, 9.5, 8.5][density];
+  const padTd = ["9px 10px", "8px 5px", "7px 3px", "6px 2px"][density];
+  const padTh = ["10px 10px", "9px 5px", "8px 3px", "7px 2px"][density];
+  const tblX = { ...S.table, minWidth: 0, tableLayout: "fixed", fontSize: fzTbl };
+  const thX = { ...S.th, padding: padTh, whiteSpace: "normal", fontSize: Math.max(9.5, fzTbl - 1), lineHeight: 1.25 };
+  const thCustX = { ...S.thCust, padding: padTh, whiteSpace: "normal", wordBreak: "break-word", fontSize: fzCust, lineHeight: 1.25 };
+  const tdX = { ...S.td, padding: padTd };
+  const nameW = density === 0 ? 92 : density === 1 ? 80 : 68;   // คอลัมน์ชื่อไข่เบอร์
+
+  // โทนสีประจำไข่แต่ละชนิด [พื้นแถวอ่อน, พื้นช่องชื่อ, สีตัวอักษรชื่อ] — ช่วยกวาดตาแยกแถวง่าย
+  const EGG_TONE = {
+    "เบอร์ 0": ["#FFF1F2", "#FFE4E6", "#9F1239"],
+    "เบอร์ 1": ["#FFF7ED", "#FFEDD5", "#9A3412"],
+    "เบอร์ 2": ["#FFFBEB", "#FEF3C7", "#92400E"],
+    "เบอร์ 3": ["#F0FDF4", "#DCFCE7", "#166534"],
+    "เบอร์ 4": ["#EFF6FF", "#DBEAFE", "#1E40AF"],
+    "เบอร์ 5": ["#F5F3FF", "#EDE9FE", "#5B21B6"],
+    "เปลือกขาว": ["#F8FAFC", "#E2E8F0", "#334155"],
+    "นวล": ["#FDF4FF", "#F5D0FE", "#86198F"],
+    "หัวทราย": ["#FEFCE8", "#FEF08A", "#854D0E"],
+    "เปื้อนมาก": ["#FEF2F2", "#FECACA", "#991B1B"],
+    "เปื้อนน้อย": ["#FDF6EC", "#FED7AA", "#9A3412"],
+    "บุบ": ["#FDF2F8", "#FBCFE8", "#9D174D"],
+    "จิ๋ว": ["#F0FDFA", "#CCFBF1", "#115E59"],
+    "จัมโบ้": ["#EEF2FF", "#E0E7FF", "#3730A3"],
+    "ตอก": ["#FFF1F2", "#FECDD3", "#BE123C"],
+  };
+  const rowTone = (name) => EGG_TONE[name] || (String(name).startsWith("คละ") ? ["#ECFEFF", "#CFFAFE", "#155E75"] : ["#FAFAF9", "#E7E5E4", "#57534E"]);
 
   const opening = openingForDay(day, productionByDate, stockCounts);    // ยกมา = คงเหลือจริงของเมื่อวาน (rolling)
   const production = useMemo(() => productionToStock(productionByDate[day] || []), [productionByDate, day]);  // รับเข้า = ผลผลิตวันนั้น (สด)
@@ -3913,51 +3945,57 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
         </div>
       )}
       <div style={S.tableScroll}>
-        <table style={S.table}>
+        <table style={tblX}>
+          <colgroup>
+            <col style={{ width: nameW }} />
+          </colgroup>
           <thead>
             <tr>
-              <th style={{ ...S.th, ...S.thSticky, textAlign: "left" }}>ไข่เบอร์</th>
-              <th style={S.th}>ยกมา</th>
-              <th style={S.th}>รับเข้า</th>
-              <th style={{ ...S.th, background: "#F5EFE3" }}>รวม</th>
-              {activeCustomers.map((c) => <th key={c.id} style={S.thCust}>{c.name}</th>)}
-              <th style={{ ...S.th, background: "#FBEFDD" }}>ขายรวม</th>
-              <th style={{ ...S.th, background: "#15803D", color: "#fff" }}>คงเหลือ<br />{reconciled ? "(นับจริง)" : "(17:00)"}</th>
-              {showDiff && <th style={{ ...S.th, background: "#FDECEC" }}>ส่วนต่าง<br />(นับ−ระบบ)</th>}
-              <th style={{ ...S.th, background: "#DBEAFE" }}>ประมาณการ<br />พรุ่งนี้</th>
+              <th style={{ ...thX, ...S.thSticky, textAlign: "left" }}>ไข่เบอร์</th>
+              <th style={thX}>ยกมา</th>
+              <th style={thX}>รับเข้า</th>
+              <th style={{ ...thX, background: "#F5EFE3" }}>รวม</th>
+              {activeCustomers.map((c) => <th key={c.id} style={thCustX}>{c.name}</th>)}
+              <th style={{ ...thX, background: "#FBEFDD" }}>ขายรวม</th>
+              <th style={{ ...thX, background: "#15803D", color: "#fff" }}>คงเหลือ<br />{reconciled ? "(นับจริง)" : "(17:00)"}</th>
+              {showDiff && <th style={{ ...thX, background: "#FDECEC" }}>ส่วนต่าง<br />(นับ−ระบบ)</th>}
+              <th style={{ ...thX, background: "#DBEAFE" }}>ประมาณการ<br />พรุ่งนี้</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.pid}>
-                <td style={{ ...S.td, ...S.tdSticky, fontWeight: 600, textAlign: "left" }}>{r.name}</td>
-                <td style={S.td}>{fmt(r.opening)}</td>
-                <td style={S.td}>{fmt(r.received)}</td>
-                <td style={{ ...S.td, background: "#FAF6EE", fontWeight: 600 }}>{fmt(r.total)}</td>
-                {activeCustomers.map((c) => (
-                  <td key={c.id} style={{ ...S.td, color: r.perCust[c.id] ? "#1f2937" : "#d1d5db" }}>
-                    {r.perCust[c.id] ? fmt(r.perCust[c.id]) : "·"}
-                  </td>
-                ))}
-                <td style={{ ...S.td, background: "#FEF8F0", fontWeight: 600 }}>{fmt(r.sold)}</td>
-                <td style={{ ...S.td, background: "#F1F8F2", fontWeight: 700, color: r.remain < 0 ? "#dc2626" : "#15803D" }}>{fmt(r.remain)}</td>
-                {showDiff && <td style={{ ...S.td, background: "#FEF6F6", fontWeight: 700, color: diffColor(r.diff) }}>{diffText(r.diff)}</td>}
-                <td style={{ ...S.td, background: "#EFF5FE", fontWeight: 700, color: "#1D4ED8" }}>{fmt(r.remain + r.received)}</td>
-              </tr>
-            ))}
+            {rows.map((r) => {
+              const [lite, mid, ink] = rowTone(r.name);
+              return (
+                <tr key={r.pid}>
+                  <td style={{ ...tdX, ...S.tdSticky, fontWeight: 700, textAlign: "left", whiteSpace: "normal", wordBreak: "break-word", background: mid, color: ink }}>{r.name}</td>
+                  <td style={{ ...tdX, background: lite }}>{fmt(r.opening)}</td>
+                  <td style={{ ...tdX, background: lite }}>{fmt(r.received)}</td>
+                  <td style={{ ...tdX, background: "#FAF6EE", fontWeight: 600 }}>{fmt(r.total)}</td>
+                  {activeCustomers.map((c) => (
+                    <td key={c.id} style={{ ...tdX, background: lite, color: r.perCust[c.id] ? "#1f2937" : "#c8c2b6" }}>
+                      {r.perCust[c.id] ? fmt(r.perCust[c.id]) : "·"}
+                    </td>
+                  ))}
+                  <td style={{ ...tdX, background: "#FEF8F0", fontWeight: 600 }}>{fmt(r.sold)}</td>
+                  <td style={{ ...tdX, background: "#F1F8F2", fontWeight: 700, color: r.remain < 0 ? "#dc2626" : "#15803D" }}>{fmt(r.remain)}</td>
+                  {showDiff && <td style={{ ...tdX, background: "#FEF6F6", fontWeight: 700, color: diffColor(r.diff) }}>{diffText(r.diff)}</td>}
+                  <td style={{ ...tdX, background: "#EFF5FE", fontWeight: 700, color: "#1D4ED8" }}>{fmt(r.remain + r.received)}</td>
+                </tr>
+              );
+            })}
             <tr>
-              <td style={{ ...S.td, ...S.tdSticky, ...S.tfoot, textAlign: "left" }}>รวม</td>
-              <td style={{ ...S.td, ...S.tfoot }}>{fmt(totals.opening)}</td>
-              <td style={{ ...S.td, ...S.tfoot }}>{fmt(totals.received)}</td>
-              <td style={{ ...S.td, ...S.tfoot }}>{fmt(totals.total)}</td>
+              <td style={{ ...tdX, ...S.tdSticky, ...S.tfoot, textAlign: "left" }}>รวม</td>
+              <td style={{ ...tdX, ...S.tfoot }}>{fmt(totals.opening)}</td>
+              <td style={{ ...tdX, ...S.tfoot }}>{fmt(totals.received)}</td>
+              <td style={{ ...tdX, ...S.tfoot }}>{fmt(totals.total)}</td>
               {activeCustomers.map((c) => {
                 const cs = rows.reduce((s, r) => s + (r.perCust[c.id] || 0), 0);
-                return <td key={c.id} style={{ ...S.td, ...S.tfoot }}>{fmt(cs)}</td>;
+                return <td key={c.id} style={{ ...tdX, ...S.tfoot }}>{fmt(cs)}</td>;
               })}
-              <td style={{ ...S.td, ...S.tfoot }}>{fmt(totals.sold)}</td>
-              <td style={{ ...S.td, ...S.tfoot }}>{fmt(totals.remain)}</td>
-              {showDiff && <td style={{ ...S.td, ...S.tfoot, color: diffColor(totals.diff) }}>{diffText(totals.diff)}</td>}
-              <td style={{ ...S.td, ...S.tfoot, color: "#1D4ED8" }}>{fmt(totals.remain + totals.received)}</td>
+              <td style={{ ...tdX, ...S.tfoot }}>{fmt(totals.sold)}</td>
+              <td style={{ ...tdX, ...S.tfoot }}>{fmt(totals.remain)}</td>
+              {showDiff && <td style={{ ...tdX, ...S.tfoot, color: diffColor(totals.diff) }}>{diffText(totals.diff)}</td>}
+              <td style={{ ...tdX, ...S.tfoot, color: "#1D4ED8" }}>{fmt(totals.remain + totals.received)}</td>
             </tr>
           </tbody>
         </table>
