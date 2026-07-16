@@ -1272,7 +1272,7 @@ export default function App() {
   // การรับชำระเงิน: { billNo: { paid, date, method } } — เก็บถาวร (ตัดรูปสลิปออกกันเต็มพื้นที่ ; สถานะ/วันชำระยังอยู่)
   const [payments, setPayments] = useState(() => { try { return JSON.parse(localStorage.getItem("eggPayments") || "{}"); } catch { return {}; } });
   useEffect(() => {
-    try { const lite = {}; Object.entries(payments).forEach(([k, v]) => { lite[k] = { paid: v.paid, date: v.date, method: v.method, slip: null }; }); localStorage.setItem("eggPayments", JSON.stringify(lite)); } catch {}
+    try { const lite = {}; Object.entries(payments).forEach(([k, v]) => { lite[k] = { paid: v.paid, date: v.date, method: v.method, note: v.note, slip: null }; }); localStorage.setItem("eggPayments", JSON.stringify(lite)); } catch {}
   }, [payments]);
 
   // บิลร่าง (draft) — เก็บลง localStorage เพื่อไม่ให้หายเมื่อรีเฟรช
@@ -1339,10 +1339,12 @@ export default function App() {
     }
   };
   // รับชำระแบบ "สะสม" — ยอดที่กรอกคือเงินงวดนี้ (โมดัลตั้งค่าเริ่ม = ยอดคงค้าง) จึงบวกทับของเดิม ไม่เขียนทับ (กันงวดก่อนหน้าหาย)
-  const recordPayment = (billNo, amount, method, slip) =>
+  const recordPayment = (billNo, amount, method, slip, note) =>
     setPayments((prev) => {
       const prevPaid = prev[billNo]?.paid || 0;
-      return { ...prev, [billNo]: { paid: prevPaid + amount, date: new Date().toLocaleDateString("th-TH"), method, slip: slip || prev[billNo]?.slip || null } };
+      // หมายเหตุสะสมต่อท้ายของเดิม (จ่ายหลายงวด งวดละหมายเหตุ ไม่ทับกัน)
+      const mergedNote = [prev[billNo]?.note, (note || "").trim()].filter(Boolean).join(" | ");
+      return { ...prev, [billNo]: { paid: prevPaid + amount, date: new Date().toLocaleDateString("th-TH"), method, slip: slip || prev[billNo]?.slip || null, note: mergedNote || undefined } };
     });
   // ยกเลิกใบเสร็จ (soft void + audit): เก็บเหตุผล/เวลา/ผู้ยกเลิก ; บิลยังอยู่ในประวัติแต่ถูกตัดออกจากทุกยอดคำนวณ (activeBills)
   const cancelBill = (billNo, reason, by) => {
@@ -1452,6 +1454,7 @@ function PromptPayQR({ id, amount }) {
 }
 
 // พิมพ์ใบเสร็จ: จับภาพ #delivery-note ด้วย html2canvas (QR/สไตล์ติดครบ) แล้วสั่งพิมพ์ผ่าน iframe ซ่อน (ไม่โดน popup block)
+// พิมพ์ 2 แผ่นเสมอ: แผ่น 1 "(สำหรับลูกค้า)" · แผ่น 2 "(แผนกบัญชี)" — สลับป้ายมุมขวาบนก่อนจับภาพแต่ละแผ่น
 async function printReceiptImage(elId = "delivery-note") {
   const el = document.getElementById(elId);
   if (!el) return;
@@ -1462,18 +1465,46 @@ async function printReceiptImage(elId = "delivery-note") {
     s.onerror = reject;
     document.body.appendChild(s);
   });
-  const canvas = await h2c(el, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
-  const dataUrl = canvas.toDataURL("image/png");
+  const label = el.querySelector(".note-copy-label");
+  const orig = label ? { text: label.textContent, cssText: label.style.cssText } : null;
+  const pages = [];
+  for (const copyName of ["(สำหรับลูกค้า)", "(แผนกบัญชี)"]) {
+    if (label) {
+      label.textContent = copyName;
+      label.style.fontSize = "16px";       // ตัวใหญ่กว่าปกติ อ่านชัดว่าแผ่นของใคร
+      label.style.fontWeight = "800";
+      label.style.color = "#1f2937";
+    }
+    const canvas = await h2c(el, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
+    pages.push(canvas.toDataURL("image/png"));
+    if (!label) break;   // หาป้ายไม่เจอ → พิมพ์แผ่นเดียวแบบเดิม
+  }
+  if (label && orig) { label.textContent = orig.text; label.style.cssText = orig.cssText; }
   const iframe = document.createElement("iframe");
   Object.assign(iframe.style, { position: "fixed", right: "0", bottom: "0", width: "0", height: "0", border: "0" });
   document.body.appendChild(iframe);
   const doc = iframe.contentWindow.document;
   doc.open();
-  doc.write('<html><head><title>ใบเสร็จ</title><style>@page{margin:8mm}body{margin:0}img{width:100%}</style></head><body><img src="' + dataUrl + '"></body></html>');
+  doc.write('<html><head><title>ใบเสร็จ</title><style>@page{margin:8mm}body{margin:0}img{width:100%;display:block}.pb{page-break-after:always}</style></head><body>'
+    + pages.map((p, i) => '<img src="' + p + '"' + (i < pages.length - 1 ? ' class="pb"' : "") + ">").join("")
+    + "</body></html>");
   doc.close();
-  const img = doc.querySelector("img");
+  const imgs = [...doc.querySelectorAll("img")];
   const go = () => { try { iframe.contentWindow.focus(); iframe.contentWindow.print(); } catch (e) {} setTimeout(() => { try { document.body.removeChild(iframe); } catch (e) {} }, 2000); };
-  if (img.complete) go(); else img.onload = go;
+  Promise.all(imgs.map((im) => im.complete ? Promise.resolve() : new Promise((r) => { im.onload = r; im.onerror = r; }))).then(go);
+}
+
+// ย่อรูปก่อนอัพขึ้นคลาวด์ (ด้านยาวสุด ~1600px, JPEG) — รูปผ่าซากจากมือถือ ~4MB เหลือ ~250KB
+async function shrinkImage(file, maxDim = 1600, quality = 0.82) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+    const sc = Math.min(1, maxDim / Math.max(img.width, img.height));
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.width * sc); c.height = Math.round(img.height * sc);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    return await new Promise((res) => c.toBlob(res, "image/jpeg", quality));
+  } finally { URL.revokeObjectURL(url); }
 }
 
 /* ============================================================
@@ -1754,7 +1785,7 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
               </div>
             </div>
             <div style={S.noteMeta}>
-              <div style={S.noteDocType}>(ต้นฉบับ)</div>
+              <div className="note-copy-label" style={S.noteDocType}>(ต้นฉบับ)</div>
               <div style={S.noteTitle}>ใบส่งสินค้า / ใบเสร็จรับเงิน</div>
               <div style={S.noteMetaRow}>เลขที่ <b style={{ color: ACCENT_DK }}>{b.no}</b></div>
               <div style={S.noteMetaRow}>วันที่ <b>{b.date}</b></div>
@@ -2575,7 +2606,7 @@ function BillDetail({ bill, payment, onBack, onCancel }) {
             </div>
           </div>
           <div style={S.noteMeta}>
-            <div style={S.noteDocType}>(สำเนา)</div>
+            <div className="note-copy-label" style={S.noteDocType}>(สำเนา)</div>
             <div style={S.noteTitle}>ใบส่งสินค้า / ใบเสร็จรับเงิน</div>
             <div style={S.noteMetaRow}>เลขที่ <b style={{ color: ACCENT_DK }}>{b.no}</b></div>
             <div style={S.noteMetaRow}>วันที่ <b>{b.date}</b></div>
@@ -2666,6 +2697,7 @@ function BillDetail({ bill, payment, onBack, onCancel }) {
             : payment && payment.paid >= b.total
             ? <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
                 <div style={{ color: "#15803D", fontWeight: 700 }}>✓ ชำระแล้ว {payment.date} ({payment.method})</div>
+                {payment.note && <div style={{ fontSize: 12.5, color: "#6b6358", marginTop: 3 }}>📝 หมายเหตุ: {payment.note}</div>}
                 {payment.slip && (
                   <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "#6b6358" }}>
                     <span>สลิปการโอน:</span><SlipThumb src={payment.slip} size={64} />
@@ -2815,7 +2847,7 @@ function AccountView({ bills, payments, recordPayment, isOwner }) {
           </table>
         </div>
       </div>
-      {payModal && <PaymentModal bill={payModal} current={payments[payModal.no]?.paid || 0} isOwner={isOwner} onClose={() => setPayModal(null)} onPay={(amt, method, slip) => { recordPayment(payModal.no, amt, method, slip); setPayModal(null); }} />}
+      {payModal && <PaymentModal bill={payModal} current={payments[payModal.no]?.paid || 0} isOwner={isOwner} onClose={() => setPayModal(null)} onPay={(amt, method, slip, note) => { recordPayment(payModal.no, amt, method, slip, note); setPayModal(null); }} />}
     </div>
   );
 }
@@ -2850,6 +2882,8 @@ function PaymentModal({ bill, current, onClose, onPay, isOwner }) {
   const [amount, setAmount] = useState(String(owed));
   const method = "โอน";                        // นโยบาย: รับเฉพาะโอนเงินเท่านั้น (งดเงินสด/เช็ค)
   const [ownerConfirm, setOwnerConfirm] = useState(false);  // ขั้นยืนยันปิดบิลโดยเจ้าของ
+  const [ownerReason, setOwnerReason] = useState("");       // เหตุผลการปิดบิลโดยเจ้าของ (บังคับกรอก)
+  const [note, setNote] = useState("");        // หมายเหตุการรับชำระ (เช่น โอนจากบัญชีคนอื่น / จ่ายบางส่วนเพราะอะไร)
   const [slip, setSlip] = useState(null);      // รูปสลิป (data URL)
   const [slipName, setSlipName] = useState("");
   const [dragging, setDragging] = useState(false);  // กำลังลากรูปมาวางในโมดัล
@@ -2952,7 +2986,12 @@ function PaymentModal({ bill, current, onClose, onPay, isOwner }) {
             <span>ตรวจยอดด้วยตาแล้ว ยืนยันว่าสลิปนี้ถูกต้อง (ระบบจะระบุ "ข้ามตรวจสลิป" ไว้ในประวัติ)</span>
           </label>
         )}
-        <button style={{ ...S.primaryBtn, ...(valid ? {} : S.confirmBtnDisabled) }} disabled={!valid} onClick={() => onPay(amt, slipHasAmt ? "โอน" : "โอน · ข้ามตรวจสลิป", slip)}>
+        <div style={{ marginBottom: 14 }}>
+          <label style={S.ciLabel}>หมายเหตุ <span style={{ color: "#9b8e78", fontWeight: 500 }}>(ไม่บังคับ)</span></label>
+          <textarea rows={2} style={{ ...S.fullInput, resize: "vertical", fontFamily: "inherit" }} value={note} onChange={(e) => setNote(e.target.value)}
+            placeholder="เช่น โอนจากบัญชีชื่ออื่น · จ่ายบางส่วน นัดจ่ายที่เหลือวันศุกร์" />
+        </div>
+        <button style={{ ...S.primaryBtn, ...(valid ? {} : S.confirmBtnDisabled) }} disabled={!valid} onClick={() => onPay(amt, slipHasAmt ? "โอน" : "โอน · ข้ามตรวจสลิป", slip, note.trim())}>
           บันทึกรับชำระ {fmt(amt)} บาท
         </button>
         {!slip && (
@@ -2973,9 +3012,16 @@ function PaymentModal({ bill, current, onClose, onPay, isOwner }) {
                 <div style={{ fontSize: 12.5, color: "#6b6358", marginBottom: 10 }}>
                   บัญชีจะบันทึกว่า<b>รับชำระครบ {fmt(owed)} บาท</b> (ระบุ "ปิดโดยเจ้าของ" ในประวัติ) · ไม่ต้องแนบสลิป · สต๊อกไข่ถูกตัดตามปกติตั้งแต่ออกบิลแล้ว
                 </div>
+                <div style={{ marginBottom: 10 }}>
+                  <label style={{ ...S.ciLabel, color: "#5B21B6" }}>เหตุผลการปิดบิล <span style={{ color: "#B91C1C", fontWeight: 700 }}>* จำเป็น</span></label>
+                  <input style={{ ...S.fullInput, borderColor: "#C4B5FD" }} value={ownerReason} onChange={(e) => setOwnerReason(e.target.value)}
+                    placeholder="เช่น ให้เครดิตลูกค้าประจำ · ตกลงหักหนี้กันแล้ว · บิลภายในฟาร์ม" autoFocus />
+                </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button style={{ ...S.ghostBtn, flex: 1 }} onClick={() => setOwnerConfirm(false)}>ยกเลิก</button>
-                  <button style={{ ...S.primaryBtn, flex: 2, background: "#7C3AED" }} onClick={() => onPay(owed, "ปิดโดยเจ้าของ", null)}>
+                  <button style={{ ...S.primaryBtn, flex: 2, background: "#7C3AED", opacity: ownerReason.trim() ? 1 : 0.5, cursor: ownerReason.trim() ? "pointer" : "not-allowed" }}
+                    disabled={!ownerReason.trim()}
+                    onClick={() => onPay(owed, "ปิดโดยเจ้าของ", null, ["เหตุผลปิดบิล: " + ownerReason.trim(), note.trim()].filter(Boolean).join(" | "))}>
                     👑 ยืนยันปิดบิล {fmt(owed)} บาท
                   </button>
                 </div>
@@ -5210,6 +5256,27 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = n
   const upMed = (i, k, v) => setMedsList((p) => p.map((m, j) => j === i ? { ...m, [k]: v } : m));
   const rmMed = (i) => setMedsList((p) => p.filter((_, j) => j !== i));
   const [note, setNote] = useState(d0.note || "");
+  const [photoBusy, setPhotoBusy] = useState("");   // สถานะอัพรูปผ่าซาก ("" = ว่าง)
+  // แนบรูปผ่าซากไก่ตาย → ย่อรูป → อัพขึ้น Supabase Storage (bucket: necropsy) → เก็บ URL ไว้ใน loss.photos
+  const addNecropsyPhotos = async (e) => {
+    const files = [...(e.target.files || [])]; e.target.value = "";
+    if (!files.length) return;
+    if (!supabase) { alert("โหมดทดลอง (ยังไม่เชื่อมคลาวด์) — อัพรูปไม่ได้"); return; }
+    setPhotoBusy("⏳ กำลังอัพโหลดรูป...");
+    try {
+      for (const f of files) {
+        if (!f.type.startsWith("image/")) continue;
+        const blob = await shrinkImage(f);
+        const path = `${dateISO}/${houseId}/${Date.now()}-${Math.random().toString(36).slice(2, 6)}.jpg`;
+        const { error } = await supabase.storage.from("necropsy").upload(path, blob, { contentType: "image/jpeg" });
+        if (error) throw error;
+        const { data } = supabase.storage.from("necropsy").getPublicUrl(path);
+        setLoss((p) => ({ ...p, photos: [...(p.photos || []), { path, url: data.publicUrl }] }));
+      }
+      setPhotoBusy("");
+    } catch (err) { setPhotoBusy(""); alert("อัพรูปไม่สำเร็จ: " + ((err && err.message) || err)); }
+  };
+  const rmNecropsyPhoto = (i) => setLoss((p) => ({ ...p, photos: (p.photos || []).filter((_, j) => j !== i) }));
   const refs = React.useRef([]); const saveRef = React.useRef(null);
   const onKey = (i) => (e) => { if (e.key !== "Enter") return; e.preventDefault(); const n = refs.current[i + 1]; if (n) n.focus(); else if (saveRef.current) saveRef.current.focus(); };
   const cell = { width: "100%", padding: "8px 9px", border: "1.5px solid #e3ddd0", borderRadius: 9, fontSize: 14.5, fontFamily: "inherit", textAlign: "right", outline: "none" };
@@ -5285,6 +5352,24 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = n
                 {wTot > 0 && deadTotal > 0 ? <> · <span style={{ background: "#FEE2E2", borderRadius: 6, padding: "1px 6px" }}>รวม {fmt2(wTot)} กก. · เฉลี่ย {fmt2(wTot / deadTotal)} กก./ตัว</span></> : null}
               </>;
             })()}
+          </div>
+          {/* รูปผ่าซากไก่ตาย — อัพขึ้นคลาวด์ ผูกกับวัน/โรงเรือน ไว้ให้วิเคราะห์สาเหตุการตาย */}
+          <div style={{ borderTop: "1px dashed #FECACA", paddingTop: 8, marginTop: 4, marginBottom: 6 }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: "#B91C1C", marginBottom: 6, textAlign: "left" }}>📷 รูปผ่าซากไก่ตาย (ถ้ามี — แนบได้หลายรูป เก็บขึ้นคลาวด์)</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+              {(loss.photos || []).map((ph, i) => (
+                <div key={ph.path || i} style={{ position: "relative" }}>
+                  <SlipThumb src={ph.url} size={54} />
+                  <button onClick={() => rmNecropsyPhoto(i)} title="ลบรูปนี้ออกจากบันทึก"
+                    style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: "50%", border: "none", background: "#DC2626", color: "#fff", fontSize: 11, fontWeight: 800, lineHeight: 1, cursor: "pointer", padding: 0 }}>✕</button>
+                </div>
+              ))}
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", border: "1.5px dashed #FCA5A5", borderRadius: 9, background: "#fff", color: "#B91C1C", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+                📷 ถ่าย / แนบรูป
+                <input type="file" accept="image/*" multiple style={{ display: "none" }} onChange={addNecropsyPhotos} />
+              </label>
+              {photoBusy && <span style={{ fontSize: 12, color: "#B45309", fontWeight: 700 }}>{photoBusy}</span>}
+            </div>
           </div>
         </div>
 
