@@ -873,14 +873,14 @@ function productionToStock(houses) {
 // ยกมาของวันหนึ่ง = คงเหลือ(นับจริง)ของวันก่อนหน้า ; วันแรกสุด = STOCK_OPENING ; ถ้าวันก่อนไม่มีนับจริง → ยกมา+ผลิต (rolling)
 // counts = ยอดนับจริงต่อวัน (ปิดยอดแล้ว) ; default = seed ในโค้ด ; แอปส่ง state ที่พนักงานกรอกเข้ามาแทน
 function openingForDay(date, prodByDate, counts) {
+  // ยกมาของวัน date ใดก็ได้ตามปฏิทิน: หา "วันหลักฐานล่าสุดก่อนหน้า" (วันที่มีผลิตหรือมีปิดยอด)
   const closed = counts || STOCK_REMAIN_BY_DATE;
-  const dates = Object.keys(prodByDate || {}).sort();
-  const idx = dates.indexOf(date);
-  if (idx <= 0) return STOCK_OPENING;                       // วันแรก → ยกมา 2/7
-  const prev = dates[idx - 1];
+  const anchors = [...new Set([...Object.keys(prodByDate || {}), ...Object.keys(closed)])].sort().filter((d) => d < date);
+  if (!anchors.length) return STOCK_OPENING;                 // ไม่มีวันก่อนหน้า → ยกมาตั้งต้น 2/7
+  const prev = anchors[anchors.length - 1];
   if (closed[prev]) return closed[prev];                     // วันก่อนปิดยอดแล้ว → ใช้คงเหลือจริง
   const po = openingForDay(prev, prodByDate, counts);        // วันก่อนยังไม่ปิด → ยกมา + ผลิต (ยังไม่หักขายอดีต)
-  const pp = productionToStock(prodByDate[prev]);
+  const pp = productionToStock(prodByDate[prev] || []);
   const r = {}; ALL_PRODUCTS.forEach((p) => r[p.id] = (po[p.id] || 0) + (pp[p.id] || 0));
   return r;
 }
@@ -1087,8 +1087,9 @@ export default function App() {
     });
   };
 
-  // วันทำงานของสต็อก/คลัง = วันผลิตล่าสุด (ขายของวันนี้) — สต็อกขายได้ "ดึงสด" จากผลผลิตวันนี้ + ยกมา − ขายแล้ว (ไม่มี state แช่แข็ง)
-  const stockDay = useMemo(() => Object.keys(productionByDate).sort().pop() || STOCK_DAY, [productionByDate]);
+  // วันทำงานของสต็อก/ขาย = วันนี้ตามปฏิทินจริง — บิลผูกกับวันที่ออกบิลจริง
+  // สต็อกวันนี้ = ยกมา(เมื่อวาน) + ผลิตวันนี้(ถ้าเสมียนคีย์แล้ว) − ขายวันนี้ → ติดลบได้ระหว่างวัน รอยอดเข้า ~17.00
+  const stockDay = isoFromTs(Date.now());
   // ยอดนับจริงปลายวัน (ปิดยอดสิ้นวัน) ต่อวันที่ — seed จากโค้ด ⊕ ที่พนักงานกรอก (localStorage) ; วันที่มีค่า = "ปิดยอดแล้ว" → เป็นยกมาของวันถัดไป
   const [stockCounts, setStockCounts] = useState(() => {
     try { const st = JSON.parse(localStorage.getItem("eggStockCounts") || "{}"); return { ...STOCK_REMAIN_BY_DATE, ...st }; }
@@ -1265,7 +1266,18 @@ export default function App() {
   const deleteTrayEvent = (id) => setTrayEvents((prev) => prev.filter((x) => x.id !== id));
 
   // ประวัติบิลทั้งหมด (ใช้ในประวัติบิล / บัญชี / แดชบอร์ด) — เก็บลง localStorage เพื่อเรียกดู/Export บิลเก่าย้อนหลังได้
-  const [bills, setBills] = useState(() => { try { return JSON.parse(localStorage.getItem("eggBills") || "[]"); } catch { return []; } });
+  // แปลงวันที่ไทยบนบิล "16/7/2569" → ISO "2026-07-16"
+  const isoFromThaiDate = (s) => {
+    const m = String(s || "").match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (!m) return null;
+    return `${parseInt(m[3]) - 543}-${String(parseInt(m[2])).padStart(2, "0")}-${String(parseInt(m[1])).padStart(2, "0")}`;
+  };
+  // normalize ครั้งเดียวตอนโหลด: บิลเก่าที่เคยผูกกับ "วันผลิตล่าสุด" → ย้ายไปผูกกับวันที่ออกบิลจริง
+  const normalizeBillWorkDays = (list) => (Array.isArray(list) ? list : []).map((b) => {
+    const real = isoFromThaiDate(b.date) || (b.ts ? isoFromTs(b.ts) : null);
+    return real && b.workDay !== real ? { ...b, workDay: real } : b;
+  });
+  const [bills, setBills] = useState(() => { try { return normalizeBillWorkDays(JSON.parse(localStorage.getItem("eggBills") || "[]")); } catch { return []; } });
   useEffect(() => { try { localStorage.setItem("eggBills", JSON.stringify(bills)); } catch {} }, [bills]);
   // บิลที่ยังใช้งาน (ตัดบิลที่ยกเลิกออก) — ใช้คิดยอดขาย/สต๊อก/ลูกหนี้/ต้นทุน/แผง ; ประวัติบิลยังเห็นบิลยกเลิก (มีตราประทับ)
   const activeBills = useMemo(() => (bills || []).filter((b) => !b.cancelled), [bills]);
@@ -1322,7 +1334,7 @@ export default function App() {
   }, [productionByDate, salesTotals, stockDay, stockCounts]);
 
   const addBill = (bill) => {
-    const b = { ...bill, workDay: bill.workDay || stockDay };  // ผูกบิลกับ "วันทำงาน" (วันผลิตล่าสุด) เพื่อคิดสต็อก/คลังรายวัน
+    const b = { ...bill, workDay: bill.workDay || stockDay };  // ผูกบิลกับวันที่ออกบิลจริง (stockDay = วันนี้) เพื่อคิดสต็อก/คลังรายวัน
     setBills((prev) => [b, ...prev]);
     // ถ้าบิลมีแผงรับคืน → สร้างใบ "รอคัด" อัตโนมัติ เข้าคิวคัดแยก (fromBill = กันนับซ้ำใน trayAccountOf)
     const ts = bill.traySummary;
