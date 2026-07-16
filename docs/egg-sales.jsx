@@ -723,6 +723,7 @@ const STOCK_RECEIVED = {
 };
 // ตกเกรด (ชื่อในตารางผลผลิต) → รหัสสินค้าในคลัง (ใช้ตอนดึงรับเข้าจากผลผลิต)
 const OFF_TO_PID = { จัมโบ้: "s_jumbo", บุบ: "g_bub", ตอก: "g_tok", จิ๋ว: "g_jiw", เปลือกขาว: "s_white", หัวทราย: "g_sand", นวล: "g_nuan", เปื้อนมาก: "g_pueanmak", เปื้อนน้อย: "g_pueannoi" };
+const KLA_TO_PID = { "18+": "w18", "19+": "w19", "20+": "w20", "21+": "w21", "22+": "w22", "23+": "w23" };   // ไข่คละตามน้ำหนัก (กรอกเป็นแผง)
 
 // ---------- แผงดำ: รายการรับคืนเริ่มต้นว่าง (ผู้ใช้บันทึกเอง) ----------
 const TRAY_SEED = [];
@@ -866,6 +867,7 @@ function productionToStock(houses) {
   (houses || []).forEach((h) => {
     Object.entries(h.grade.เบอร์).forEach(([k, fong]) => { const pid = "n" + k; p[pid] = (p[pid] || 0) + Math.round((fong || 0) / PER_PRADANG); });
     Object.entries(h.grade.ตกเกรด).forEach(([k, prang]) => { const pid = OFF_TO_PID[k]; if (pid) p[pid] = (p[pid] || 0) + (prang || 0); });
+    Object.entries(h.grade.คละ || {}).forEach(([k, prang]) => { const pid = KLA_TO_PID[k]; if (pid) p[pid] = (p[pid] || 0) + (prang || 0); });
   });
   return p;
 }
@@ -4804,13 +4806,16 @@ function HouseEditModal({ house, defaultDate, onClose, onSave }) {
   // ไข่ดีเบอร์: กรอก/แสดงเป็น "แผง" (ตรงกับใบงานหน้าฟาร์มและตารางรายงาน) — ภายในเก็บเป็นฟอง จึงแปลง ÷30 ตอนเปิด, ×30 ตอนบันทึก
   const [ber, setBer] = useState(() => { const o = {}; Object.keys(house.grade.เบอร์).forEach((k) => o[k] = house.grade.เบอร์[k] == null ? "" : String(Math.round((house.grade.เบอร์[k] || 0) / PER_PRADANG))); return o; });
   const [off, setOff] = useState(() => { const o = {}; Object.keys(house.grade.ตกเกรด).forEach((k) => o[k] = String(house.grade.ตกเกรด[k] ?? "")); return o; });
+  // ไข่คละตามน้ำหนัก (แผง) — ข้อมูลเก่าไม่มีหมวดนี้ → เริ่มว่าง
+  const [kla, setKla] = useState(() => { const src = house.grade.คละ || {}; const o = {}; Object.keys(KLA_TO_PID).forEach((k) => o[k] = src[k] != null ? String(src[k]) : ""); return o; });
   const [date, setDate] = useState(house.date || defaultDate || "");
   const insp0 = house.inspect || {};
   const [inspN, setInspN] = useState(insp0.count != null ? String(insp0.count) : "4");   // สุ่มตรวจ: ตอกไข่ วันละ 4 ฟอง/หลัง (ค่าเริ่มต้น)
   const [inspResult, setInspResult] = useState(insp0.result || "");
-  const berKeys = Object.keys(ber), offKeys = Object.keys(off);
+  const berKeys = Object.keys(ber), offKeys = Object.keys(off), klaKeys = Object.keys(kla);
   const goodPrang = Object.values(ber).reduce((s, v) => s + (parseInt(v) || 0), 0);   // แผง (ตามที่กรอก)
   const offPrang = Object.values(off).reduce((s, v) => s + (parseInt(v) || 0), 0);
+  const klaPrang = Object.values(kla).reduce((s, v) => s + (parseInt(v) || 0), 0);
   const inputsRef = React.useRef([]);   // input เรียงตามลำดับกรอก (ไก่ → เบอร์ 0-5 → ตกเกรด)
   const saveRef = React.useRef(null);
   const dateTH = toThaiDate(date);
@@ -4818,7 +4823,8 @@ function HouseEditModal({ house, defaultDate, onClose, onSave }) {
   const save = () => {
     const eB = {}; Object.keys(ber).forEach((k) => eB[k] = (parseInt(ber[k]) || 0) * PER_PRADANG);   // แผงที่กรอก → เก็บเป็นฟอง
     const eO = {}; Object.keys(off).forEach((k) => eO[k] = parseInt(off[k]) || 0);
-    onSave(house.id, { เบอร์: eB, ตกเกรด: eO }, parseInt(chickens) || 0, date, { count: parseInt(inspN) || 0, result: inspResult.trim() });
+    const eK = {}; Object.keys(kla).forEach((k) => eK[k] = parseInt(kla[k]) || 0);                    // ไข่คละ (แผง)
+    onSave(house.id, { เบอร์: eB, ตกเกรด: eO, คละ: eK }, parseInt(chickens) || 0, date, { count: parseInt(inspN) || 0, result: inspResult.trim() });
   };
   // กด Enter → ไปช่องถัดไป ; ช่องสุดท้าย → โฟกัสปุ่มบันทึก (Enter ซ้ำ = บันทึก)
   const onKey = (idx) => (e) => {
@@ -4872,12 +4878,19 @@ function HouseEditModal({ house, defaultDate, onClose, onSave }) {
           </div>
         </div>
 
+        <div style={section("#ECFEFF", "#A5F3FC", "#0891B2")}>
+          <div style={{ fontWeight: 800, color: "#155E75", fontSize: 13, marginBottom: 8 }}>🥚 ไข่คละ (แผง) · ตามน้ำหนัก</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 7 }}>
+            {klaKeys.map((k, i) => fieldWrap(k, `คละ ${k}`, <input {...regInput(offBase + offKeys.length + i, "pfKla", { padding: "6px 8px", fontSize: 13.5 })} value={withCommas(kla[k])} onChange={stripSet((v) => setKla((p) => ({ ...p, [k]: v })))} />, "#155E75", 11.5))}
+          </div>
+        </div>
+
         <div style={section("#F0FDFA", "#99F6E4", "#0D9488")}>
           <div style={{ fontWeight: 800, color: "#0F766E", fontSize: 13, marginBottom: 8 }}>🔍 สุ่มตรวจคุณภาพ (ตอกไข่) · ไม่หักสต็อก</div>
           <div style={{ display: "flex", gap: 9, alignItems: "flex-start" }}>
             <div style={{ width: 120, flexShrink: 0 }}>
               <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: "#0F766E", marginBottom: 3, textAlign: "left" }}>จำนวนตอก (ฟอง)</label>
-              <input {...regInput(offBase + offKeys.length, "pfInsp")} value={withCommas(inspN)} onChange={stripSet(setInspN)} />
+              <input {...regInput(offBase + offKeys.length + klaKeys.length, "pfInsp")} value={withCommas(inspN)} onChange={stripSet(setInspN)} />
             </div>
             <div style={{ flex: 1 }}>
               <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: "#0F766E", marginBottom: 3, textAlign: "left" }}>ผลการสุ่มตรวจ / หมายเหตุ</label>
@@ -4890,6 +4903,7 @@ function HouseEditModal({ house, defaultDate, onClose, onSave }) {
         <div style={S.weighSummary}>
           <div style={S.wsRow}><span>ไข่ดีรวม</span><span style={{ color: "#15803D", fontWeight: 700 }}>{fmt(goodPrang)} แผง · {fmt(goodPrang * PER_PRADANG)} ฟอง</span></div>
           <div style={S.wsRow}><span>ตกเกรดรวม</span><span style={{ color: "#B45309", fontWeight: 700 }}>{fmt(offPrang)} แผง</span></div>
+          {klaPrang > 0 && <div style={S.wsRow}><span>ไข่คละรวม</span><span style={{ color: "#155E75", fontWeight: 700 }}>{fmt(klaPrang)} แผง</span></div>}
         </div>
         <button ref={saveRef} style={S.primaryBtn} onClick={save}>บันทึกข้อมูล {house.id}</button>
       </div>
