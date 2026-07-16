@@ -1627,9 +1627,10 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
   const whtAmt = Math.round(whtBase * whtRate) / 100;         // ปัดทศนิยม 2 ตำแหน่ง
   const netPay = grandTotal - whtAmt;                         // ยอดโอนสุทธิหลังหัก ณ ที่จ่าย
 
+  // ขายเกินสต็อคระบบได้ (สต็อคติดลบ) — ไข่ที่เก็บวันนี้อยู่ในสต็อคจริงแล้ว แต่เสมียนคีย์ยอดเข้า ~17.00 น.
   const overStock = cartItems.filter((i) => i.qty > stock[i.productId]);
   const noPrice = cartItems.filter((i) => !(parseFloat(i.price) > 0));  // รายการที่ยังไม่ใส่ราคา
-  const canConfirm = customer && cartItems.length > 0 && overStock.length === 0 && noPrice.length === 0;
+  const canConfirm = customer && cartItems.length > 0 && noPrice.length === 0;
 
   const confirmBill = () => {
     // สต็อกลดอัตโนมัติจากบิลที่บันทึก (bills = แหล่งข้อมูลเดียว) — ไม่ต้องหัก state แยก
@@ -2141,7 +2142,7 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
                         <span style={{ fontSize: 11.5, color: "#9b8e78" }}>กก · ชั่งแล้วใส่ (ถ้าลูกค้าขอ)</span>
                       </div>
                     )}
-                    {over && <div style={S.overWarn}><AlertCircle size={12} /> เกินสต็อก (เหลือ {fmt(stock[i.productId])})</div>}
+                    {over && <div style={{ ...S.overWarn, color: "#B45309" }}><AlertCircle size={12} /> เกินสต็อคระบบ (เหลือ {fmt(stock[i.productId])} → จะติดลบ {fmt(stock[i.productId] - i.qty)}) — ขายได้ รอเสมียนคีย์ยอดเข้า</div>}
                     {!(parseFloat(i.price) > 0) && <div style={S.overWarn}><AlertCircle size={12} /> ยังไม่ใส่ราคา/แผง</div>}
                   </div>
                 );
@@ -2320,7 +2321,7 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
               <Check size={18} /> ยืนยันออกบิล · ตัดสต็อก
             </button>
             {noPrice.length > 0 && <div style={S.footWarn}>⚠️ มี {fmt(noPrice.length)} รายการยังไม่ใส่ราคา/แผง — กรุณาใส่ราคาก่อนออกบิล</div>}
-            {overStock.length > 0 && <div style={S.footWarn}>มีสินค้าเกินสต็อก กรุณาแก้ไขก่อน</div>}
+            {overStock.length > 0 && <div style={{ ...S.footWarn, color: "#B45309", background: "#FFF9F0" }}>ℹ️ มีรายการเกินสต็อคระบบ — ออกบิลได้ปกติ สต็อคจะติดลบไว้จนกว่าเสมียนคีย์ยอดไข่เข้า (~17.00 น.)</div>}
           </div>
         </div>
       </div>
@@ -3777,7 +3778,15 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
   const reconciled = !!stockCounts[day];            // วันปิดยอดแล้ว (มียอดนับจริง) → คงเหลือ = นับจริง, โชว์ส่วนต่าง
   const physical = stockCounts[day];
   const salesLog = salesByDay[day] || {};           // ยอดขายของ "วันนั้น" (จากบิลจริง) — ถูกต้องต่อวันที่เลือก
-  const goDay = (delta) => { const i = dIdx + delta; if (i >= 0 && i < dates.length) setDay(dates[i]); };
+  // เลื่อนวันตามปฏิทินจริง (ไม่ใช่เฉพาะวันที่มีข้อมูล) — ย้อนอดีตได้เสมอ, ไปข้างหน้าได้ไม่เกินวันนี้
+  const todayISO = isoFromTs(Date.now());
+  const goDay = (delta) => {
+    const d = new Date(day + "T12:00:00");
+    d.setDate(d.getDate() + delta);
+    const next = isoFromTs(d.getTime());
+    if (next <= todayISO) setDay(next);
+  };
+  const nextDisabled = day >= todayISO;
 
   // ลูกค้าที่มีการขายจริง (คอลัมน์) — เฉพาะวันปัจจุบัน (ยังไม่ปิดยอด)
   const activeCustomers = useMemo(() => {
@@ -3836,9 +3845,9 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
             <button onClick={() => setShowClose(true)} disabled={!hasStock} title={hasStock ? "" : "ยังไม่มีผลผลิต/สต็อกของวันนี้"} style={{ padding: "7px 14px", border: "none", background: hasStock ? "#15803D" : "#cbd5c9", color: "#fff", borderRadius: 8, fontSize: 13, fontWeight: 800, cursor: hasStock ? "pointer" : "default" }}>🔒 ปิดยอดสิ้นวัน</button>
           )}
           <button onClick={() => setShowHistory(true)} title="ประวัติ/สรุปการปิดยอด" style={{ padding: "7px 12px", border: `1px solid ${ACCENT}`, background: "#fff", color: ACCENT_DK, borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>📋 ประวัติ</button>
-          <button onClick={() => goDay(-1)} disabled={dIdx <= 0} title="วันก่อนหน้า" style={{ padding: "6px 11px", border: `1px solid ${ACCENT}`, background: dIdx <= 0 ? "#f3efe6" : "#fff", color: dIdx <= 0 ? "#c9c0ad" : ACCENT_DK, borderRadius: 8, fontSize: 15, fontWeight: 800, cursor: dIdx <= 0 ? "default" : "pointer" }}>‹</button>
+          <button onClick={() => goDay(-1)} title="วันก่อนหน้า" style={{ padding: "6px 11px", border: `1px solid ${ACCENT}`, background: "#fff", color: ACCENT_DK, borderRadius: 8, fontSize: 15, fontWeight: 800, cursor: "pointer" }}>‹</button>
           <ThaiDateField value={day} onChange={setDay} style={{ width: 170, padding: "7px 10px", borderColor: ACCENT, fontSize: 13.5 }} />
-          <button onClick={() => goDay(1)} disabled={dIdx < 0 || dIdx >= dates.length - 1} title="วันถัดไป" style={{ padding: "6px 11px", border: `1px solid ${ACCENT}`, background: (dIdx < 0 || dIdx >= dates.length - 1) ? "#f3efe6" : "#fff", color: (dIdx < 0 || dIdx >= dates.length - 1) ? "#c9c0ad" : ACCENT_DK, borderRadius: 8, fontSize: 15, fontWeight: 800, cursor: (dIdx < 0 || dIdx >= dates.length - 1) ? "default" : "pointer" }}>›</button>
+          <button onClick={() => goDay(1)} disabled={nextDisabled} title={nextDisabled ? "ถึงวันปัจจุบันแล้ว" : "วันถัดไป"} style={{ padding: "6px 11px", border: `1px solid ${ACCENT}`, background: nextDisabled ? "#f3efe6" : "#fff", color: nextDisabled ? "#c9c0ad" : ACCENT_DK, borderRadius: 8, fontSize: 15, fontWeight: 800, cursor: nextDisabled ? "default" : "pointer" }}>›</button>
         </div>
       </div>
       <PrevDayWarn prevISO={prevUnrecordedDay(day, (d) => !!stockCounts[d], Object.keys(stockCounts).sort()[0])} what="(ปิดยอดสิ้นวัน)" onGo={setDay} />
