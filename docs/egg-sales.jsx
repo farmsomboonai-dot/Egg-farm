@@ -949,6 +949,20 @@ function RolePickerModal({ roles, current, onPick, onClose }) {
   const [sel, setSel] = useState(null);
   const [pin, setPin] = useState("");
   const [err, setErr] = useState("");
+  const [authUser, setAuthUser] = useState("");   // ชื่อบัญชีล็อกอินฟาร์ม (Supabase Auth)
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getSession().then((r) => {
+      const s = r && r.data && r.data.session;
+      if (s && s.user && s.user.email) setAuthUser(s.user.email.replace(/@sjffarm\.app$/, ""));
+    }).catch(() => {});
+  }, []);
+  const doLogout = async () => {
+    if (!window.confirm("ออกจากระบบบัญชีฟาร์ม? ครั้งต่อไปต้องใส่รหัสผ่านใหม่")) return;
+    try { localStorage.removeItem("sjfAuthOk"); } catch (e) {}
+    try { await supabase.auth.signOut(); } catch (e) {}
+    window.location.reload();
+  };
   const choose = (r) => {
     if (r.id === current) { onClose(); return; }        // เลือกบทบาทเดิม = ปิดเฉยๆ
     if (!r.pin) { onPick(r.id); return; }                // ไม่มี PIN → เข้าเลย
@@ -971,6 +985,12 @@ function RolePickerModal({ roles, current, onPick, onClose }) {
                 {r.id === current && <span style={{ fontSize: 11.5, fontWeight: 800, color: ACCENT_DK }}>ใช้อยู่</span>}
               </button>
             ))}
+            {supabase && (
+              <div style={{ marginTop: 6, paddingTop: 10, borderTop: "1px solid #efe9dc", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 11.5, color: "#9b8e78" }}>🔐 บัญชีฟาร์ม: <b style={{ color: "#6d6151" }}>{authUser || "—"}</b></span>
+                <button onClick={doLogout} style={{ border: "1.5px solid #FCA5A5", background: "#FEF2F2", color: "#B91C1C", borderRadius: 9, padding: "7px 12px", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>🚪 ออกจากระบบ</button>
+              </div>
+            )}
           </div>
         ) : (
           <div>
@@ -9265,20 +9285,107 @@ const CSS = `
 
 
 /* ============================================================
+   🔐 ระบบล็อกอินฟาร์ม (Supabase Auth)
+   - มี Supabase → ต้องล็อกอินก่อนเข้าแอป (จำ session ไว้ในเครื่อง เปิดครั้งหน้าไม่ต้องล็อกอินใหม่)
+   - ไม่มี Supabase (ก๊อปปี้ทดสอบ) → เข้าได้เลยแบบ localStorage เดิม
+   - เน็ตล่ม/Supabase ล่ม แต่เครื่องนี้เคยล็อกอินสำเร็จ (sjfAuthOk) → ปล่อยเข้าโหมดออฟไลน์ กันงานหน้าฟาร์มสะดุด
+   - ชื่อผู้ใช้สั้นๆ (owner/office/farm) → แปลงเป็นอีเมล @sjffarm.app ให้อัตโนมัติ
+   ============================================================ */
+async function __hydrate() {
+  // ดึงข้อมูลจากคลาวด์ก่อนแสดงแอป (timeout กันค้าง ถ้าเน็ตช้า → เปิดด้วย localStorage)
+  try { await Promise.race([pullFromCloud().catch(() => {}), new Promise((r) => setTimeout(r, 3500))]); } catch (e) {}
+}
+function LoginScreen({ onDone }) {
+  const [user, setUser] = useState("");
+  const [pw, setPw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const inputSt = { width: "100%", padding: "12px 14px", border: "1.5px solid #e3ddd0", borderRadius: 11, fontSize: 16, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: "#fff" };
+  const submit = async () => {
+    const u = user.trim().toLowerCase();
+    if (!u || !pw || busy) return;
+    setBusy(true); setErr("");
+    const email = u.includes("@") ? u : u + "@sjffarm.app";
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password: pw });
+      if (error) {
+        setErr(/invalid login credentials/i.test(error.message || "") ? "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง" : "เข้าสู่ระบบไม่สำเร็จ: " + (error.message || ""));
+        setBusy(false); return;
+      }
+      try { localStorage.setItem("sjfAuthOk", "1"); } catch (e) {}
+      onDone();
+    } catch (e) {
+      setErr("เชื่อมต่อไม่ได้ — ตรวจอินเทอร์เน็ตแล้วลองใหม่อีกครั้ง");
+      setBusy(false);
+    }
+  };
+  return (
+    <div style={{ minHeight: "100vh", background: "#F6F1E7", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, fontFamily: "'Noto Sans Thai', sans-serif" }}>
+      <div style={{ width: "100%", maxWidth: 390, background: "#fff", border: "1.5px solid #e9e2d2", borderRadius: 18, padding: "30px 26px", boxShadow: "0 12px 34px rgba(90,70,30,0.10)" }}>
+        <div style={{ textAlign: "center", marginBottom: 20 }}>
+          <div style={{ fontSize: 44, lineHeight: 1 }}>🥚</div>
+          <div style={{ fontSize: 19, fontWeight: 900, color: INK, marginTop: 8 }}>ฟาร์มไข่สมบูรณ์ · SJF Farm</div>
+          <div style={{ fontSize: 12.5, color: "#9b8e78", marginTop: 3 }}>เข้าสู่ระบบเพื่อใช้งาน</div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
+          <div>
+            <div style={{ fontSize: 12.5, fontWeight: 800, color: "#6d6151", marginBottom: 5 }}>ชื่อผู้ใช้</div>
+            <input value={user} onChange={(e) => { setUser(e.target.value); setErr(""); }} onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+              autoFocus autoCapitalize="none" autoCorrect="off" placeholder="เช่น office" style={inputSt} />
+          </div>
+          <div>
+            <div style={{ fontSize: 12.5, fontWeight: 800, color: "#6d6151", marginBottom: 5 }}>รหัสผ่าน</div>
+            <input value={pw} onChange={(e) => { setPw(e.target.value); setErr(""); }} onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+              type="password" placeholder="รหัสผ่าน" style={inputSt} />
+          </div>
+          {err && <div style={{ color: "#B91C1C", fontSize: 12.5, fontWeight: 700, background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 9, padding: "8px 11px" }}>{err}</div>}
+          <button onClick={submit} disabled={!user.trim() || !pw || busy}
+            style={{ marginTop: 4, padding: "13px 14px", border: "none", borderRadius: 11, background: (!user.trim() || !pw || busy) ? "#e5ddcc" : ACCENT, color: (!user.trim() || !pw || busy) ? "#a89d88" : "#fff", fontSize: 16, fontWeight: 900, cursor: (!user.trim() || !pw || busy) ? "default" : "pointer", fontFamily: "inherit" }}>
+            {busy ? "กำลังเข้าสู่ระบบ…" : "เข้าสู่ระบบ"}
+          </button>
+          <div style={{ fontSize: 11.5, color: "#9b8e78", textAlign: "center", marginTop: 2 }}>ลืมรหัสผ่าน? ติดต่อเจ้าของฟาร์ม</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+function Root() {
+  const [stage, setStage] = useState(supabase ? "checking" : "ready");   // checking | login | ready
+  useEffect(() => {
+    if (!supabase) return;
+    let alive = true;
+    (async () => {
+      let session = null, timedOut = false;
+      try {
+        const r = await Promise.race([supabase.auth.getSession(), new Promise((res) => setTimeout(() => { timedOut = true; res(null); }, 5000))]);
+        session = r && r.data ? r.data.session : null;
+      } catch (e) {}
+      if (!alive) return;
+      // เคยล็อกอินสำเร็จบนเครื่องนี้ + ตอนนี้ออฟไลน์/เซิร์ฟเวอร์ไม่ตอบ → ปล่อยเข้า (ใช้ข้อมูลในเครื่อง)
+      let offlineOk = false;
+      try { offlineOk = localStorage.getItem("sjfAuthOk") === "1" && (timedOut || (typeof navigator !== "undefined" && navigator.onLine === false)); } catch (e) {}
+      if (session || offlineOk) { await __hydrate(); if (alive) setStage("ready"); }
+      else setStage("login");
+    })();
+    const sub = supabase.auth.onAuthStateChange((ev) => {
+      if (ev === "SIGNED_OUT") { try { localStorage.removeItem("sjfAuthOk"); } catch (e) {} setStage("login"); }
+    });
+    return () => { alive = false; try { sub.data.subscription.unsubscribe(); } catch (e) {} };
+  }, []);
+  if (stage === "checking") return (
+    <div style={{ minHeight: "100vh", background: "#F6F1E7", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Noto Sans Thai', sans-serif", color: "#9b8e78", fontSize: 14.5, fontWeight: 700 }}>
+      🥚 กำลังตรวจสอบผู้ใช้…
+    </div>
+  );
+  if (stage === "login") return <LoginScreen onDone={async () => { await __hydrate(); setStage("ready"); }} />;
+  return <App />;
+}
+
+/* ============================================================
    จุดเริ่มทำงาน (mount) — แสดงแอปลงบนหน้าเว็บ
    ส่วนนี้เพิ่มต่อท้ายคอมโพเนนต์ ไม่ต้องแก้ปกติ
    ============================================================ */
 import { createRoot } from "react-dom/client";
-const __mount = () => {
-  const __boot = document.getElementById("boot");
-  if (__boot) __boot.remove();
-  createRoot(document.getElementById("root")).render(React.createElement(App));
-};
-// ดึงข้อมูลจากคลาวด์ก่อน render (มี timeout กันค้าง ถ้าเน็ตช้า/ล่ม → เปิดด้วย localStorage) แล้วค่อยแสดงแอป
-(async () => {
-  if (supabase) {
-    try { await Promise.race([pullFromCloud().catch(() => {}), new Promise((r) => setTimeout(r, 3500))]); }
-    catch (e) {}
-  }
-  __mount();
-})();
+const __boot = document.getElementById("boot");
+if (__boot) __boot.remove();
+createRoot(document.getElementById("root")).render(React.createElement(Root));
