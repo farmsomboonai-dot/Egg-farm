@@ -7368,16 +7368,19 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
     const deadToday = nf(r?.loss?.deadAm) + nf(r?.loss?.deadPm);
     const deadWt = deadWtOf(r?.loss);   // นน.ไก่ตายรวมเช้า+บ่าย (กก. · รวมข้อมูลเก่าแบบชั่งรวม)
     const feedUsed = nf(r?.feed?.s1used) + nf(r?.feed?.s2used);
+    const birds = remain != null ? remain : prodChickens(production, selHouse, d);   // ไก่คงเหลือวันนั้น (fallback ยอดจากหน้าผลผลิต)
+    const water = waterUsage(rearingByDate, selHouse, d);
     return {
-      d, r, cum, remain, silo, deadToday, deadWt, feedUsed,
+      d, r, cum, remain, silo, deadToday, deadWt, feedUsed, birds, water,
       // อาหารยกมาต้นวัน ต่อไซโล = ที่กรอกไว้ (sNopen) หรือยอดทดจากวันก่อน
       feedOpen: (() => { const prev = feedRemain(rearingByDate, selHouse, shiftDayISO(d, -1), fl); return { s1: r?.feed?.s1open !== "" && r?.feed?.s1open != null ? nf(r.feed.s1open) : prev.s1, s2: r?.feed?.s2open !== "" && r?.feed?.s2open != null ? nf(r.feed.s2open) : prev.s2 }; })(),
       feedRecv: nf(r?.feed?.s1recv) + nf(r?.feed?.s2recv),
-      water: waterUsage(rearingByDate, selHouse, d),
       ageWk: flockAgeWk(fl, d),
       pctDead: fl?.startCount ? (cum.dead / fl.startCount) * 100 : null,
-      // กินเฉลี่ย (กรัม/ตัว) — ยังไม่ตั้งรุ่น → ใช้ยอดไก่จากหน้าผลผลิตแทน
-      gPerBird: (() => { const birds = remain != null ? remain : prodChickens(production, selHouse, d); return birds ? (feedUsed * 1000) / birds : null; })(),
+      // กินเฉลี่ย (กรัม/ตัว/วัน)
+      gPerBird: birds ? (feedUsed * 1000) / birds : null,
+      // กินน้ำ (มล./ตัว/วัน) — แปลงหน่วยมิเตอร์ (ลิตร/คิว) เป็น มล. ก่อนหาร
+      mlPerBird: water != null && birds ? (water * waterUnitToMl(selHouse)) / birds : null,
     };
   };
   // จัดกลุ่มเป็นสัปดาห์ (ตามอายุไก่ ถ้าตั้งรุ่นแล้ว; ไม่งั้นตามเดือนปฏิทิน) → แทรกแถว "ผลรวม" แบบฟอร์มกระดาษ
@@ -7514,8 +7517,19 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                   </tr>
                 </thead>
                 <tbody>
-                  {bookRows.map((b, i) => b.type === "sum" ? (
-                    <tr key={"s" + i} style={{ background: "#F6F1E7", fontWeight: 800 }}>
+                  {bookRows.map((b, i) => b.type === "sum" ? (() => {
+                    // ค่าเฉลี่ยต่อตัวต่อวันของสัปดาห์นี้ = ยอดรวมทั้งสัปดาห์ ÷ จำนวน "ตัว-วัน" (นับเฉพาะวันที่มีข้อมูล)
+                    const fedDays = b.items.filter((x) => x.feedUsed > 0 && x.birds);
+                    const feedBirdDays = gsum(fedDays, (x) => x.birds);
+                    const avgFeedG = feedBirdDays ? (gsum(fedDays, (x) => x.feedUsed) * 1000) / feedBirdDays : null;
+                    const watDays = b.items.filter((x) => x.water != null && x.birds);
+                    const watBirdDays = gsum(watDays, (x) => x.birds);
+                    const avgMl = watBirdDays ? (gsum(watDays, (x) => x.water * waterUnitToMl(selHouse))) / watBirdDays : null;
+                    const avgFeedKgDay = fedDays.length ? gsum(fedDays, (x) => x.feedUsed) / fedDays.length : null;   // อาหารเฉลี่ยทั้งเล้า/วัน (กก.)
+                    const avgWatDay = watDays.length ? gsum(watDays, (x) => x.water) / watDays.length : null;         // น้ำเฉลี่ยทั้งเล้า/วัน (หน่วยมิเตอร์)
+                    return (
+                    <React.Fragment key={"s" + i}>
+                    <tr style={{ background: "#F6F1E7", fontWeight: 800 }}>
                       <td style={{ ...td, textAlign: "left", color: "#7a6f5c" }}>ผลรวม · {b.key}</td>
                       <td style={td} /><td style={td} /><td style={td} />
                       <td style={td}>{fmt(gsum(b.items, (x) => nf(x.r?.loss?.cull)))}</td>
@@ -7534,7 +7548,20 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                       <td style={td}>{fmt1(gsum(b.items, (x) => x.water))}</td>
                       <td style={td} /><td style={td} /><td style={td} />
                     </tr>
-                  ) : (
+                    <tr style={{ background: "#EEF6F1", fontWeight: 700, fontStyle: "italic" }}>
+                      <td style={{ ...td, textAlign: "left", color: "#0F766E" }}>เฉลี่ย/ตัว/วัน</td>
+                      <td style={td} /><td style={td} /><td style={td} /><td style={td} /><td style={td} /><td style={td} /><td style={td} /><td style={td} /><td style={td} /><td style={td} /><td style={td} /><td style={td} /><td style={td} /><td style={td} />
+                      <td style={td} />
+                      <td style={{ ...td, color: "#B45309" }}>{avgFeedKgDay != null ? fmt1(avgFeedKgDay) : "—"}</td>
+                      <td style={td} />
+                      <td style={{ ...td, color: "#15803D", fontWeight: 800 }}>{avgFeedG != null ? fmt1(avgFeedG) : "—"}</td>
+                      <td style={{ ...td, color: "#0369A1" }}>{avgWatDay != null ? fmt1(avgWatDay) : "—"}</td>
+                      <td style={{ ...td, color: "#0369A1", fontWeight: 800 }}>{avgMl != null ? <span>{fmt(Math.round(avgMl))}<div style={{ fontSize: 10, fontWeight: 700, color: "#0891B2", fontStyle: "normal" }}>{fmt2(avgMl / 1000)} ล.</div></span> : "—"}</td>
+                      <td style={td} /><td style={td} />
+                    </tr>
+                    </React.Fragment>
+                    );
+                  })() : (
                     <tr key={b.d}>
                       {(() => { const tr = trialOfDay(selHouse, b.d); return (
                         <td style={{ ...td, textAlign: "left", fontWeight: 700, ...(tr ? { background: "#FFEDD5" } : {}) }} title={tr ? `🧪 ช่วงให้ ${tr.name}` : undefined}>{toThaiDate(b.d, false)}{tr ? " 🧪" : ""}{b.r?.draft ? <span style={{ marginLeft: 5, fontSize: 10, fontWeight: 800, background: "#FEF3C7", color: "#B45309", borderRadius: 6, padding: "1px 6px" }}>ร่าง</span> : null}</td>
@@ -7562,7 +7589,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                       </td>
                       <td style={td}>{b.gPerBird != null ? fmt1(b.gPerBird) : "—"}</td>
                       <td style={td}>{b.water != null ? fmt1(b.water) : "—"}</td>
-                      <td style={{ ...td, color: "#0369A1", fontWeight: 700 }}>{b.water != null && b.remain ? fmt(Math.round((b.water * waterUnitToMl(selHouse)) / b.remain)) : "—"}</td>
+                      <td style={{ ...td, color: "#0369A1", fontWeight: 700 }}>{b.mlPerBird != null ? fmt(Math.round(b.mlPerBird)) : "—"}</td>
                       <td style={{ ...td, textAlign: "left", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }} title={medsDetail(b.r) + (b.r?.note ? " · " + b.r.note : "")}>{medsSummary(b.r) || (b.r?.note ? "📝" : "—")}</td>
                       <td style={td}><button onClick={() => setEditHouse({ hid: selHouse, date: b.d })} title="แก้ไขวันนี้" style={{ border: "1px solid #E8943A55", background: "#FFF7EC", color: ACCENT_DK, borderRadius: 7, padding: "2px 7px", cursor: "pointer" }}><Pencil size={12} /></button></td>
                     </tr>
