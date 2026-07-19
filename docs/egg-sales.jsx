@@ -1215,7 +1215,7 @@ export default function App() {
       Object.keys(rearingByDate).forEach((d) => {
         if (it.since && d < it.since) return;
         Object.values(rearingByDate[d] || {}).forEach((r) => {
-          (r?.medsList || []).forEach((x) => { if ((x.name || "").trim() === nm) used += parseFloat(x.qty) || 0; });
+          (r?.medsList || []).forEach((x) => { if (x.route === "feed") return; if ((x.name || "").trim() === nm) used += parseFloat(x.qty) || 0; });   // ยามากับอาหาร = ของโรงงานอาหาร ไม่ตัดสต๊อกเรา
         });
       });
       const recv = medReceipts.filter((r) => r.medId === it.id).reduce((s, r) => s + (parseFloat(r.qty) || 0), 0);
@@ -1231,6 +1231,7 @@ export default function App() {
     Object.keys(rearingByDate).forEach((d) => {
       Object.entries(rearingByDate[d] || {}).forEach(([hid, r]) => {
         (r?.medsList || []).forEach((x) => {
+          if (x.route === "feed") return;   // ยามากับอาหาร = โรงงานอาหารใส่มา ไม่คิดเข้าค่ายาของฟาร์ม
           const p = priceByName[(x.name || "").trim()]; const q = parseFloat(x.qty) || 0;
           if (!p || !q || (p.since && d < p.since)) return;
           const ym = d.slice(0, 7);
@@ -1379,7 +1380,11 @@ export default function App() {
       const prevPaid = prev[billNo]?.paid || 0;
       // หมายเหตุสะสมต่อท้ายของเดิม (จ่ายหลายงวด งวดละหมายเหตุ ไม่ทับกัน)
       const mergedNote = [prev[billNo]?.note, (note || "").trim()].filter(Boolean).join(" | ");
-      return { ...prev, [billNo]: { paid: prevPaid + amount, date: new Date().toLocaleDateString("th-TH"), method, slip: slip || prev[billNo]?.slip || null, note: mergedNote || undefined } };
+      // สลิปรับได้ทั้งรูปเดียว (โค้ดเก่า) และหลายรูป — สะสมรวมกับสลิปงวดก่อนหน้า
+      const newSlips = Array.isArray(slip) ? slip : (slip ? [slip] : []);
+      const prevSlips = prev[billNo]?.slips || (prev[billNo]?.slip ? [prev[billNo].slip] : []);
+      const allSlips = [...prevSlips, ...newSlips];
+      return { ...prev, [billNo]: { paid: prevPaid + amount, date: new Date().toLocaleDateString("th-TH"), method, slip: allSlips[0] || null, slips: allSlips.length ? allSlips : undefined, note: mergedNote || undefined } };
     });
   // ยกเลิกใบเสร็จ (soft void + audit): เก็บเหตุผล/เวลา/ผู้ยกเลิก ; บิลยังอยู่ในประวัติแต่ถูกตัดออกจากทุกยอดคำนวณ (activeBills)
   const cancelBill = (billNo, reason, by) => {
@@ -2733,9 +2738,10 @@ function BillDetail({ bill, payment, onBack, onCancel }) {
             ? <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
                 <div style={{ color: "#15803D", fontWeight: 700 }}>✓ ชำระแล้ว {payment.date} ({payment.method})</div>
                 {payment.note && <div style={{ fontSize: 12.5, color: "#6b6358", marginTop: 3 }}>📝 หมายเหตุ: {payment.note}</div>}
-                {payment.slip && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "#6b6358" }}>
-                    <span>สลิปการโอน:</span><SlipThumb src={payment.slip} size={64} />
+                {(payment.slips || (payment.slip ? [payment.slip] : [])).length > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "#6b6358", flexWrap: "wrap", justifyContent: "center" }}>
+                    <span>สลิปการโอน:</span>
+                    {(payment.slips || [payment.slip]).map((s, i) => <SlipThumb key={i} src={s} size={64} />)}
                   </div>
                 )}
               </div>
@@ -2871,7 +2877,12 @@ function AccountView({ bills, payments, recordPayment, isOwner }) {
                     <td style={{ ...S.td, color: stColor, fontWeight: 600 }}>{r.status}</td>
                     <td style={S.td}>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                        {payments[r.bill.no]?.slip && <SlipThumb src={payments[r.bill.no].slip} size={36} />}
+                        {payments[r.bill.no]?.slip && (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+                            <SlipThumb src={payments[r.bill.no].slip} size={36} />
+                            {(payments[r.bill.no].slips || []).length > 1 && <span style={{ fontSize: 11, fontWeight: 800, color: "#8a8170" }}>+{payments[r.bill.no].slips.length - 1}</span>}
+                          </span>
+                        )}
                         {r.owed > 0 && <button style={S.payBtn} onClick={() => setPayModal(r.bill)}>รับชำระ</button>}
                       </div>
                     </td>
@@ -2919,44 +2930,64 @@ function PaymentModal({ bill, current, onClose, onPay, isOwner }) {
   const [ownerConfirm, setOwnerConfirm] = useState(false);  // ขั้นยืนยันปิดบิลโดยเจ้าของ
   const [ownerReason, setOwnerReason] = useState("");       // เหตุผลการปิดบิลโดยเจ้าของ (บังคับกรอก)
   const [note, setNote] = useState("");        // หมายเหตุการรับชำระ (เช่น โอนจากบัญชีคนอื่น / จ่ายบางส่วนเพราะอะไร)
-  const [slip, setSlip] = useState(null);      // รูปสลิป (data URL)
-  const [slipName, setSlipName] = useState("");
+  const [slips, setSlips] = useState([]);      // รูปสลิปหลายใบ [{id, src, name, status, nums}] · status: checking|done|error
   const [dragging, setDragging] = useState(false);  // กำลังลากรูปมาวางในโมดัล
-  const [ocr, setOcr] = useState({ status: "idle", nums: [] });   // ผลอ่านยอดเงินจากสลิป: idle|checking|done|error
   const [override, setOverride] = useState(false);  // ผู้ใช้ยืนยันเองเมื่อตรวจยอดอัตโนมัติไม่ผ่าน
   const amt = parseFloat(amount) || 0;
-  const slipHasAmt = ocr.status === "done" && ocr.nums.some((n) => Math.abs(n - amt) < 0.005);
-  const slipChecked = ocr.status === "done" || ocr.status === "error";
-  const valid = amt > 0 && !!slip && (slipHasAmt || (slipChecked && override));
+  const MAX_SLIPS = 5;
+  const anyChecking = slips.some((s) => s.status === "checking");
+  const slipChecked = slips.length > 0 && !anyChecking;
+  // ตรวจยอด: สลิปใบเดียว → ตัวเลขใดตัวหนึ่งในสลิปต้องตรงยอดที่รับ
+  // หลายใบ (โอนแยกก้อน) → เลือกตัวเลขใบละ 1 ตัว รวมกันแล้วต้องเท่ายอดที่รับ (หรือใบเดียวครอบทั้งยอดก็ผ่าน)
+  const slipHasAmt = (() => {
+    if (!slipChecked || !amt) return false;
+    if (slips.some((s) => (s.nums || []).some((n) => Math.abs(n - amt) < 0.005))) return true;
+    if (slips.length < 2 || slips.some((s) => s.status !== "done" || !s.nums.length)) return false;
+    let sums = [0];
+    for (const s of slips) {
+      const pick = s.nums.slice(0, 12), next = [];
+      for (const acc of sums) for (const n of pick) next.push(acc + n);
+      sums = next;
+      if (sums.length > 25000) return false;   // กันระเบิด (ตัวเลขเยอะผิดปกติ) → ให้ใช้ช่องยืนยันเองแทน
+    }
+    return sums.some((t) => Math.abs(t - amt) < 0.01);
+  })();
+  const valid = amt > 0 && slips.length > 0 && !anyChecking && (slipHasAmt || (slipChecked && override));
 
   // อ่านตัวเลขทั้งหมดในรูปสลิปด้วย OCR (ทำงานในเครื่อง ไม่อัปโหลดรูป) เก็บไว้เทียบกับยอดที่รับ
-  const checkSlip = (dataUrl) => {
-    setOverride(false);
-    if (!window.Tesseract) { setOcr({ status: "error", nums: [] }); return; }
-    setOcr({ status: "checking", nums: [] });
+  const ocrSlip = (id, dataUrl) => {
+    if (!window.Tesseract) { setSlips((p) => p.map((s) => s.id === id ? { ...s, status: "error", nums: [] } : s)); return; }
     window.Tesseract.recognize(dataUrl, "eng")
       .then(({ data }) => {
         const nums = [...new Set(((data && data.text) || "").match(/(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?/g) || [])]
           .map((s) => parseFloat(s.replace(/,/g, ""))).filter((n) => n > 0);
-        setOcr({ status: "done", nums });
+        setSlips((p) => p.map((s) => s.id === id ? { ...s, status: "done", nums } : s));
       })
-      .catch(() => setOcr({ status: "error", nums: [] }));
+      .catch(() => setSlips((p) => p.map((s) => s.id === id ? { ...s, status: "error", nums: [] } : s)));
   };
 
   const handleFile = (file) => {
     if (!file) return;
     if (!file.type.startsWith("image/")) { alert("กรุณาเลือกไฟล์รูปภาพ"); return; }
     const reader = new FileReader();
-    reader.onload = () => { setSlip(reader.result); setSlipName(file.name || "สลิป"); checkSlip(reader.result); };
+    reader.onload = () => {
+      const id = "sl" + Math.random().toString(36).slice(2, 9);
+      setOverride(false);
+      setSlips((p) => p.length >= MAX_SLIPS ? p : [...p, { id, src: reader.result, name: file.name || "สลิป", status: "checking", nums: [] }]);
+      ocrSlip(id, reader.result);
+    };
     reader.readAsDataURL(file);
   };
-  const onPickFile = (e) => handleFile(e.target.files && e.target.files[0]);
-  const onDropSlip = (e) => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files && e.dataTransfer.files[0]); };
-  const onPasteSlip = (e) => {  // วางรูปจากคลิปบอร์ด (เช่น screenshot สลิป)
+  const removeSlip = (id) => { setSlips((p) => p.filter((s) => s.id !== id)); setOverride(false); };
+  const onPickFile = (e) => { const fs = e.target.files || []; for (let i = 0; i < fs.length; i++) handleFile(fs[i]); e.target.value = ""; };
+  const onDropSlip = (e) => { e.preventDefault(); setDragging(false); const fs = (e.dataTransfer && e.dataTransfer.files) || []; for (let i = 0; i < fs.length; i++) handleFile(fs[i]); };
+  const onPasteSlip = (e) => {  // วางรูปจากคลิปบอร์ด (เช่น screenshot สลิป) — วางได้ทีละหลายรูป
     const items = (e.clipboardData && e.clipboardData.items) || [];
+    let got = false;
     for (let i = 0; i < items.length; i++) {
-      if (items[i].type && items[i].type.startsWith("image/")) { handleFile(items[i].getAsFile()); e.preventDefault(); break; }
+      if (items[i].type && items[i].type.startsWith("image/")) { handleFile(items[i].getAsFile()); got = true; }
     }
+    if (got) e.preventDefault();
   };
 
   return (
@@ -2992,30 +3023,36 @@ function PaymentModal({ bill, current, onClose, onPay, isOwner }) {
         </div>
         <div style={{ marginBottom: 16 }}>
           <label style={S.ciLabel}>
-            รูปสลิปการโอน <span style={{ color: "#B91C1C", fontWeight: 700 }}>* จำเป็น</span>
+            รูปสลิปการโอน <span style={{ color: "#B91C1C", fontWeight: 700 }}>* จำเป็น</span> <span style={{ color: "#9b8e78", fontWeight: 600, fontSize: 12 }}>· แนบได้หลายใบ กรณีโอนแยกหลายก้อน</span>
           </label>
-          {slip ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 6 }}>
-              <SlipThumb src={slip} size={64} />
+          {slips.map((s) => (
+            <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 11, marginTop: 8, padding: "7px 9px", border: "1px solid #eee3d2", borderRadius: 10, background: "#FFFDF8" }}>
+              <SlipThumb src={s.src} size={52} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{slipName || "แนบรูปแล้ว"}</div>
-                {ocr.status === "checking" && <div style={{ fontSize: 12.5, color: "#B45309", fontWeight: 700, marginTop: 3 }}>⏳ กำลังอ่านยอดเงินจากสลิป…</div>}
-                {ocr.status === "done" && (slipHasAmt
-                  ? <div style={{ fontSize: 12.5, color: "#15803D", fontWeight: 700, marginTop: 3 }}>✓ ตรวจสลิปแล้ว — พบยอด {fmt2(amt)} บาท ตรงกับยอดที่รับ</div>
-                  : <div style={{ fontSize: 12.5, color: "#B91C1C", fontWeight: 700, marginTop: 3 }}>⚠️ ยอดในสลิปไม่ตรงกับ {fmt2(amt)} บาท{ocr.nums.length ? ` — ตัวเลขที่อ่านได้: ${ocr.nums.slice(0, 6).map((n) => fmt2(n)).join(" / ")}` : " — อ่านตัวเลขไม่พบ"}</div>)}
-                {ocr.status === "error" && <div style={{ fontSize: 12.5, color: "#B45309", fontWeight: 700, marginTop: 3 }}>❓ อ่านสลิปอัตโนมัติไม่ได้ — กรุณาตรวจยอดด้วยตาก่อนบันทึก</div>}
-                <button style={{ ...S.ghostBtn, padding: "4px 10px", marginTop: 4, fontSize: 12.5 }} onClick={() => { setSlip(null); setSlipName(""); setOcr({ status: "idle", nums: [] }); setOverride(false); }}>เปลี่ยน / ลบรูป</button>
+                <div style={{ fontSize: 12.5, color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}</div>
+                {s.status === "checking" && <div style={{ fontSize: 12, color: "#B45309", fontWeight: 700, marginTop: 2 }}>⏳ กำลังอ่านยอด…</div>}
+                {s.status === "done" && <div style={{ fontSize: 12, color: "#8a8170", marginTop: 2 }}>{s.nums.length ? "ตัวเลขที่อ่านได้: " + s.nums.slice(0, 5).map((n) => fmt2(n)).join(" / ") : "อ่านตัวเลขไม่พบ"}</div>}
+                {s.status === "error" && <div style={{ fontSize: 12, color: "#B45309", fontWeight: 700, marginTop: 2 }}>❓ อ่านอัตโนมัติไม่ได้ — ตรวจด้วยตา</div>}
               </div>
+              <button onClick={() => removeSlip(s.id)} style={{ border: "1px solid #FCA5A5", background: "#FEF2F2", color: "#B91C1C", borderRadius: 8, padding: "4px 9px", fontSize: 12, fontWeight: 800, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>✕ ลบ</button>
             </div>
-          ) : (
-            <label style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 6, padding: "18px 12px", border: "1.5px dashed #E0A875", borderRadius: 10, background: "#FDF6EE", color: "#8a8170", fontSize: 13, cursor: "pointer", textAlign: "center" }}>
-              <ImageIcon size={22} color={ACCENT_DK} />
-              <span>แตะเพื่อเลือก / ถ่ายรูป · ลากรูปมาวาง · วาง (Ctrl+V)</span>
-              <input type="file" accept="image/*" style={{ display: "none" }} onChange={onPickFile} />
+          ))}
+          {slips.length > 0 && (
+            <div style={{ marginTop: 7, fontSize: 12.5, fontWeight: 700 }}>
+              {anyChecking ? <span style={{ color: "#B45309" }}>⏳ กำลังอ่านยอดเงินจากสลิป…</span>
+                : slipHasAmt ? <span style={{ color: "#15803D" }}>✓ ตรวจสลิปแล้ว — ยอด{slips.length > 1 ? "รวมจากทั้ง " + slips.length + " ใบ" : "ในสลิป"}ตรงกับ {fmt2(amt)} บาท</span>
+                  : <span style={{ color: "#B91C1C" }}>⚠️ ยอด{slips.length > 1 ? "จากสลิปทั้ง " + slips.length + " ใบรวมกัน" : "ในสลิป"}ไม่ตรงกับ {fmt2(amt)} บาท</span>}
+            </div>
+          )}
+          {slips.length < MAX_SLIPS && (
+            <label style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 8, padding: slips.length ? "10px 12px" : "18px 12px", border: "1.5px dashed #E0A875", borderRadius: 10, background: "#FDF6EE", color: "#8a8170", fontSize: 13, cursor: "pointer", textAlign: "center" }}>
+              <ImageIcon size={20} color={ACCENT_DK} />
+              <span>{slips.length ? "＋ เพิ่มสลิปอีกใบ" : "แตะเพื่อเลือก / ถ่ายรูป · ลากรูปมาวาง · วาง (Ctrl+V)"}</span>
+              <input type="file" accept="image/*" multiple style={{ display: "none" }} onChange={onPickFile} />
             </label>
           )}
         </div>
-        {slip && slipChecked && !slipHasAmt && (
+        {slips.length > 0 && slipChecked && !slipHasAmt && (
           <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12.5, color: "#7A4F16", background: "#FDF6EE", border: "1.5px solid #E0A875", borderRadius: 9, padding: "8px 10px", marginBottom: 10, cursor: "pointer" }}>
             <input type="checkbox" checked={override} onChange={(e) => setOverride(e.target.checked)} style={{ marginTop: 2 }} />
             <span>ตรวจยอดด้วยตาแล้ว ยืนยันว่าสลิปนี้ถูกต้อง (ระบบจะระบุ "ข้ามตรวจสลิป" ไว้ในประวัติ)</span>
@@ -3026,12 +3063,12 @@ function PaymentModal({ bill, current, onClose, onPay, isOwner }) {
           <textarea rows={2} style={{ ...S.fullInput, resize: "vertical", fontFamily: "inherit" }} value={note} onChange={(e) => setNote(e.target.value)}
             placeholder="เช่น โอนจากบัญชีชื่ออื่น · จ่ายบางส่วน นัดจ่ายที่เหลือวันศุกร์" />
         </div>
-        <button style={{ ...S.primaryBtn, ...(valid ? {} : S.confirmBtnDisabled) }} disabled={!valid} onClick={() => onPay(amt, slipHasAmt ? "โอน" : "โอน · ข้ามตรวจสลิป", slip, note.trim())}>
-          บันทึกรับชำระ {fmt(amt)} บาท
+        <button style={{ ...S.primaryBtn, ...(valid ? {} : S.confirmBtnDisabled) }} disabled={!valid} onClick={() => onPay(amt, slipHasAmt ? "โอน" : "โอน · ข้ามตรวจสลิป", slips.map((s) => s.src), note.trim())}>
+          บันทึกรับชำระ {fmt(amt)} บาท{slips.length > 1 ? ` (สลิป ${slips.length} ใบ)` : ""}
         </button>
-        {!slip && (
+        {!slips.length && (
           <div style={{ fontSize: 12.5, color: "#B91C1C", textAlign: "center", marginTop: 8 }}>
-            * แนบรูปสลิปการโอนก่อน จึงจะปิดบิลได้
+            * แนบรูปสลิปการโอนก่อน จึงจะปิดบิลได้ (โอนหลายก้อนก็แนบทุกใบ)
           </div>
         )}
         {/* สิทธิ์เจ้าของ: ปิดบิลคงค้างโดยไม่แนบสลิป — บัญชีบันทึกเสมือนรับเงินครบ (สต๊อกถูกตัดตั้งแต่ออกบิลอยู่แล้ว) */}
@@ -3308,7 +3345,7 @@ function manageDayData(production, rearingByDate, flocks, alertCfg, date) {
     const stdFeedKg = (stdFeedG != null && birdsLive) ? (stdFeedG * birdsLive) / 1000 : null;
     const feedPct = (stdFeedKg && feedUsed > 0) ? (feedUsed / stdFeedKg) * 100 : null;
     const waterUsed = waterUsedFromMeters(r?.water, rearPrev[hid]?.water);
-    const waterMl = (waterUsed != null && birdsLive) ? (waterUsed * 1000000) / birdsLive : null;
+    const waterMl = (waterUsed != null && birdsLive) ? (waterUsed * waterUnitToMl(hid)) / birdsLive : null;   // H2-H3 มิเตอร์ลิตร · H4-H7 คิว
     const stdWaterMl = stdFeedG != null ? stdFeedG * 2.0 : null;
     const waterPct = (waterMl != null && stdWaterMl) ? (waterMl / stdWaterMl) * 100 : null;
     const alerts = chickens > 0 ? computeHouseAlerts(h, alertCfg) : [];
@@ -4954,11 +4991,11 @@ const emptyRearing = () => ({ loss: { cull: "", deadAm: "", deadPm: "", deadWtAm
 const deadWtOf = (loss) => nf(loss?.deadWtAm) + nf(loss?.deadWtPm) + nf(loss?.deadWt);
 // สรุปยา/สารเสริมสั้น ๆ สำหรับตาราง เช่น "Enro 13 ขวด · Calcium 2 ขวด" (ข้อมูลเก่าใช้ข้อความ meds เดิม)
 const medsSummary = (r) => {
-  if (r?.medsList?.length) return r.medsList.filter((m) => m.name).map((m) => `${m.name}${m.qty ? " " + m.qty + " ขวด" : ""}`).join(" · ");
+  if (r?.medsList?.length) return r.medsList.filter((m) => m.name).map((m) => `${m.name}${m.qty ? " " + m.qty + " ขวด" : ""}${m.route === "feed" ? " (มากับอาหาร)" : ""}`).join(" · ");
   return r?.meds || "";
 };
 const medsDetail = (r) => {
-  if (r?.medsList?.length) return r.medsList.filter((m) => m.name).map((m) => [m.period, m.name, m.qty ? m.qty + " ขวด" : "", m.water ? "ผสมน้ำ " + m.water + " ล." : "", m.time ? "เวลา " + m.time : ""].filter(Boolean).join(" ")).join("  |  ");
+  if (r?.medsList?.length) return r.medsList.filter((m) => m.name).map((m) => [m.period, m.name, m.qty ? m.qty + " ขวด" : "", m.route === "feed" ? "🌾 มากับอาหาร" : (m.water ? "ผสมน้ำ " + m.water + " ล." : ""), m.time ? "เวลา " + m.time : ""].filter(Boolean).join(" ")).join("  |  ");
   return r?.meds || "";
 };
 // อายุไก่ (สัปดาห์) ณ วันที่ระบุ = อายุรับเข้า + สัปดาห์ที่ผ่านไปนับจากวันเริ่มเลี้ยง
@@ -4995,6 +5032,10 @@ function feedRemain(rearingByDate, houseId, uptoISO, flock) {
   });
   return { s1, s2 };
 }
+// หน่วยมิเตอร์น้ำต่างกันตามโรงเรือน: H2-H3 จดเป็น "ลิตร" · H4-H7 จดเป็น "คิว" (1 คิว = 1,000 ลิตร)
+const WATER_LITER_HOUSES = new Set(["H2", "H3"]);
+const waterUnitLabel = (hid) => WATER_LITER_HOUSES.has(hid) ? "ลิตร" : "คิว";
+const waterUnitToMl = (hid) => WATER_LITER_HOUSES.has(hid) ? 1000 : 1000000;   // 1 หน่วยมิเตอร์ → มิลลิลิตร
 // น้ำใช้วันนี้ = ผลต่างมิเตอร์จาก "วันก่อนหน้าที่มีจดมิเตอร์" (รวม 6 ตัว; ตัวไหนไม่ครบคู่ข้าม)
 function waterUsage(rearingByDate, houseId, dateISO) {
   const days = Object.keys(rearingByDate).sort().filter((d) => d < dateISO);
@@ -5177,7 +5218,7 @@ function MedBookModal({ rearingByDate = {}, vaccines = {}, houseIds = [], initia
         const list = Array.isArray(rec?.medsList) && rec.medsList.length ? rec.medsList : (rec?.meds ? [{ name: rec.meds }] : []);
         list.forEach((m, i) => {
           if (!String(m.name || "").trim()) return;
-          const detail = [m.period, m.qty, m.water ? `ผสมน้ำ ${m.water} ล.` : "", m.time ? `เวลา ${m.time}` : ""].filter(Boolean).join(" · ");
+          const detail = [m.period, m.qty, m.route === "feed" ? "🌾 มากับอาหาร" : (m.water ? `ผสมน้ำ ${m.water} ล.` : ""), m.time ? `เวลา ${m.time}` : ""].filter(Boolean).join(" · ");
           rows.push({ d, hid, type: "med", name: m.name, detail, _k: "m" + d + hid + i });
         });
       });
@@ -5528,8 +5569,8 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = n
   const [light, setLight] = useState({ ...emptyRearing().light, ...(d0.light || {}) });
   // ยา/สารเสริม หลายรายการต่อวัน — ข้อมูลเก่า (ข้อความ meds) แปลงเป็นรายการแรกให้อัตโนมัติ
   const [medsList, setMedsList] = useState(() => {
-    const l = Array.isArray(d0.medsList) ? d0.medsList.map((x) => ({ period: "เช้า", ...x })) : [];
-    if (!l.length && d0.meds) l.push({ name: d0.meds, period: "เช้า", qty: "", water: "", time: "" });
+    const l = Array.isArray(d0.medsList) ? d0.medsList.map((x) => ({ period: "เช้า", route: "water", ...x })) : [];   // route: water=ผสมน้ำ · feed=มากับอาหาร (ข้อมูลเก่าไม่มี route = ผสมน้ำ)
+    if (!l.length && d0.meds) l.push({ name: d0.meds, period: "เช้า", qty: "", water: "", time: "", route: "water" });
     return l;
   });
   const upMed = (i, k, v) => setMedsList((p) => p.map((m, j) => j === i ? { ...m, [k]: v } : m));
@@ -5585,7 +5626,7 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = n
     });
     return used ? s : null;
   })();
-  const waterMlPerBird = waterUnitUsed != null && birdsLive ? (waterUnitUsed * 1000000) / birdsLive : null;   // คิว→ลิตร×1000→มล. ÷ ไก่
+  const waterMlPerBird = waterUnitUsed != null && birdsLive ? (waterUnitUsed * waterUnitToMl(houseId)) / birdsLive : null;   // H2-H3 มิเตอร์ลิตร · H4-H7 คิว → มล. ÷ ไก่
   const stdWaterMl = stdFeedG != null ? stdFeedG * 2.0 : null;
   const waterLow = waterMlPerBird != null && stdWaterMl != null && waterMlPerBird < stdWaterMl * 0.9;
   const dataOut = (draft) => ({ loss, feed, water, light, meds: "", medsList: medsList.filter((m) => (m.name || "").trim()), note: note.trim(), draft });
@@ -5681,13 +5722,13 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = n
         </div>
 
         <div style={section("#EFF8FF", "#BAE0FD", "#0284C7")}>
-          <div style={{ fontWeight: 800, color: "#0369A1", fontSize: 13, marginBottom: 8 }}>💧 มิเตอร์น้ำ (จดเลขมิเตอร์ 6 ตัว) · ระบบคิดผลต่างจากวันก่อนให้เอง</div>
+          <div style={{ fontWeight: 800, color: "#0369A1", fontSize: 13, marginBottom: 8 }}>💧 มิเตอร์น้ำ (จดเลขมิเตอร์ 6 ตัว) · หลังนี้จดเป็น<b>{waterUnitLabel(houseId)}</b> · ระบบคิดผลต่างจากวันก่อนให้เอง</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9 }}>
             {["m1", "m2", "m3", "m4", "m5", "m6"].map((k, i) => fw(k, `มิเตอร์ ${i + 1}`, <input {...numProps(14 + i, "pfWater")} value={water[k]} onChange={(e) => setWater((p) => ({ ...p, [k]: dec(e.target.value) }))} />, "#0369A1"))}
           </div>
           {waterMlPerBird != null && stdWaterMl != null && (
             <div style={{ fontSize: 12, marginTop: 8, fontWeight: waterLow ? 800 : 600, color: waterLow ? "#B91C1C" : "#0369A1", background: waterLow ? "#FEF2F2" : "#F0F9FF", border: `1px solid ${waterLow ? "#FECACA" : "#BAE0FD"}`, borderRadius: 8, padding: "6px 9px" }}>
-              {waterLow ? "⚠️ กินน้ำต่ำกว่ามาตรฐาน · " : "✓ "}น้ำวันนี้ {fmt1(waterUnitUsed)} คิว ≈ <b>{fmt(Math.round(waterMlPerBird))} มล./ตัว</b> · มาตรฐานอายุ {ageWk} สป. ≈ {fmt(Math.round(stdWaterMl))} มล./ตัว (ไก่ {fmt(birdsLive)} ตัว)
+              {waterLow ? "⚠️ กินน้ำต่ำกว่ามาตรฐาน · " : "✓ "}น้ำวันนี้ {fmt1(waterUnitUsed)} {waterUnitLabel(houseId)} ≈ <b>{fmt(Math.round(waterMlPerBird))} มล./ตัว</b> · มาตรฐานอายุ {ageWk} สป. ≈ {fmt(Math.round(stdWaterMl))} มล./ตัว (ไก่ {fmt(birdsLive)} ตัว)
             </div>
           )}
         </div>
@@ -5701,6 +5742,7 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = n
                   <MedNamePicker value={m.name} onChange={(v) => upMed(i, "name", v)} medStock={medStock} medInfo={medInfo} style={{ ...cell, textAlign: "left", padding: "6px 8px", fontSize: 13, width: "100%", boxSizing: "border-box" }} />
                   {(() => {
                     const nm = (m.name || "").trim(); if (!nm) return null;
+                    if (m.route === "feed") return <div style={{ fontSize: 10.5, color: "#B45309", marginTop: 2 }}>🌾 ยาผสมมาจากโรงงานอาหาร — ลงสมุดประจำหลัง แต่ไม่ตัดสต๊อกยา/ไม่คิดต้นทุนยาของฟาร์ม</div>;
                     const info = medInfo[nm];
                     if (!info) return <div style={{ fontSize: 10.5, color: "#B45309", marginTop: 2 }}>⚠ ไม่พบในสต๊อกยา — บันทึกได้ แต่จะไม่ตัดสต๊อก/ไม่คิดต้นทุน</div>;
                     const q = parseFloat(m.qty) || 0;
@@ -5713,20 +5755,31 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = n
                   </select></div>
                 <button onClick={() => rmMed(i)} title="ลบรายการนี้" style={{ alignSelf: "end", border: "1px solid #FCA5A5", background: "#FEF2F2", color: "#B91C1C", borderRadius: 8, padding: "6px 9px", cursor: "pointer", fontWeight: 800 }}>✕</button>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.4fr", gap: 6, marginBottom: 4 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "0.9fr 1.1fr 1fr 1.3fr", gap: 6, marginBottom: 4 }}>
                 <div><label style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: "#0F766E", marginBottom: 2 }}>จำนวน ({medInfo[(m.name || "").trim()]?.unit || "ขวด"})</label>
                   <input className="prodInput pfInsp" type="text" inputMode="decimal" placeholder="0" value={m.qty} onChange={(e) => upMed(i, "qty", e.target.value.replace(/[^0-9.]/g, ""))} style={{ ...cell, padding: "6px 8px", fontSize: 13 }} /></div>
-                <div><label style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: "#0F766E", marginBottom: 2 }}>ผสมน้ำ (ลิตร)</label>
-                  <input className="prodInput pfInsp" type="text" inputMode="decimal" placeholder="0" value={m.water} onChange={(e) => upMed(i, "water", e.target.value.replace(/[^0-9.]/g, ""))} style={{ ...cell, padding: "6px 8px", fontSize: 13 }} /></div>
+                <div><label style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: "#0F766E", marginBottom: 2 }}>วิธีให้</label>
+                  <select value={m.route || "water"} onChange={(e) => { const v = e.target.value; setMedsList((p) => p.map((x, j) => j === i ? { ...x, route: v, water: v === "feed" ? "" : x.water } : x)); }}
+                    style={{ ...cell, textAlign: "left", padding: "6px 6px", fontSize: 12.5 }}>
+                    <option value="water">💧 ผสมน้ำ</option>
+                    <option value="feed">🌾 มากับอาหาร</option>
+                  </select></div>
+                {(m.route || "water") === "water" ? (
+                  <div><label style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: "#0F766E", marginBottom: 2 }}>ผสมน้ำ (ลิตร)</label>
+                    <input className="prodInput pfInsp" type="text" inputMode="decimal" placeholder="0" value={m.water} onChange={(e) => upMed(i, "water", e.target.value.replace(/[^0-9.]/g, ""))} style={{ ...cell, padding: "6px 8px", fontSize: 13 }} /></div>
+                ) : (
+                  <div><label style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: "#B45309", marginBottom: 2 }}>ผสมมาในอาหาร</label>
+                    <div style={{ ...cell, padding: "6px 8px", fontSize: 12, background: "#FFF7EC", color: "#B45309", fontWeight: 700, textAlign: "center" }}>🌾 จากโรงงานอาหาร</div></div>
+                )}
                 <div><label style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: "#0F766E", marginBottom: 2 }}>เวลาให้ (จาก - ถึง)</label>
                   <input className="prodInput pfInsp" type="text" placeholder="เช่น 06.00 - 10.40" value={m.time} onChange={(e) => upMed(i, "time", e.target.value)} style={{ ...cell, textAlign: "left", padding: "6px 8px", fontSize: 13 }} /></div>
               </div>
             </div>
           ))}
-          <button onClick={() => setMedsList((p) => [...p, { name: "", period: "เช้า", qty: "", water: "", time: "" }])}
+          <button onClick={() => setMedsList((p) => [...p, { name: "", period: "เช้า", qty: "", water: "", time: "", route: "water" }])}
             style={{ border: "1.5px dashed #0D9488", background: "#fff", color: "#0F766E", borderRadius: 9, padding: "7px 14px", cursor: "pointer", fontSize: 12.5, fontWeight: 800, fontFamily: "inherit", marginBottom: 8 }}>＋ เพิ่มยา/สารเสริม</button>
           {medsList.filter((m) => m.name).length > 0 && (
-            <div style={{ fontSize: 12, color: "#0F766E", fontWeight: 700, marginBottom: 8 }}>💊 รวมวันนี้: {medsList.filter((m) => m.name).map((m) => `${m.name}${m.qty ? " " + m.qty + " ขวด" : ""}`).join(" · ")}</div>
+            <div style={{ fontSize: 12, color: "#0F766E", fontWeight: 700, marginBottom: 8 }}>💊 รวมวันนี้: {medsList.filter((m) => m.name).map((m) => `${m.name}${m.qty ? " " + m.qty + " ขวด" : ""}${m.route === "feed" ? " 🌾มากับอาหาร" : ""}`).join(" · ")}</div>
           )}
           <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="หมายเหตุอื่น ๆ"
             style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #99F6E4", borderRadius: 9, fontSize: 13.5, fontFamily: "inherit", outline: "none", resize: "vertical" }} />
@@ -7462,7 +7515,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                     <th style={th}>ใช้ไป (กก.)</th>
                     <th style={th}>คงเหลือไซโล</th>
                     <th style={th}>กินเฉลี่ย (กรัม/ตัว)</th>
-                    <th style={th}>น้ำ (ยูนิต)</th>
+                    <th style={th}>น้ำ ({waterUnitLabel(selHouse)})</th>
                     <th style={{ ...th, textAlign: "left" }}>ยา/วัคซีน · หมายเหตุ</th>
                     <th style={th}></th>
                   </tr>
@@ -7553,7 +7606,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
               <th style={th}>กินรวม (กก.)</th>
               <th style={th}>กินเฉลี่ย (กรัม/ตัว)</th>
               <th style={th}>คงเหลือไซโล (กก.)</th>
-              <th style={th}>น้ำ (ยูนิต)</th>
+              <th style={th}>น้ำ (2·3=ลิตร · 4-7=คิว)</th>
               <th style={{ ...th, textAlign: "left" }}>ยา/วัคซีน</th>
             </tr>
           </thead>
@@ -7588,7 +7641,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                   {" · "}
                   <span style={siloAct[x.hid]?.s2 && x.silo.s2 < feedMin ? { color: "#B91C1C", fontWeight: 800 } : {}}>{fmt1(x.silo.s2)}</span>
                 </td>
-                <td style={td}>{x.water != null ? fmt1(x.water) : "—"}</td>
+                <td style={td}>{x.water != null ? `${fmt1(x.water)} ${waterUnitLabel(x.hid)}` : "—"}</td>
                 <td style={{ ...td, textAlign: "left", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }} title={medsDetail(x.r) + (x.r?.note ? " · " + x.r.note : "")}>{medsSummary(x.r) || (x.r?.note ? "📝" : "—")}</td>
               </tr>
             ))}
@@ -7608,7 +7661,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
               <td style={td}>{fmt1(sum((x) => x.feedUsed))}</td>
               <td style={td} />
               <td style={td}>{fmt1(sum((x) => x.silo.s1 + x.silo.s2))}</td>
-              <td style={td}>{fmt1(sum((x) => x.water))}</td>
+              <td style={td}>{fmt1(sum((x) => x.water != null ? x.water / (waterUnitLabel(x.hid) === "ลิตร" ? 1000 : 1) : 0))} คิว</td>
               <td style={td} />
             </tr>
           </tbody>
