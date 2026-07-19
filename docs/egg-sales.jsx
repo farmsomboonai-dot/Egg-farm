@@ -37,8 +37,13 @@ function sbDeviceId() {
 function sbGetMeta() { try { return JSON.parse(localStorage.getItem("eggSyncMeta") || "{}"); } catch (e) { return {}; } }
 function sbSetMeta(m) { try { localStorage.setItem("eggSyncMeta", JSON.stringify(m)); } catch (e) {} }
 let __sbQueue = {}, __sbLast = {}, __sbTimer = null, __sbHydrating = false;
+// 🛡️ กันข้อมูลคลาวด์โดนทับด้วยค่าว่าง (เหตุการณ์ 19 ก.ค.): ห้ามอัปขึ้นคลาวด์จนกว่าเครื่องนี้จะ
+// เคย sync สำเร็จแล้ว (มี eggSyncMeta) หรือดึงข้อมูลจากคลาวด์สำเร็จในรอบนี้ — เครื่องใหม่ที่โหลดไม่ทัน
+// จะเปิดด้วยข้อมูลโครง (skeleton) ซึ่งถ้าปล่อยให้อัปขึ้นไปจะล้างข้อมูลจริงของทั้งฟาร์ม
+let __sbSafe = false;
+try { __sbSafe = Object.keys(sbGetMeta()).length > 0; } catch (e) {}
 function sbQueueKey(key, valueStr) {
-  if (!supabase || __sbHydrating || SB_SKIP.has(key) || !SB_SYNC_RE.test(key)) return;
+  if (!supabase || !__sbSafe || __sbHydrating || SB_SKIP.has(key) || !SB_SYNC_RE.test(key)) return;
   if (__sbLast[key] === valueStr) return;   // ค่าไม่เปลี่ยน → ไม่อัปซ้ำ (กันแค่โหลดหน้าแล้ว re-write ไปทับ edit ของอุปกรณ์อื่น)
   __sbLast[key] = valueStr;
   let data; try { data = JSON.parse(valueStr); } catch (e) { data = valueStr; }
@@ -64,6 +69,8 @@ async function pullFromCloud() {
   let res; try { res = await supabase.from(SB_TABLE).select("key,data,snapshot_at"); } catch (e) { console.warn("[sync] ดึงคลาวด์ error:", e && e.message); return { applied: 0 }; }
   if (res.error || !Array.isArray(res.data)) { if (res.error) console.warn("[sync] ดึงคลาวด์ไม่สำเร็จ:", res.error.message); return { applied: 0 }; }
   const meta = sbGetMeta(); let applied = 0, kept = 0;
+  const hadMeta = Object.keys(meta).length > 0;   // เครื่องนี้เคย sync สำเร็จมาก่อนหรือไม่
+  __sbSafe = true;   // ดึงคลาวด์สำเร็จแล้ว → เปิดทางอัปขึ้นได้ (ก่อนหน้านี้ห้าม กันเครื่องใหม่ล้างคลาวด์)
   const cloudKeys = new Set();
   __sbHydrating = true;
   try {
@@ -72,14 +79,8 @@ async function pullFromCloud() {
       cloudKeys.add(key);
       const cloudTs = row.snapshot_at || "", localTs = meta[key] || "";
       let localStr = null; try { localStr = localStorage.getItem(key); } catch (e) {}
-      if (localStr != null && !localTs) {
-        // เครื่องนี้มีข้อมูลคีย์นี้อยู่ก่อนแล้วแต่ยังไม่เคย sync (เช่น พนักงานใช้เวอร์ชันก่อนต่อคลาวด์)
-        // → ห้ามให้คลาวด์ทับ: ถ้าข้อมูลต่างกัน ให้ของเครื่องชนะ แล้วอัปขึ้นคลาวด์แทน
-        __sbLast[key] = localStr;
-        if (localStr === JSON.stringify(row.data)) { meta[key] = cloudTs; }
-        else { let d; try { d = JSON.parse(localStr); } catch (e) { d = localStr; } __sbQueue[key] = d; kept++; }
-        return;
-      }
+      // หมายเหตุ 19 ก.ค.: เดิมมีกติกา "เครื่องที่ไม่เคย sync แต่มีข้อมูล → เครื่องชนะ" (ไว้ย้ายข้อมูลยุคก่อนต่อคลาวด์ 13 ก.ค.)
+      // ตอนนี้ทุกเครื่องจริง sync หมดแล้ว กติกานั้นกลายเป็นช่องให้เครื่องใหม่เอาข้อมูลโครงมาล้างคลาวด์ → ตัดทิ้ง ให้คลาวด์ชนะเสมอ
       if (localStr == null || cloudTs > localTs) {
         const str = JSON.stringify(row.data);
         try { localStorage.setItem(key, str); meta[key] = cloudTs; __sbLast[key] = str; applied++; } catch (e) {}
@@ -87,8 +88,9 @@ async function pullFromCloud() {
         __sbLast[key] = localStr;   // เก็บของเดิม กัน mount เขียนซ้ำแล้วอัปทับ
       }
     });
-    // คีย์ egg* ที่มีในเครื่องแต่คลาวด์ยังไม่มี → อัปขึ้นคลาวด์ให้ครบทุกรายการ
-    try {
+    // คีย์ egg* ที่มีในเครื่องแต่คลาวด์ยังไม่มี → อัปขึ้นคลาวด์ให้ครบ — เฉพาะเครื่องที่เคย sync แล้วเท่านั้น
+    // (เครื่องใหม่ยังไม่มี meta = ข้อมูลในเครื่องคือโครงตัวอย่าง ไม่ใช่ของจริง ห้ามอัป)
+    if (hadMeta) try {
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
         if (!key || cloudKeys.has(key) || SB_SKIP.has(key) || !SB_SYNC_RE.test(key)) continue;
@@ -7269,8 +7271,9 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
 
   // 📝 "กรอกรอบเดียวจบ": พากรอกทีละหลังต่อเนื่อง H2→H6 อัตโนมัติ (บันทึก/ข้าม แล้วเด้งหลังถัดไปเอง)
   const [round, setRound] = useState(null);   // {date, idx}
-  // ปุ่มกรอกพาไป "วันนี้" เสมอ — วันเก่าที่ขาดมีแบนเนอร์ ⚠️ เตือนพร้อมปุ่มย้อนไปเติมอยู่แล้ว (ใครจำข้อมูลได้ค่อยเติม)
-  const roundDate = isoFromTs(Date.now());
+  // ค่าเริ่มต้น "วันนี้" — เปลี่ยนวันที่ในช่องข้างปุ่มเพื่อลงข้อมูลย้อนหลังได้ (ห้ามเกินวันนี้ · มีปุ่ม "วันนี้" เด้งกลับ)
+  const todayISO = isoFromTs(Date.now());
+  const [roundDate, setRoundDate] = useState(todayISO);
   const startRound = () => { if (!houseIds.length) return; setRound({ date: roundDate, idx: 0 }); setEditHouse({ hid: houseIds[0], date: roundDate }); };
   const advanceRound = () => {
     setRound((r) => {
@@ -7357,10 +7360,18 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
       <div style={S.subBar}>
         <span style={S.subBarTitle}>การเลี้ยงไก่ไข่{mode === "house" ? <span style={{ fontSize: 30, verticalAlign: "middle", color: ACCENT_DK }}> · โรงเรือน {selHouse}</span> : ` · ${dayTH}`}{rearDates.length > 0 ? <span style={{ fontSize: 12.5, fontWeight: 600, color: "#9b8e78" }}> · บันทึกแล้ว {rearDates.length} วัน</span> : null}</span>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <button onClick={startRound} title="เปิดฟอร์มกรอกทีละโรงเรือน H2→H7 ต่อเนื่องจนครบ ไม่ต้องสลับหน้าเอง"
-            style={{ padding: "7px 15px", borderRadius: 999, border: "1.5px solid #15803D", background: "#16A34A", color: "#fff", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
-            ✏️ ลงข้อมูล {toThaiDate(roundDate, false)} · ทีละหลังจนครบ ▸
-          </button>
+          <div style={{ display: "inline-flex", alignItems: "center", borderRadius: 999, overflow: "hidden", border: "1.5px solid #15803D", background: "#fff" }}>
+            <button onClick={startRound} title="เปิดฟอร์มกรอกทีละโรงเรือน H2→H7 ต่อเนื่องจนครบ ไม่ต้องสลับหน้าเอง"
+              style={{ padding: "7px 15px", border: "none", background: "#16A34A", color: "#fff", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
+              ✏️ ลงข้อมูล {toThaiDate(roundDate, false)}{roundDate !== todayISO ? " (ย้อนหลัง)" : ""} · ทีละหลังจนครบ ▸
+            </button>
+            <ThaiDateField value={roundDate} onChange={(d) => { if (d && d <= todayISO) setRoundDate(d); }} title="เปลี่ยนวันที่เพื่อลงข้อมูลย้อนหลัง"
+              style={{ padding: "6px 8px", border: "none", background: "#fff", color: "#15803D", fontSize: 12.5, fontWeight: 800, width: 92, fontFamily: "inherit", outline: "none" }} />
+          </div>
+          {roundDate !== todayISO && (
+            <button onClick={() => setRoundDate(todayISO)} title="กลับมาลงข้อมูลของวันนี้"
+              style={{ padding: "6px 12px", borderRadius: 999, border: "1.5px solid #15803D", background: "#F0FDF4", color: "#15803D", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>↩ วันนี้</button>
+          )}
           <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#F6F1E7", border: "1px solid #e6dfd0", borderRadius: 999, padding: "3px 5px 3px 12px" }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: "#9b8e78" }}>ดูข้อมูล:</span>
             <button style={chip(mode === "house")} onClick={() => setMode("house")} title="สมุดประวัติของโรงเรือนเดียว ไล่ทุกวัน (เหมือนสมุดฟอร์มกระดาษ)">📒 แยกรายหลัง</button>
@@ -9293,7 +9304,11 @@ const CSS = `
    ============================================================ */
 async function __hydrate() {
   // ดึงข้อมูลจากคลาวด์ก่อนแสดงแอป (timeout กันค้าง ถ้าเน็ตช้า → เปิดด้วย localStorage)
-  try { await Promise.race([pullFromCloud().catch(() => {}), new Promise((r) => setTimeout(r, 3500))]); } catch (e) {}
+  // เครื่องที่เคย sync แล้ว: รอสั้น 3.5 วิ (มีข้อมูลในเครื่องอยู่แล้ว) · เครื่องใหม่: รอถึง 15 วิ
+  // เพราะต้องได้ข้อมูลจริงก่อนเปิด — ถ้าไม่ทันจริงๆ แอปเปิดโหมดอ่านในเครื่อง และถูกห้ามอัปขึ้นคลาวด์ (__sbSafe)
+  let waitMs = 15000;
+  try { waitMs = Object.keys(JSON.parse(localStorage.getItem("eggSyncMeta") || "{}")).length > 0 ? 3500 : 15000; } catch (e) {}
+  try { await Promise.race([pullFromCloud().catch(() => {}), new Promise((r) => setTimeout(r, waitMs))]); } catch (e) {}
 }
 function LoginScreen({ onDone }) {
   // บัญชีฟาร์ม — กดเลือกว่าเป็นใคร แล้วใส่รหัสของคนนั้น · ล็อกอินสำเร็จ = ตั้งบทบาทในแอปให้อัตโนมัติ ไม่ต้องใส่ PIN ซ้ำ
