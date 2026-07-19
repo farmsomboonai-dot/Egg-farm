@@ -4986,7 +4986,7 @@ function HouseEditModal({ house, defaultDate, onClose, onSave }) {
 ============================================================ */
 const nf = (v) => { const n = parseFloat(String(v ?? "").replace(/,/g, "")); return isNaN(n) ? 0 : n; };
 const shiftDayISO = (iso, delta) => { const [y, m, d] = iso.split("-").map(Number); const dt = new Date(y, m - 1, d + delta); return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`; };
-const emptyRearing = () => ({ loss: { cull: "", deadAm: "", deadPm: "", deadWtAm: "", deadWtPm: "", deadWt: "" }, feed: { no: "", s1open: "", s1recv: "", s1used: "", s2open: "", s2recv: "", s2used: "" }, water: { m1: "", m2: "", m3: "", m4: "", m5: "", m6: "" }, light: { hours: "", lux: "" }, meds: "", medsList: [], note: "" });   // deadWtAm/Pm = นน.ไก่ตายชั่งแยกเช้า/บ่าย (กก.) · deadWt = ข้อมูลเก่าที่ชั่งรวม (คงไว้ให้อ่านย้อนหลังได้) · sNopen = อาหารยกมาจากวันก่อน · medsList = ยา/สารเสริมหลายรายการ [{name,period,qty,water,time}]
+const emptyRearing = () => ({ loss: { cull: "", deadAm: "", deadPm: "", deadWtAm: "", deadWtPm: "", deadWt: "" }, feed: { no: "", medInFeed: "", s1open: "", s1recv: "", s1used: "", s2open: "", s2recv: "", s2used: "" }, water: { m1: "", m2: "", m3: "", m4: "", m5: "", m6: "" }, light: { hours: "", lux: "" }, meds: "", medsList: [], note: "" });   // deadWtAm/Pm = นน.ไก่ตายชั่งแยกเช้า/บ่าย (กก.) · deadWt = ข้อมูลเก่าที่ชั่งรวม (คงไว้ให้อ่านย้อนหลังได้) · sNopen = อาหารยกมาจากวันก่อน · medsList = ยา/สารเสริมหลายรายการ [{name,period,qty,water,time}]
 // นน.ไก่ตายรวมของวัน (กก.) — รวมเช้า+บ่าย และบวกค่าเก่าแบบชั่งรวม (บันทึกก่อนแยกช่อง) ให้รายงานเก่าไม่เพี้ยน
 const deadWtOf = (loss) => nf(loss?.deadWtAm) + nf(loss?.deadWtPm) + nf(loss?.deadWt);
 // สรุปยา/สารเสริมสั้น ๆ สำหรับตาราง เช่น "Enro 13 ขวด · Calcium 2 ขวด" (ข้อมูลเก่าใช้ข้อความ meds เดิม)
@@ -5690,7 +5690,8 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = n
           <div style={{ fontWeight: 800, color: "#B45309", fontSize: 13, marginBottom: 8 }}>🌾 อาหาร (กก.)</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9, marginBottom: 8 }}>
             {fw("fno", "เบอร์อาหาร", <input ref={(el) => { refs.current[7] = el; }} onKeyDown={onKey(7)} onFocus={(e) => e.target.select()} className="prodInput pfFeed" type="text" placeholder="เช่น 324" style={{ ...cell, textAlign: "left" }} value={feed.no} onChange={(e) => setFeed((p) => ({ ...p, no: e.target.value }))} />, "#B45309")}
-            <div /><div />
+            {fw("fmed", "สูตรยาในอาหาร", <input onFocus={(e) => e.target.select()} className="prodInput pfFeed" type="text" placeholder="เช่น อะม็อกซี่ / วิตามิน (เว้นว่างถ้าไม่มี)" style={{ ...cell, textAlign: "left", gridColumn: "span 1" }} value={feed.medInFeed || ""} onChange={(e) => setFeed((p) => ({ ...p, medInFeed: e.target.value }))} />, "#B45309")}
+            <div />
             {fw("s1o", "ไซโล 1 · ยกมาจากวันก่อน", <input {...numProps(8, "pfFeed")} placeholder={fmt1(siloRemain.s1)} title="เว้นว่าง = ใช้ยอดทดต่อจากระบบ (คงเหลือเมื่อวาน) · กรอก = ตั้งยอดตามที่เช็คจริง" value={feed.s1open} onChange={(e) => setFeed((p) => ({ ...p, s1open: dec(e.target.value) }))} />, "#B45309")}
             {fw("s1r", "ไซโล 1 · รับเข้า", <input {...numProps(9, "pfFeed")} value={feed.s1recv} onChange={(e) => setFeed((p) => ({ ...p, s1recv: dec(e.target.value) }))} />, "#B45309")}
             {fw("s1u", "ไซโล 1 · ใช้ไป", <input {...numProps(10, "pfFeed")} value={feed.s1used} onChange={(e) => setFeed((p) => ({ ...p, s1used: dec(e.target.value) }))} />, "#B45309")}
@@ -7578,7 +7579,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                       <td style={td}>{fmt(b.cum.dead)}</td>
                       <td style={td}>{b.pctDead != null ? b.pctDead.toFixed(2) + "%" : "—"}</td>
                       <td style={{ ...td, fontWeight: 800, color: "#15803D" }}>{b.remain != null ? fmt(b.remain) : "—"}</td>
-                      <td style={td}>{b.r?.feed?.no || "—"}</td>
+                      <td style={td}>{b.r?.feed?.no || "—"}{b.r?.feed?.medInFeed ? <div style={{ fontSize: 10.5, color: "#B45309", fontWeight: 700 }}>💊 {b.r.feed.medInFeed}</div> : null}</td>
                       <td style={td}>{fmt1(b.feedOpen.s1)} · {fmt1(b.feedOpen.s2)}</td>
                       <td style={td}>{fmt1(b.feedRecv)}</td>
                       <td style={td}>{fmt1(b.feedUsed)}</td>
@@ -7655,7 +7656,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                 <td style={td}>{fmt(x.cum.dead)}</td>
                 <td style={td}>{x.pctDead != null ? x.pctDead.toFixed(2) + "%" : <span style={{ color: "#c9c0ad" }}>—</span>}</td>
                 <td style={{ ...td, fontWeight: 800, color: "#15803D" }}>{x.remainBirds != null ? fmt(x.remainBirds) : <span style={{ color: "#c9c0ad" }}>ตั้งรุ่นก่อน</span>}</td>
-                <td style={td}>{x.r?.feed?.no || "—"}</td>
+                <td style={td}>{x.r?.feed?.no || "—"}{x.r?.feed?.medInFeed ? <div style={{ fontSize: 10.5, color: "#B45309", fontWeight: 700 }}>💊 {x.r.feed.medInFeed}</div> : null}</td>
                 <td style={td}>{x.r ? fmt1(x.feedUsed) : "—"}</td>
                 <td style={td}>{x.gPerBird != null ? fmt1(x.gPerBird) : "—"}</td>
                 <td style={td}>
