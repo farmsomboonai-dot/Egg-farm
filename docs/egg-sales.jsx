@@ -37,11 +37,10 @@ function sbDeviceId() {
 function sbGetMeta() { try { return JSON.parse(localStorage.getItem("eggSyncMeta") || "{}"); } catch (e) { return {}; } }
 function sbSetMeta(m) { try { localStorage.setItem("eggSyncMeta", JSON.stringify(m)); } catch (e) {} }
 let __sbQueue = {}, __sbLast = {}, __sbTimer = null, __sbHydrating = false;
-// 🛡️ กันข้อมูลคลาวด์โดนทับด้วยค่าว่าง (เหตุการณ์ 19 ก.ค.): ห้ามอัปขึ้นคลาวด์จนกว่าเครื่องนี้จะ
-// เคย sync สำเร็จแล้ว (มี eggSyncMeta) หรือดึงข้อมูลจากคลาวด์สำเร็จในรอบนี้ — เครื่องใหม่ที่โหลดไม่ทัน
-// จะเปิดด้วยข้อมูลโครง (skeleton) ซึ่งถ้าปล่อยให้อัปขึ้นไปจะล้างข้อมูลจริงของทั้งฟาร์ม
+// 🛡️ กันข้อมูลคลาวด์โดนทับด้วยค่าว่าง (เหตุการณ์ 19 ก.ค. โดน 2 รอบ): ห้ามอัปขึ้นคลาวด์เด็ดขาด
+// จนกว่ารอบนี้จะ "ดึงข้อมูลจากคลาวด์สำเร็จ" เท่านั้น — เคย sync มาก่อน (มี meta) ก็ไม่พอ
+// เพราะเครื่องที่ค้างสถานะเก่า/ว่าง แล้วรีโหลดตอนเน็ตช้า จะเอาสถานะค้างอัปทับข้อมูลจริงทั้งฟาร์ม
 let __sbSafe = false;
-try { __sbSafe = Object.keys(sbGetMeta()).length > 0; } catch (e) {}
 function sbQueueKey(key, valueStr) {
   if (!supabase || !__sbSafe || __sbHydrating || SB_SKIP.has(key) || !SB_SYNC_RE.test(key)) return;
   if (__sbLast[key] === valueStr) return;   // ค่าไม่เปลี่ยน → ไม่อัปซ้ำ (กันแค่โหลดหน้าแล้ว re-write ไปทับ edit ของอุปกรณ์อื่น)
