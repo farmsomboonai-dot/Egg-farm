@@ -3302,12 +3302,12 @@ function DashboardView({ bills, payments, production = {}, rearingByDate = {}, f
 const sumVals = (o) => Object.values(o || {}).reduce((s, v) => s + (nf(v) || 0), 0);
 const WATER_METERS = ["m1", "m2", "m3", "m4", "m5", "m6"];
 function waterUsedFromMeters(cur, prev) {
-  if (!cur || !prev) return null;
+  // มิเตอร์น้ำรีเซ็ตเป็น 0 ทุกวัน — เลขที่จด = น้ำที่ไก่กินจริงวันนั้นเลย (รวม 6 ตัว) ไม่ต้องลบกับวันก่อน
+  if (!cur) return null;
   let s = 0, used = false;
   WATER_METERS.forEach((k) => {
-    if (String(cur[k] ?? "").trim() === "" || String(prev[k] ?? "").trim() === "") return;
-    const diff = nf(cur[k]) - nf(prev[k]);
-    if (diff > 0) { s += diff; used = true; } else if (diff === 0) used = true;
+    if (String(cur[k] ?? "").trim() === "") return;
+    s += nf(cur[k]); used = true;
   });
   return used ? s : null;
 }
@@ -5038,19 +5038,13 @@ const waterUnitLabel = (hid) => WATER_LITER_HOUSES.has(hid) ? "ลิตร" : "
 const waterUnitToMl = (hid) => WATER_LITER_HOUSES.has(hid) ? 1000 : 1000000;   // 1 หน่วยมิเตอร์ → มิลลิลิตร
 // น้ำใช้วันนี้ = ผลต่างมิเตอร์จาก "วันก่อนหน้าที่มีจดมิเตอร์" (รวม 6 ตัว; ตัวไหนไม่ครบคู่ข้าม)
 function waterUsage(rearingByDate, houseId, dateISO) {
-  const days = Object.keys(rearingByDate).sort().filter((d) => d < dateISO);
-  let prev = null;
-  for (let i = days.length - 1; i >= 0; i--) {
-    const w = rearingByDate[days[i]]?.[houseId]?.water;
-    if (w && Object.values(w).some((v) => String(v).trim() !== "")) { prev = w; break; }
-  }
+  // มิเตอร์น้ำรีเซ็ตเป็น 0 ทุกวัน — เลขที่จดวันนั้น = น้ำที่กินจริง (รวม 6 ตัว) ไม่ต้องเทียบวันก่อน
   const cur = rearingByDate[dateISO]?.[houseId]?.water;
-  if (!cur || !prev) return null;
+  if (!cur) return null;
   let sum = 0, used = false;
   ["m1", "m2", "m3", "m4", "m5", "m6"].forEach((k) => {
-    if (String(cur[k] ?? "").trim() === "" || String(prev[k] ?? "").trim() === "") return;
-    const diff = nf(cur[k]) - nf(prev[k]);
-    if (diff > 0) { sum += diff; used = true; } else if (diff === 0) { used = true; }
+    if (String(cur[k] ?? "").trim() === "") return;
+    sum += nf(cur[k]); used = true;
   });
   return used ? sum : null;
 }
@@ -5617,12 +5611,11 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = n
   const feedLow = stdFeedKg != null && feedUsed > 0 && feedUsed < stdFeedKg * 0.9;
   // น้ำ: ผลต่างมิเตอร์วันนี้ − เมื่อวาน (คิว/m³) → มล./ตัว ; มาตรฐาน ≈ 2 มล.น้ำ ต่ออาหาร 1 กรัม ตามอายุ (อุณหภูมิปกติ)
   const waterUnitUsed = (() => {
-    if (!waterPrev) return null;
+    // มิเตอร์รีเซ็ตทุกวัน — บวกเลขที่กรอกทั้ง 6 ตัวตรงๆ = น้ำที่กินวันนี้
     let s = 0, used = false;
     ["m1", "m2", "m3", "m4", "m5", "m6"].forEach((k) => {
-      if (String(water[k] ?? "").trim() === "" || String(waterPrev[k] ?? "").trim() === "") return;
-      const diff = nf(water[k]) - nf(waterPrev[k]);
-      if (diff > 0) { s += diff; used = true; } else if (diff === 0) used = true;
+      if (String(water[k] ?? "").trim() === "") return;
+      s += nf(water[k]); used = true;
     });
     return used ? s : null;
   })();
@@ -5722,13 +5715,13 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = n
         </div>
 
         <div style={section("#EFF8FF", "#BAE0FD", "#0284C7")}>
-          <div style={{ fontWeight: 800, color: "#0369A1", fontSize: 13, marginBottom: 8 }}>💧 มิเตอร์น้ำ (จดเลขมิเตอร์ 6 ตัว) · หลังนี้จดเป็น<b>{waterUnitLabel(houseId)}</b> · ระบบคิดผลต่างจากวันก่อนให้เอง</div>
+          <div style={{ fontWeight: 800, color: "#0369A1", fontSize: 13, marginBottom: 8 }}>💧 มิเตอร์น้ำ (จดเลขมิเตอร์ 6 ตัว) · หลังนี้จดเป็น<b>{waterUnitLabel(houseId)}</b> · มิเตอร์รีเซ็ตทุกวัน เลขที่จด = น้ำที่กินวันนั้นเลย</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9 }}>
             {["m1", "m2", "m3", "m4", "m5", "m6"].map((k, i) => fw(k, `มิเตอร์ ${i + 1}`, <input {...numProps(14 + i, "pfWater")} value={water[k]} onChange={(e) => setWater((p) => ({ ...p, [k]: dec(e.target.value) }))} />, "#0369A1"))}
           </div>
           {waterMlPerBird != null && stdWaterMl != null && (
             <div style={{ fontSize: 12, marginTop: 8, fontWeight: waterLow ? 800 : 600, color: waterLow ? "#B91C1C" : "#0369A1", background: waterLow ? "#FEF2F2" : "#F0F9FF", border: `1px solid ${waterLow ? "#FECACA" : "#BAE0FD"}`, borderRadius: 8, padding: "6px 9px" }}>
-              {waterLow ? "⚠️ กินน้ำต่ำกว่ามาตรฐาน · " : "✓ "}น้ำวันนี้ {fmt1(waterUnitUsed)} {waterUnitLabel(houseId)} ≈ <b>{fmt(Math.round(waterMlPerBird))} มล./ตัว</b> · มาตรฐานอายุ {ageWk} สป. ≈ {fmt(Math.round(stdWaterMl))} มล./ตัว (ไก่ {fmt(birdsLive)} ตัว)
+              {waterLow ? "⚠️ กินน้ำต่ำกว่ามาตรฐาน · " : "✓ "}น้ำวันนี้ {fmt1(waterUnitUsed)} {waterUnitLabel(houseId)}{waterUnitLabel(houseId) === "คิว" ? ` (= ${fmt(Math.round(waterUnitUsed * 1000))} ลิตร)` : ""} ≈ <b>{fmt(Math.round(waterMlPerBird))} มล./ตัว</b> · มาตรฐานอายุ {ageWk} สป. ≈ {fmt(Math.round(stdWaterMl))} มล./ตัว (ไก่ {fmt(birdsLive)} ตัว)
             </div>
           )}
         </div>
@@ -7323,10 +7316,9 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
 
   // 📝 "กรอกรอบเดียวจบ": พากรอกทีละหลังต่อเนื่อง H2→H6 อัตโนมัติ (บันทึก/ข้าม แล้วเด้งหลังถัดไปเอง)
   const [round, setRound] = useState(null);   // {date, idx}
-  // ค่าเริ่มต้น "วันนี้" — เปลี่ยนวันที่ในช่องข้างปุ่มเพื่อลงข้อมูลย้อนหลังได้ (ห้ามเกินวันนี้ · มีปุ่ม "วันนี้" เด้งกลับ)
+  // 📅 วันเดียวคุมทั้งหน้า: แถบวันที่ด้านบนตัวเดียว ใช้ทั้งปุ่ม "ลงข้อมูล" และตารางรวมทุกหลัง (ย้อนหลังได้ ห้ามเกินวันนี้)
   const todayISO = isoFromTs(Date.now());
-  const [roundDate, setRoundDate] = useState(todayISO);
-  const startRound = () => { if (!houseIds.length) return; setRound({ date: roundDate, idx: 0 }); setEditHouse({ hid: houseIds[0], date: roundDate }); };
+  const startRound = () => { if (!houseIds.length) return; setRound({ date: day, idx: 0 }); setEditHouse({ hid: houseIds[0], date: day }); };
   const advanceRound = () => {
     setRound((r) => {
       if (!r) { setEditHouse(null); return null; }
@@ -7412,33 +7404,33 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
       <div style={S.subBar}>
         <span style={S.subBarTitle}>การเลี้ยงไก่ไข่{mode === "house" ? <span style={{ fontSize: 30, verticalAlign: "middle", color: ACCENT_DK }}> · โรงเรือน {selHouse}</span> : ` · ${dayTH}`}{rearDates.length > 0 ? <span style={{ fontSize: 12.5, fontWeight: 600, color: "#9b8e78" }}> · บันทึกแล้ว {rearDates.length} วัน</span> : null}</span>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <div style={{ display: "inline-flex", alignItems: "center", borderRadius: 999, overflow: "hidden", border: "1.5px solid #15803D", background: "#fff" }}>
-            <button onClick={startRound} title="เปิดฟอร์มกรอกทีละโรงเรือน H2→H7 ต่อเนื่องจนครบ ไม่ต้องสลับหน้าเอง"
-              style={{ padding: "7px 15px", border: "none", background: "#16A34A", color: "#fff", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
-              ✏️ ลงข้อมูล {toThaiDate(roundDate, false)}{roundDate !== todayISO ? " (ย้อนหลัง)" : ""} · ทีละหลังจนครบ ▸
-            </button>
-            <ThaiDateField value={roundDate} onChange={(d) => { if (d && d <= todayISO) setRoundDate(d); }} title="เปลี่ยนวันที่เพื่อลงข้อมูลย้อนหลัง"
-              style={{ padding: "6px 8px", border: "none", background: "#fff", color: "#15803D", fontSize: 12.5, fontWeight: 800, width: 92, fontFamily: "inherit", outline: "none" }} />
+          {/* 📅 แถบวันที่ตัวเดียว — คุมทั้งปุ่มลงข้อมูลและตารางรวมทุกหลัง (‹ › เลื่อนวัน · กดวันที่เพื่อเลือกจากปฏิทิน) */}
+          <div style={{ display: "inline-flex", alignItems: "center", border: `1.5px solid ${ACCENT}`, borderRadius: 999, overflow: "hidden", background: "#fff" }}>
+            <button onClick={() => setDay(shiftDayISO(day, -1))} title="ถอยไปวันก่อนหน้า"
+              style={{ padding: "7px 14px", border: "none", background: "#fff", color: ACCENT_DK, fontSize: 16, fontWeight: 800, cursor: "pointer" }}>‹</button>
+            <ThaiDateField value={day} onChange={(d) => { if (d && d <= todayISO) setDay(d); }} title="กดเพื่อเลือกวันที่จากปฏิทิน"
+              style={{ padding: "7px 2px", border: "none", background: "#fff", color: INK, fontSize: 13, fontWeight: 800, width: 98, textAlign: "center", fontFamily: "inherit", outline: "none" }} />
+            <button onClick={() => setDay(shiftDayISO(day, 1))} disabled={day >= todayISO} title="ไปวันถัดไป"
+              style={{ padding: "7px 14px", border: "none", background: "#fff", color: day >= todayISO ? "#ddd2bc" : ACCENT_DK, fontSize: 16, fontWeight: 800, cursor: day >= todayISO ? "default" : "pointer" }}>›</button>
           </div>
-          {roundDate !== todayISO && (
-            <button onClick={() => setRoundDate(todayISO)} title="กลับมาลงข้อมูลของวันนี้"
-              style={{ padding: "6px 12px", borderRadius: 999, border: "1.5px solid #15803D", background: "#F0FDF4", color: "#15803D", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>↩ วันนี้</button>
+          {day !== todayISO && (
+            <button onClick={() => setDay(todayISO)} title="กลับมาวันนี้"
+              style={{ padding: "6px 12px", borderRadius: 999, border: `1.5px solid ${ACCENT_DK}`, background: "#FFF7EC", color: ACCENT_DK, fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>↩ วันนี้</button>
           )}
+          <button onClick={startRound} title="เปิดฟอร์มกรอกทีละโรงเรือน H2→H7 ต่อเนื่องจนครบ ไม่ต้องสลับหน้าเอง"
+            style={{ padding: "8px 16px", borderRadius: 999, border: `1.5px solid ${day === todayISO ? "#15803D" : "#92400E"}`, background: day === todayISO ? "#16A34A" : "#D97706", color: "#fff", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
+            ✏️ ลงข้อมูล{day === todayISO ? "วันนี้" : `ย้อนหลัง ${toThaiDate(day, false)}`} · ทีละหลังจนครบ ▸
+          </button>
           <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#F6F1E7", border: "1px solid #e6dfd0", borderRadius: 999, padding: "3px 5px 3px 12px" }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: "#9b8e78" }}>ดูข้อมูล:</span>
             <button style={chip(mode === "house")} onClick={() => setMode("house")} title="สมุดประวัติของโรงเรือนเดียว ไล่ทุกวัน (เหมือนสมุดฟอร์มกระดาษ)">📒 แยกรายหลัง</button>
-            <button style={chip(mode === "day")} onClick={() => setMode("day")} title="สรุปทุกโรงเรือนของวันเดียว เทียบกันแถวต่อแถว">📅 รวมทุกหลังในวันเดียว</button>
+            <button style={chip(mode === "day")} onClick={() => setMode("day")} title="สรุปทุกโรงเรือนของวันที่เลือกในแถบวันที่ เทียบกันแถวต่อแถว">📅 รวมทุกหลังในวันเดียว</button>
           </div>
           <button onClick={() => setShowPlan(true)} title="วางแผนวัคซีน/ยา/วิตามินล่วงหน้ารายเดือน — ถึงกำหนดระบบเตือนให้"
             style={{ position: "relative", padding: "7px 14px", borderRadius: 999, border: "1.5px solid #7C3AED", background: "#fff", color: "#7C3AED", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
             🗓️ แผนวัคซีน/ยา
             {planDue.length > 0 && <span style={{ position: "absolute", top: -7, right: -7, background: "#DC2626", color: "#fff", borderRadius: 999, fontSize: 11, fontWeight: 800, padding: "1px 7px" }}>{planDue.length}</span>}
           </button>
-          {mode === "day" && <>
-            <button onClick={() => setDay(shiftDayISO(day, -1))} title="วันก่อนหน้า" style={{ padding: "6px 11px", border: `1px solid ${ACCENT}`, background: "#fff", color: ACCENT_DK, borderRadius: 8, fontSize: 15, fontWeight: 800, cursor: "pointer" }}>‹</button>
-            <ThaiDateField value={day} onChange={setDay} style={{ padding: "7px 11px", border: `1px solid ${ACCENT}`, borderRadius: 8, fontSize: 13.5, background: "#fff", color: INK, fontWeight: 700 }} />
-            <button onClick={() => setDay(shiftDayISO(day, 1))} title="วันถัดไป" style={{ padding: "6px 11px", border: `1px solid ${ACCENT}`, background: "#fff", color: ACCENT_DK, borderRadius: 8, fontSize: 15, fontWeight: 800, cursor: "pointer" }}>›</button>
-          </>}
         </div>
       </div>
 
@@ -7516,6 +7508,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                     <th style={th}>คงเหลือไซโล</th>
                     <th style={th}>กินเฉลี่ย (กรัม/ตัว)</th>
                     <th style={th}>น้ำ ({waterUnitLabel(selHouse)})</th>
+                    <th style={{ ...th, color: "#0369A1" }}>กินน้ำ (มล./ตัว)</th>
                     <th style={{ ...th, textAlign: "left" }}>ยา/วัคซีน · หมายเหตุ</th>
                     <th style={th}></th>
                   </tr>
@@ -7539,7 +7532,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                       <td style={td}>{fmt1(gsum(b.items, (x) => x.feedUsed))}</td>
                       <td style={td} /><td style={td} />
                       <td style={td}>{fmt1(gsum(b.items, (x) => x.water))}</td>
-                      <td style={td} /><td style={td} />
+                      <td style={td} /><td style={td} /><td style={td} />
                     </tr>
                   ) : (
                     <tr key={b.d}>
@@ -7569,6 +7562,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                       </td>
                       <td style={td}>{b.gPerBird != null ? fmt1(b.gPerBird) : "—"}</td>
                       <td style={td}>{b.water != null ? fmt1(b.water) : "—"}</td>
+                      <td style={{ ...td, color: "#0369A1", fontWeight: 700 }}>{b.water != null && b.remain ? fmt(Math.round((b.water * waterUnitToMl(selHouse)) / b.remain)) : "—"}</td>
                       <td style={{ ...td, textAlign: "left", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }} title={medsDetail(b.r) + (b.r?.note ? " · " + b.r.note : "")}>{medsSummary(b.r) || (b.r?.note ? "📝" : "—")}</td>
                       <td style={td}><button onClick={() => setEditHouse({ hid: selHouse, date: b.d })} title="แก้ไขวันนี้" style={{ border: "1px solid #E8943A55", background: "#FFF7EC", color: ACCENT_DK, borderRadius: 7, padding: "2px 7px", cursor: "pointer" }}><Pencil size={12} /></button></td>
                     </tr>
@@ -7607,6 +7601,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
               <th style={th}>กินเฉลี่ย (กรัม/ตัว)</th>
               <th style={th}>คงเหลือไซโล (กก.)</th>
               <th style={th}>น้ำ (2·3=ลิตร · 4-7=คิว)</th>
+              <th style={{ ...th, color: "#0369A1" }}>กินน้ำ (มล./ตัว)</th>
               <th style={{ ...th, textAlign: "left" }}>ยา/วัคซีน</th>
             </tr>
           </thead>
@@ -7642,6 +7637,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                   <span style={siloAct[x.hid]?.s2 && x.silo.s2 < feedMin ? { color: "#B91C1C", fontWeight: 800 } : {}}>{fmt1(x.silo.s2)}</span>
                 </td>
                 <td style={td}>{x.water != null ? `${fmt1(x.water)} ${waterUnitLabel(x.hid)}` : "—"}</td>
+                <td style={{ ...td, color: "#0369A1", fontWeight: 700 }}>{x.water != null && x.remainBirds ? fmt(Math.round((x.water * waterUnitToMl(x.hid)) / x.remainBirds)) : "—"}</td>
                 <td style={{ ...td, textAlign: "left", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }} title={medsDetail(x.r) + (x.r?.note ? " · " + x.r.note : "")}>{medsSummary(x.r) || (x.r?.note ? "📝" : "—")}</td>
               </tr>
             ))}
@@ -7662,6 +7658,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
               <td style={td} />
               <td style={td}>{fmt1(sum((x) => x.silo.s1 + x.silo.s2))}</td>
               <td style={td}>{fmt1(sum((x) => x.water != null ? x.water / (waterUnitLabel(x.hid) === "ลิตร" ? 1000 : 1) : 0))} คิว</td>
+              <td style={td} />
               <td style={td} />
             </tr>
           </tbody>
