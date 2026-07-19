@@ -960,7 +960,7 @@ function RolePickerModal({ roles, current, onPick, onClose }) {
   const doLogout = async () => {
     if (!window.confirm("ออกจากระบบบัญชีฟาร์ม? ครั้งต่อไปต้องใส่รหัสผ่านใหม่")) return;
     try { localStorage.removeItem("sjfAuthOk"); } catch (e) {}
-    try { await supabase.auth.signOut(); } catch (e) {}
+    try { await supabase.auth.signOut({ scope: "local" }); } catch (e) {}   // ออกเฉพาะเครื่องนี้ — ไม่เตะเครื่องอื่นที่ใช้บัญชีเดียวกันหลุด
     window.location.reload();
   };
   const choose = (r) => {
@@ -9296,23 +9296,32 @@ async function __hydrate() {
   try { await Promise.race([pullFromCloud().catch(() => {}), new Promise((r) => setTimeout(r, 3500))]); } catch (e) {}
 }
 function LoginScreen({ onDone }) {
-  const [user, setUser] = useState("");
+  // บัญชีฟาร์ม — กดเลือกว่าเป็นใคร แล้วใส่รหัสของคนนั้น · ล็อกอินสำเร็จ = ตั้งบทบาทในแอปให้อัตโนมัติ ไม่ต้องใส่ PIN ซ้ำ
+  // role ต้องตรงกับ id ใน DEFAULT_ROLES
+  const ACCOUNTS = [
+    { u: "owner",    label: "เจ้าของฟาร์ม",                        desc: "ดูได้ทุกหัวข้อ",             emoji: "👑", role: "owner" },
+    { u: "office",   label: "เสมียน/ออฟฟิศ",                       desc: "ขายไข่ · บิล · สต็อค",       emoji: "🛒", role: "sales" },
+    { u: "farm",     label: "สัตวบาล/หน้าฟาร์ม",                   desc: "ผลผลิต · การเลี้ยง · ยา",    emoji: "🐔", role: "farm" },
+    { u: "acct",     label: "บัญชี",                                desc: "บิล · ลูกหนี้ · ต้นทุน",     emoji: "💰", role: "acct" },
+    { u: "medclerk", label: "เสมียนห้องสต๊อคยา",                    desc: "สต็อคยาและวิตามิน",          emoji: "💊", role: "medclerk" },
+    { u: "retail",   label: "ร้านค้าขายปลีก (ฉันจะกินไข่สดทุกวัน)", desc: "จองออเดอร์ร้านขายปลีก",      emoji: "🛍️", role: "retail_shop" },
+    { u: "branch",   label: "ร้านฟาร์มสมบูรณ์",                     desc: "จองออเดอร์ร้านสาขา",         emoji: "🏪", role: "branch_shop" },
+  ];
+  const [acct, setAcct] = useState(null);
   const [pw, setPw] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const inputSt = { width: "100%", padding: "12px 14px", border: "1.5px solid #e3ddd0", borderRadius: 11, fontSize: 16, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: "#fff" };
   const submit = async () => {
-    const u = user.trim().toLowerCase();
-    if (!u || !pw || busy) return;
+    if (!acct || !pw || busy) return;
     setBusy(true); setErr("");
-    const email = u.includes("@") ? u : u + "@sjffarm.app";
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password: pw });
+      const { error } = await supabase.auth.signInWithPassword({ email: acct.u + "@sjffarm.app", password: pw });
       if (error) {
-        setErr(/invalid login credentials/i.test(error.message || "") ? "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง" : "เข้าสู่ระบบไม่สำเร็จ: " + (error.message || ""));
+        setErr(/invalid login credentials/i.test(error.message || "") ? "รหัสไม่ถูกต้อง" : "เข้าสู่ระบบไม่สำเร็จ: " + (error.message || ""));
         setBusy(false); return;
       }
       try { localStorage.setItem("sjfAuthOk", "1"); } catch (e) {}
+      try { localStorage.setItem("eggCurrentRole", acct.role); } catch (e) {}
       onDone();
     } catch (e) {
       setErr("เชื่อมต่อไม่ได้ — ตรวจอินเทอร์เน็ตแล้วลองใหม่อีกครั้ง");
@@ -9320,31 +9329,64 @@ function LoginScreen({ onDone }) {
     }
   };
   return (
-    <div style={{ minHeight: "100vh", background: "#F6F1E7", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, fontFamily: "'Noto Sans Thai', sans-serif" }}>
-      <div style={{ width: "100%", maxWidth: 390, background: "#fff", border: "1.5px solid #e9e2d2", borderRadius: 18, padding: "30px 26px", boxShadow: "0 12px 34px rgba(90,70,30,0.10)" }}>
+    <div style={{ minHeight: "100vh", background: "linear-gradient(180deg, #FFF4E6 0%, #FFE7CB 100%)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, fontFamily: "'Noto Sans Thai', sans-serif" }}>
+      <div style={{ width: "100%", maxWidth: 390, background: "#fff", border: "1.5px solid #F5DFC2", borderRadius: 18, padding: "30px 26px", boxShadow: "0 12px 34px rgba(200,120,30,0.14)" }}>
         <div style={{ textAlign: "center", marginBottom: 20 }}>
-          <div style={{ fontSize: 44, lineHeight: 1 }}>🥚</div>
+          {/* ไข่ตอกฟองเดียว (เวกเตอร์) — ไข่ขาวใสขอบหยักธรรมชาติ + ไข่แดงส้มเข้มมันวาวแบบรูปถ่ายฟาร์ม */}
+          <svg width="110" height="92" viewBox="0 0 130 108" style={{ display: "block", margin: "0 auto" }} aria-label="ไข่ตอก">
+            <defs>
+              <radialGradient id="sjfYolk" cx="42%" cy="36%" r="68%">
+                <stop offset="0%" stopColor="#FFC24A" />
+                <stop offset="48%" stopColor="#F68B00" />
+                <stop offset="100%" stopColor="#DD6E00" />
+              </radialGradient>
+            </defs>
+            <ellipse cx="65" cy="100" rx="48" ry="5" fill="rgba(190,120,40,0.14)" />
+            <path fill="#FFFDF7" stroke="#F3E2C4" strokeWidth="1.5"
+              d="M 62 8 C 80 0, 102 6, 112 20 C 122 33, 116 42, 122 55 C 127 68, 115 81, 100 86 C 89 90, 83 97, 68 99 C 52 101, 46 91, 32 88 C 17 85, 5 76, 8 61 C 10 48, 3 37, 12 25 C 21 12, 44 16, 62 8 Z" />
+            <ellipse cx="64" cy="53" rx="35" ry="30" fill="#FBEFCB" opacity="0.5" />
+            <circle cx="64" cy="51" r="27" fill="url(#sjfYolk)" />
+            <ellipse cx="54" cy="40" rx="9.5" ry="5.5" fill="#FFE7AE" opacity="0.9" transform="rotate(-18 54 40)" />
+            <ellipse cx="72" cy="62" rx="12" ry="7" fill="#D96A00" opacity="0.22" transform="rotate(-14 72 62)" />
+          </svg>
           <div style={{ fontSize: 19, fontWeight: 900, color: INK, marginTop: 8 }}>ฟาร์มไข่สมบูรณ์ · SJF Farm</div>
           <div style={{ fontSize: 12.5, color: "#9b8e78", marginTop: 3 }}>เข้าสู่ระบบเพื่อใช้งาน</div>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
-          <div>
-            <div style={{ fontSize: 12.5, fontWeight: 800, color: "#6d6151", marginBottom: 5 }}>ชื่อผู้ใช้</div>
-            <input value={user} onChange={(e) => { setUser(e.target.value); setErr(""); }} onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
-              autoFocus autoCapitalize="none" autoCorrect="off" placeholder="เช่น office" style={inputSt} />
+        {!acct ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#6d6151", marginBottom: 2 }}>คุณคือใคร? กดเลือกได้เลย</div>
+            {ACCOUNTS.map((a) => (
+              <button key={a.u} onClick={() => { setAcct(a); setPw(""); setErr(""); }}
+                style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 15px", border: "1.5px solid #F0D9B8", background: "#FFFBF4", borderRadius: 12, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+                <span style={{ fontSize: 26 }}>{a.emoji}</span>
+                <span style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 900, color: INK, fontSize: 15.5 }}>{a.label}</div>
+                  <div style={{ fontSize: 11.5, color: "#9b8e78" }}>{a.desc}</div>
+                </span>
+                <span style={{ color: "#c9a86f", fontWeight: 900, fontSize: 18 }}>›</span>
+              </button>
+            ))}
           </div>
-          <div>
-            <div style={{ fontSize: 12.5, fontWeight: 800, color: "#6d6151", marginBottom: 5 }}>รหัสผ่าน</div>
-            <input value={pw} onChange={(e) => { setPw(e.target.value); setErr(""); }} onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
-              type="password" placeholder="รหัสผ่าน" style={inputSt} />
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 13px", background: "#FFF3DF", border: "1.5px solid #F0D9B8", borderRadius: 11 }}>
+              <span style={{ fontSize: 24 }}>{acct.emoji}</span>
+              <span style={{ fontWeight: 900, color: INK, fontSize: 15, flex: 1 }}>{acct.label}</span>
+              <button onClick={() => { setAcct(null); setPw(""); setErr(""); }} style={{ border: "none", background: "transparent", color: "#b08a5c", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}>เปลี่ยน</button>
+            </div>
+            <div>
+              <div style={{ fontSize: 12.5, fontWeight: 800, color: "#6d6151", marginBottom: 5 }}>ใส่รหัสของ{acct.label}</div>
+              <input value={pw} onChange={(e) => { setPw(e.target.value); setErr(""); }} onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+                type="password" autoFocus placeholder="● ● ● ●" style={{ width: "100%", padding: "12px 14px", border: "1.5px solid #e3ddd0", borderRadius: 11, fontSize: 18, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: "#fff", textAlign: "center", letterSpacing: 2 }} />
+            </div>
+            {err && <div style={{ color: "#B91C1C", fontSize: 12.5, fontWeight: 700, background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 9, padding: "8px 11px" }}>{err}</div>}
+            <button onClick={submit} disabled={!pw || busy}
+              style={{ marginTop: 2, padding: "13px 14px", border: "none", borderRadius: 11, background: (!pw || busy) ? "#e5ddcc" : ACCENT, color: (!pw || busy) ? "#a89d88" : "#fff", fontSize: 16, fontWeight: 900, cursor: (!pw || busy) ? "default" : "pointer", fontFamily: "inherit" }}>
+              {busy ? "กำลังเข้าสู่ระบบ…" : "เข้าสู่ระบบ"}
+            </button>
           </div>
-          {err && <div style={{ color: "#B91C1C", fontSize: 12.5, fontWeight: 700, background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 9, padding: "8px 11px" }}>{err}</div>}
-          <button onClick={submit} disabled={!user.trim() || !pw || busy}
-            style={{ marginTop: 4, padding: "13px 14px", border: "none", borderRadius: 11, background: (!user.trim() || !pw || busy) ? "#e5ddcc" : ACCENT, color: (!user.trim() || !pw || busy) ? "#a89d88" : "#fff", fontSize: 16, fontWeight: 900, cursor: (!user.trim() || !pw || busy) ? "default" : "pointer", fontFamily: "inherit" }}>
-            {busy ? "กำลังเข้าสู่ระบบ…" : "เข้าสู่ระบบ"}
-          </button>
-          <div style={{ fontSize: 11.5, color: "#9b8e78", textAlign: "center", marginTop: 2 }}>ลืมรหัสผ่าน? ติดต่อเจ้าของฟาร์ม</div>
-        </div>
+        )}
+        <div style={{ fontSize: 11.5, color: "#9b8e78", textAlign: "center", marginTop: 13 }}>ใส่รหัสครั้งเดียว เครื่องจะจำไว้ · ลืมรหัส? ติดต่อเจ้าของฟาร์ม</div>
       </div>
     </div>
   );
@@ -9373,8 +9415,8 @@ function Root() {
     return () => { alive = false; try { sub.data.subscription.unsubscribe(); } catch (e) {} };
   }, []);
   if (stage === "checking") return (
-    <div style={{ minHeight: "100vh", background: "#F6F1E7", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Noto Sans Thai', sans-serif", color: "#9b8e78", fontSize: 14.5, fontWeight: 700 }}>
-      🥚 กำลังตรวจสอบผู้ใช้…
+    <div style={{ minHeight: "100vh", background: "linear-gradient(180deg, #FFF4E6 0%, #FFE7CB 100%)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Noto Sans Thai', sans-serif", color: "#b08a5c", fontSize: 14.5, fontWeight: 700 }}>
+      🍳 กำลังตรวจสอบผู้ใช้…
     </div>
   );
   if (stage === "login") return <LoginScreen onDone={async () => { await __hydrate(); setStage("ready"); }} />;
