@@ -634,6 +634,7 @@ const PRODUCTS = {
   ],
   พิเศษ: [
     { id: "s_jumbo", name: "จัมโบ้ + แฝด", stock: 23 },
+    { id: "s_papertray", name: "แผงไข่กระดาษ", stock: 0, noTray: true },   // บรรจุภัณฑ์ (ลูกค้าเก็บไป) — ไม่นับเป็นแผงดำมัดจำ/คืน
   ],
 };
 
@@ -1634,7 +1635,7 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
   });
 
   const eggTotal = cartItems.reduce((s, i) => s + i.subtotal, 0);
-  const totalPrang = cartItems.reduce((s, i) => s + i.qty, 0);
+  const totalPrang = cartItems.reduce((s, i) => s + (i.product?.noTray ? 0 : i.qty), 0);   // นับเฉพาะแผงไข่จริง (ไม่รวมบรรจุภัณฑ์ เช่น แผงไข่กระดาษ)
   // ยอดแผงรับ = ยอดไข่ × 1.1 (จำนวนแผงจริงที่ลูกค้ารับ)
   const trayReceivedTotal = Math.round(totalPrang * 1.1);
 
@@ -1648,6 +1649,7 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
   const orangePanels = Math.round(orangeEggTrays * 1.1);
   // แยกขนาดแผงดำอัตโนมัติจากเบอร์ไข่: เฉพาะเบอร์ 2-5 = แผงเล็ก ; ที่เหลือ (เบอร์ 0,1 + จัมโบ้ + ตกเกรด + คละ) = แผงใหญ่
   const bigBlackEggTrays = cartItems.reduce((s, i) => {
+    if (i.product?.noTray) return s;                            // บรรจุภัณฑ์ (แผงไข่กระดาษ) ไม่นับเป็นแผงดำ
     const onBlack = i.product.group !== "คละ" || klaUseBlack;   // คละปกติอยู่แผงส้ม
     if (!onBlack) return s;
     const isBig = !SMALL_TRAY_IDS.has(i.productId);
@@ -5165,7 +5167,16 @@ function VaccineModal({ houseId, rows = [], info, onAdd, onDelete, onClose }) {
             <div><label style={lbl}>ชื่อวัคซีน / การค้า</label><input style={inp} {...chain(3)} value={f.name} onChange={up("name")} placeholder="เช่น OLVAC เข็ม4" /></div>
             <div><label style={lbl}>ป้องกันโรค</label><input style={inp} {...chain(4)} value={f.against} onChange={up("against")} /></div>
             <div><label style={lbl}>ชนิดวัคซีน</label><select style={inp} {...chain(5)} value={f.kind} onChange={up("kind")}><option>เชื้อเป็น</option><option>เชื้อตาย</option><option>แบบผง</option></select></div>
-            <div><label style={lbl}>วิธีการใช้</label><input style={inp} {...chain(6)} value={f.method} onChange={up("method")} placeholder="เช่น หยอดตาซ้าย" /></div>
+            <div><label style={lbl}>วิธีการใช้</label>
+              <input style={inp} {...chain(6)} list="vaccineMethodList" value={f.method} onChange={up("method")} placeholder="กดเลือก หรือพิมพ์เอง" />
+              <datalist id="vaccineMethodList">
+                <option value="หยอดตา" /><option value="หยอดตาซ้าย" /><option value="หยอดตาขวา" />
+                <option value="หยอดปาก" /><option value="หยอดจมูก" />
+                <option value="ฉีดเข้ากล้ามเนื้ออก" /><option value="ฉีดกล้ามเนื้ออกซ้าย" /><option value="ฉีดกล้ามเนื้ออกขวา" />
+                <option value="ฉีดใต้ผิวหนังคอ" /><option value="แทงปีก" />
+                <option value="ละลายน้ำ" /><option value="สเปรย์/พ่นหมอก" />
+              </datalist>
+            </div>
             <div><label style={lbl}>วัคซีนที่ใช้ (ขวด)</label><input style={inp} {...chain(7)} value={f.bottles} onChange={up("bottles")} /></div>
             <div><label style={lbl}>โด๊สที่ใช้</label><input style={inp} {...chain(8)} value={f.dose} onChange={up("dose")} placeholder="เช่น 0.5 ml" /></div>
             <div><label style={lbl}>ขนาดโด๊ส</label><input style={inp} {...chain(9)} value={f.doseSize} onChange={up("doseSize")} placeholder="เช่น 1000 โด๊ส" /></div>
