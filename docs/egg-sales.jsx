@@ -29,6 +29,9 @@ if (supabase) {
 const SB_TABLE = "app_snapshot";
 const SB_SYNC_RE = /^egg/;
 const SB_SKIP = new Set(["eggDeviceId", "eggSyncMeta", "eggCurrentRole", "eggAccessLog"]);
+// ลิสต์ (อาเรย์) ที่ให้รวมแบบ union ตาม id/เลขบิล แทนการทับทั้งก้อน — เฉพาะลิสต์ที่ "ไม่เคยลบสมาชิกออก"
+// (บิล: ยกเลิก = ติดธง cancelled ไม่ได้ลบออก) จึง union ปลอดภัย กัน 2 คนเพิ่มพร้อมกันแล้วหาย
+const SB_MERGE_ARRAY_KEYS = new Set(["eggBills"]);
 function sbDeviceId() {
   let d = null; try { d = localStorage.getItem("eggDeviceId"); } catch (e) {}
   if (!d) { d = "dev-" + Math.random().toString(36).slice(2, 9); try { localStorage.setItem("eggDeviceId", d); } catch (e) {} }
@@ -57,11 +60,14 @@ async function sbFlush() {
   // แยก 2 ทาง: ค่าที่เป็น "ออบเจกต์" (เช่น สมุดการเลี้ยง eggRearing ที่คีย์ด้วยวันที่, ผลผลิต, วัคซีน ฯลฯ)
   // → ใช้ merge ฝั่งฐานข้อมูล (app_snapshot_merge) รวมแบบลึกกับของเดิม กันเครื่องที่ถือข้อมูลเก่าทับของใหม่
   //   ที่เครื่องอื่นเพิ่งคีย์ (เหตุการณ์ 21 ก.ค. — คีย์ย้อนหลังหลายคนพร้อมกันแล้วหายทั้งช่วง)
-  // ค่าที่เป็น "อาเรย์/ตัวเลข/ข้อความ" (บิล, ลูกค้า, ราคา ฯลฯ) → upsert ทับปกติเหมือนเดิม
+  // ค่าที่เป็น "อาเรย์/ตัวเลข/ข้อความ" (ราคา ฯลฯ) → upsert ทับปกติเหมือนเดิม
+  // ยกเว้นลิสต์ที่ระบุใน SB_MERGE_ARRAY_KEYS (เช่น บิลขาย) → รวมแบบ union ตาม id/เลขบิล
+  //   กัน 2 คนเพิ่มบิลพร้อมกันแล้วบิลนึงหาย (บิลไม่เคยถูกลบออกจากลิสต์ แค่ติดธง cancelled จึง union ปลอดภัย)
   const mergeKeys = [], plainRows = [];
   keys.forEach((key) => {
     const data = __sbQueue[key];
-    if (data && typeof data === "object" && !Array.isArray(data)) mergeKeys.push(key);
+    const isObj = data && typeof data === "object" && !Array.isArray(data);
+    if (isObj || (Array.isArray(data) && SB_MERGE_ARRAY_KEYS.has(key))) mergeKeys.push(key);
     else plainRows.push({ key, data, item_count: Array.isArray(data) ? data.length : null, snapshot_at: now, device: dev });
   });
   const queued = __sbQueue; __sbQueue = {};
@@ -145,6 +151,31 @@ async function pullFromCloud() {
     clearTimeout(__sbTimer); __sbTimer = setTimeout(sbFlush, 1000);
   }
   return { applied };
+}
+// 💾 สำรองข้อมูลทั้งหมด → ดาวน์โหลดเป็นไฟล์ JSON (ประกันชั้นสอง นอกเหนือจากคลาวด์)
+function exportAllEggData() {
+  const dump = {};
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && SB_SYNC_RE.test(k) && !SB_SKIP.has(k)) {
+        const s = localStorage.getItem(k);
+        try { dump[k] = JSON.parse(s); } catch (e) { dump[k] = s; }
+      }
+    }
+  } catch (e) {}
+  const payload = { app: "sjf-eggfarm", exportedAt: new Date().toISOString(), device: (function () { try { return sbDeviceId(); } catch (e) { return ""; } })(), keys: Object.keys(dump).length, data: dump };
+  try {
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const d = new Date(), p2 = (n) => String(n).padStart(2, "0");
+    const stamp = d.getFullYear() + "-" + p2(d.getMonth() + 1) + "-" + p2(d.getDate()) + "_" + p2(d.getHours()) + p2(d.getMinutes());
+    const a = document.createElement("a");
+    a.href = url; a.download = "sjf-eggfarm-backup_" + stamp + ".json";
+    document.body.appendChild(a); a.click();
+    setTimeout(function () { try { document.body.removeChild(a); URL.revokeObjectURL(url); } catch (e) {} }, 800);
+  } catch (e) { return -1; }
+  return Object.keys(dump).length;
 }
 // ดักการเขียน localStorage → mirror ขึ้นคลาวด์
 if (typeof window !== "undefined" && !window.__eggSyncWrapped) {
@@ -1025,6 +1056,10 @@ function RolePickerModal({ roles, current, onPick, onClose }) {
                 {r.id === current && <span style={{ fontSize: 11.5, fontWeight: 800, color: ACCENT_DK }}>ใช้อยู่</span>}
               </button>
             ))}
+            {current === "owner" && (
+              <button onClick={() => { const n = exportAllEggData(); window.alert(n < 0 ? "สำรองข้อมูลไม่สำเร็จ ลองใหม่อีกครั้ง" : ("✅ สำรองข้อมูลแล้ว " + n + " รายการ\nไฟล์ถูกดาวน์โหลดไว้ในเครื่อง — เก็บไว้เป็นสำเนากันข้อมูลหาย\n(แนะนำ: ทำทุกสิ้นเดือน แล้วเซฟไฟล์ไว้ในที่ปลอดภัย)")); }}
+                style={{ marginTop: 6, border: "1.5px solid #A7F3D0", background: "#F0FDF4", color: "#15803D", borderRadius: 10, padding: "11px 12px", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>💾 สำรองข้อมูลทั้งหมด (ดาวน์โหลดไฟล์)</button>
+            )}
             {supabase && (
               <div style={{ marginTop: 6, paddingTop: 10, borderTop: "1px solid #efe9dc", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                 <span style={{ fontSize: 11.5, color: "#9b8e78" }}>🔐 บัญชีฟาร์ม: <b style={{ color: "#6d6151" }}>{authUser || "—"}</b></span>
@@ -9565,10 +9600,32 @@ function Root() {
 }
 
 /* ============================================================
+   🛡️ กันจอขาว — ถ้าส่วนไหนของแอปพังกลางคัน แสดงหน้าขอโทษ + ปุ่มโหลดใหม่
+   แทนที่จะเป็นจอว่างเปล่าจนพนักงานทำงานต่อไม่ได้ (ข้อมูลในคลาวด์ไม่กระทบ)
+   ============================================================ */
+class AppErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { err: null }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch(err, info) { try { console.error("[แอปพัง]", err, info); } catch (e) {} }
+  render() {
+    if (!this.state.err) return this.props.children;
+    return React.createElement("div", { style: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(180deg,#FFF4E6 0%,#FFE7CB 100%)", fontFamily: "inherit", padding: 20 } },
+      React.createElement("div", { style: { maxWidth: 400, background: "#fff", border: "1px solid #eee3cd", borderRadius: 18, padding: "28px 24px", textAlign: "center", boxShadow: "0 8px 30px rgba(0,0,0,.08)" } },
+        React.createElement("div", { style: { fontSize: 46 } }, "🥚"),
+        React.createElement("div", { style: { fontSize: 18, fontWeight: 800, color: "#7a3d00", marginTop: 8 } }, "แอปสะดุดชั่วคราว"),
+        React.createElement("div", { style: { fontSize: 14, color: "#8a7d68", marginTop: 8, lineHeight: 1.7 } }, "ข้อมูลของคุณยังปลอดภัยบนคลาวด์ครบทุกอย่าง — กดปุ่มด้านล่างเพื่อโหลดแอปใหม่แล้วใช้งานต่อได้เลย"),
+        React.createElement("button", { onClick: function () { try { location.reload(); } catch (e) {} }, style: { marginTop: 18, padding: "11px 22px", borderRadius: 999, border: "none", background: "#16A34A", color: "#fff", fontSize: 15, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" } }, "↻ โหลดแอปใหม่"),
+        React.createElement("div", { style: { fontSize: 11, color: "#b7ab95", marginTop: 14 } }, "ถ้ายังไม่หาย ลองปิดแล้วเปิดแอปใหม่ หรือแจ้งเจ้าของฟาร์ม")
+      )
+    );
+  }
+}
+
+/* ============================================================
    จุดเริ่มทำงาน (mount) — แสดงแอปลงบนหน้าเว็บ
    ส่วนนี้เพิ่มต่อท้ายคอมโพเนนต์ ไม่ต้องแก้ปกติ
    ============================================================ */
 import { createRoot } from "react-dom/client";
 const __boot = document.getElementById("boot");
 if (__boot) __boot.remove();
-createRoot(document.getElementById("root")).render(React.createElement(Root));
+createRoot(document.getElementById("root")).render(React.createElement(AppErrorBoundary, null, React.createElement(Root)));
