@@ -54,14 +54,52 @@ async function sbFlush() {
   if (!supabase) return;
   const keys = Object.keys(__sbQueue); if (!keys.length) return;
   const now = new Date().toISOString(), dev = sbDeviceId();
-  const rows = keys.map((key) => { const data = __sbQueue[key]; return { key, data, item_count: Array.isArray(data) ? data.length : (data && typeof data === "object" ? Object.keys(data).length : null), snapshot_at: now, device: dev }; });
-  __sbQueue = {};
-  try {
-    const { error } = await supabase.from(SB_TABLE).upsert(rows, { onConflict: "key" });
-    if (error) { console.warn("[sync] อัปขึ้นคลาวด์ไม่สำเร็จ:", error.message); return; }
-    const meta = sbGetMeta(); keys.forEach((k) => { meta[k] = now; }); sbSetMeta(meta);
-    console.log("[sync] ⬆ อัปขึ้นคลาวด์ " + keys.length + " รายการ");
-  } catch (e) { console.warn("[sync] อัปขึ้นคลาวด์ error:", e && e.message); }
+  // แยก 2 ทาง: ค่าที่เป็น "ออบเจกต์" (เช่น สมุดการเลี้ยง eggRearing ที่คีย์ด้วยวันที่, ผลผลิต, วัคซีน ฯลฯ)
+  // → ใช้ merge ฝั่งฐานข้อมูล (app_snapshot_merge) รวมแบบลึกกับของเดิม กันเครื่องที่ถือข้อมูลเก่าทับของใหม่
+  //   ที่เครื่องอื่นเพิ่งคีย์ (เหตุการณ์ 21 ก.ค. — คีย์ย้อนหลังหลายคนพร้อมกันแล้วหายทั้งช่วง)
+  // ค่าที่เป็น "อาเรย์/ตัวเลข/ข้อความ" (บิล, ลูกค้า, ราคา ฯลฯ) → upsert ทับปกติเหมือนเดิม
+  const mergeKeys = [], plainRows = [];
+  keys.forEach((key) => {
+    const data = __sbQueue[key];
+    if (data && typeof data === "object" && !Array.isArray(data)) mergeKeys.push(key);
+    else plainRows.push({ key, data, item_count: Array.isArray(data) ? data.length : null, snapshot_at: now, device: dev });
+  });
+  const queued = __sbQueue; __sbQueue = {};
+  const meta = sbGetMeta(); let okCount = 0;
+  // 1) อาเรย์/สเกลาร์ → upsert ทับ
+  if (plainRows.length) {
+    try {
+      const { error } = await supabase.from(SB_TABLE).upsert(plainRows, { onConflict: "key" });
+      if (error) console.warn("[sync] อัปขึ้นคลาวด์ (upsert) ไม่สำเร็จ:", error.message);
+      else { plainRows.forEach((r) => { meta[r.key] = now; }); okCount += plainRows.length; }
+    } catch (e) { console.warn("[sync] upsert error:", e && e.message); }
+  }
+  // 2) ออบเจกต์ → merge ฝั่งฐานข้อมูล (atomic, ไม่ทับของเครื่องอื่น) แล้วเก็บผลรวมกลับลงเครื่อง
+  for (const key of mergeKeys) {
+    try {
+      const { data: merged, error } = await supabase.rpc("app_snapshot_merge", { p_key: key, p_data: queued[key], p_device: dev });
+      if (error) {
+        // เผื่อฐานข้อมูลยังไม่มีฟังก์ชัน merge → ถอยไปใช้ upsert เดิม (ยังทำงานได้ ไม่ค้าง)
+        console.warn("[sync] merge ไม่สำเร็จ, ใช้ upsert แทน:", error.message);
+        const data = queued[key];
+        const { error: e2 } = await supabase.from(SB_TABLE).upsert([{ key, data, item_count: data && typeof data === "object" ? Object.keys(data).length : null, snapshot_at: now, device: dev }], { onConflict: "key" });
+        if (!e2) { meta[key] = now; okCount++; }
+        continue;
+      }
+      meta[key] = now; okCount++;
+      // เอาผลรวม (union ของทุกเครื่อง) กลับลง localStorage เพื่อให้เครื่องนี้ converge — กัน mount เขียนทับ
+      if (merged && typeof merged === "object") {
+        const str = JSON.stringify(merged);
+        if (str !== __sbLast[key]) {
+          __sbHydrating = true;
+          try { localStorage.setItem(key, str); } catch (e) {} finally { __sbHydrating = false; }
+          __sbLast[key] = str;
+        }
+      }
+    } catch (e) { console.warn("[sync] merge error:", e && e.message); }
+  }
+  sbSetMeta(meta);
+  if (okCount) console.log("[sync] ⬆ อัปขึ้นคลาวด์ " + okCount + " รายการ (merge " + mergeKeys.length + ")");
 }
 async function pullFromCloud() {
   if (!supabase) return { applied: 0 };
@@ -7344,8 +7382,8 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
   const dayData = rearingByDate[day] || {};
   // แนะนำจำนวนเริ่มเลี้ยงจากยอดไก่ในหน้าผลผลิต (วันแรกสุดที่มีข้อมูลของหลังนั้น)
   const suggestStart = (hid) => { for (const d of prodDates) { const h = (production[d] || []).find((x) => x.id === hid); if (h && h.chickens) return h.chickens; } return null; };
-  const th = { padding: "8px 6px", fontSize: 12, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", whiteSpace: "nowrap", textAlign: "right" };
-  const td = { padding: "8px 6px", fontSize: 13.5, textAlign: "right", borderBottom: "1px solid #eee7d8", whiteSpace: "nowrap" };
+  const th = { padding: "5px 4px", fontSize: 10.5, lineHeight: 1.15, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", whiteSpace: "normal", verticalAlign: "bottom", textAlign: "right", position: "sticky", top: 0, zIndex: 3 };
+  const td = { padding: "5px 4px", fontSize: 11.5, textAlign: "right", borderBottom: "1px solid #eee7d8", whiteSpace: "nowrap" };
   const rows = houseIds.map((hid) => {
     const r = dayData[hid];
     const fl = flocks[hid];
@@ -7499,8 +7537,8 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
               ยังไม่มีบันทึกการเลี้ยงของโรงเรือน {selHouse} — กด "＋ กรอกวันถัดไป" เพื่อเริ่มหน้าแรกของสมุด
             </div>
           ) : (
-            <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflow: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1150 }}>
+            <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflow: "auto", maxHeight: "72vh" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1040 }}>
                 <thead>
                   <tr>
                     <th style={{ ...th, textAlign: "left" }}>วันที่</th>
@@ -7617,8 +7655,8 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
       )}
 
       {mode === "day" && (<>
-      <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflow: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1080 }}>
+      <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflow: "auto", maxHeight: "72vh" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1000 }}>
           <thead>
             <tr>
               <th style={{ ...th, textAlign: "left" }}>หลัง</th>
