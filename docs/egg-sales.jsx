@@ -795,6 +795,14 @@ const STOCK_RECEIVED = {
 // ตกเกรด (ชื่อในตารางผลผลิต) → รหัสสินค้าในคลัง (ใช้ตอนดึงรับเข้าจากผลผลิต)
 const OFF_TO_PID = { จัมโบ้: "s_jumbo", บุบ: "g_bub", ตอก: "g_tok", จิ๋ว: "g_jiw", เปลือกขาว: "s_white", หัวทราย: "g_sand", นวล: "g_nuan", เปื้อนมาก: "g_pueanmak", เปื้อนน้อย: "g_pueannoi" };
 const KLA_TO_PID = { "18+": "w18", "19+": "w19", "20+": "w20", "21+": "w21", "22+": "w22", "23+": "w23" };   // ไข่คละตามน้ำหนัก (กรอกเป็นแผง)
+// ป้ายน้ำหนักไข่ที่ชั่งขายในบิล — รองรับหลายก้อน (เช่น 19+20 กก) และบิลเก่าที่เก็บ weight ค่าเดียว
+function billWtLabel(i) {
+  const ws = Array.isArray(i.weights) ? i.weights.filter((w) => (parseFloat(w) || 0) > 0) : [];
+  const total = (parseFloat(i.weight) || 0) || ws.reduce((s, w) => s + (parseFloat(w) || 0), 0);
+  if (ws.length > 1) return ` ${ws.map((w) => fmt(w)).join("+")} กก (รวม ${fmt(total)})`;
+  if (total > 0) return ` ${fmt(total)} กก`;
+  return "";
+}
 
 // ---------- แผงดำ: รายการรับคืนเริ่มต้นว่าง (ผู้ใช้บันทึกเอง) ----------
 const TRAY_SEED = [];
@@ -1697,11 +1705,17 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
     setCart((prev) => ({ ...prev, [pid]: { ...prev[pid], qty } }));
   };
   const setPrice = (pid, price) => setCart((prev) => ({ ...prev, [pid]: { ...prev[pid], price } }));
-  const setWeight = (pid, weight) => setCart((prev) => ({ ...prev, [pid]: { ...prev[pid], weight } }));  // นน./10แผง (กก) สำหรับไข่ตกเกรดที่ชั่งขาย
+  // น้ำหนักไข่ที่ชั่งขาย (กก) — รองรับ "หลายก้อน" ต่อสินค้าเดียว (เช่น ลูกค้าซื้อไข่บุบ 19 กก + 20 กก ในบิลเดียว)
+  const wtList = (it) => Array.isArray(it?.weights) ? it.weights : (it?.weight != null && String(it.weight) !== "" ? [it.weight] : [""]);
+  const setWeightAt = (pid, idx, val) => setCart((prev) => { const cur = wtList(prev[pid]).slice(); cur[idx] = val; const n = { ...prev[pid], weights: cur }; delete n.weight; return { ...prev, [pid]: n }; });
+  const addWeightRow = (pid) => setCart((prev) => { const n = { ...prev[pid], weights: [...wtList(prev[pid]), ""] }; delete n.weight; return { ...prev, [pid]: n }; });
+  const removeWeightRow = (pid, idx) => setCart((prev) => { const cur = wtList(prev[pid]).filter((_, i) => i !== idx); const n = { ...prev[pid], weights: cur.length ? cur : [""] }; delete n.weight; return { ...prev, [pid]: n }; });
 
   const cartItems = Object.entries(cart).map(([pid, it]) => {
     const priceNum = parseFloat(it.price) || 0;
-    return { productId: pid, product: PRODUCT_BY_ID[pid], ...it, subtotal: it.qty * priceNum };
+    const weights = wtList(it);
+    const weightTotal = weights.reduce((s, w) => s + (parseFloat(w) || 0), 0);
+    return { productId: pid, product: PRODUCT_BY_ID[pid], ...it, weights, weightTotal, subtotal: it.qty * priceNum };
   }).sort((a, b) => {                                           // เรียงตามเบอร์ (n0,n1,...) ไม่ใช่ลำดับที่กด
     const ia = STOCK_ORDER.indexOf(a.productId), ib = STOCK_ORDER.indexOf(b.productId);
     return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
@@ -1785,7 +1799,7 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
       book: "086",
       customer, customerId,
       // เก็บรายการแบบเบา (ไม่พ่วง object product ทั้งก้อน เผื่อใช้ในหน้าอื่น)
-      items: cartItems.map((i) => ({ productId: i.productId, name: i.product.name, qty: i.qty, price: parseFloat(i.price) || 0, weight: parseFloat(i.weight) || 0, subtotal: i.subtotal })),
+      items: cartItems.map((i) => ({ productId: i.productId, name: i.product.name, qty: i.qty, price: parseFloat(i.price) || 0, weights: (i.weights || []).map((w) => parseFloat(w) || 0).filter((w) => w > 0), weight: i.weightTotal || 0, subtotal: i.subtotal })),
       eggTotal, depositCharge, depositLines, traySummary, deliveryFee: deliveryFeeAmt, discount: discountAmt, note: note.trim(), total, totalPrang,
       billRef: billRef.trim(), whtPct: whtRate, whtBase, whtAmt, netPay,
       carryOver, grandTotal,
@@ -1934,7 +1948,7 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
               {b.items.map((i, idx) => (
                 <tr key={i.productId} style={{ background: idx % 2 ? "#FCFAF5" : "#fff" }}>
                   <td style={S.noteTd}>{idx + 1}</td>
-                  <td style={{ ...S.noteTd, textAlign: "left", fontWeight: 600 }}>{i.name.startsWith("ไข่") ? i.name : "ไข่ไก่ " + i.name}{i.weight > 0 ? ` ${fmt(i.weight)} กก` : ""}</td>
+                  <td style={{ ...S.noteTd, textAlign: "left", fontWeight: 600 }}>{i.name.startsWith("ไข่") ? i.name : "ไข่ไก่ " + i.name}{billWtLabel(i)}</td>
                   <td style={S.noteTd}>{fmt(i.qty)} แผง</td>
                   <td style={S.noteTd}>{fmt2(i.price)}</td>
                   <td style={{ ...S.noteTd, textAlign: "right", fontWeight: 600 }}>{fmt2(i.subtotal)}</td>
@@ -2282,10 +2296,19 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
                       <div style={S.ciSubWrap}><label style={S.ciLabel}>รวม</label><div style={S.ciSub}>{fmt(i.subtotal)}</div></div>
                     </div>
                     {i.product.wt && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
-                        <label style={{ ...S.ciLabel, marginBottom: 0, whiteSpace: "nowrap" }}>นน./10แผง</label>
-                        <input type="number" inputMode="decimal" placeholder="—" style={{ ...S.ciInput, width: 66, flex: "none" }} value={i.weight ?? ""} onChange={(e) => setWeight(i.productId, e.target.value)} />
-                        <span style={{ fontSize: 11.5, color: "#9b8e78" }}>กก · ชั่งแล้วใส่ (ถ้าลูกค้าขอ)</span>
+                      <div style={{ marginTop: 6 }}>
+                        {i.weights.map((w, wi) => (
+                          <div key={wi} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                            <label style={{ ...S.ciLabel, marginBottom: 0, whiteSpace: "nowrap" }}>นน.{i.weights.length > 1 ? ` #${wi + 1}` : ""}</label>
+                            <input type="number" inputMode="decimal" placeholder="—" style={{ ...S.ciInput, width: 66, flex: "none" }} value={w ?? ""} onChange={(e) => setWeightAt(i.productId, wi, e.target.value)} />
+                            <span style={{ fontSize: 11.5, color: "#9b8e78" }}>กก</span>
+                            {i.weights.length > 1 && <button onClick={() => removeWeightRow(i.productId, wi)} title="ลบน้ำหนักก้อนนี้" style={{ border: "none", background: "none", color: "#B91C1C", cursor: "pointer", fontSize: 15, fontWeight: 800, padding: "0 4px", lineHeight: 1 }}>✕</button>}
+                          </div>
+                        ))}
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
+                          <button onClick={() => addWeightRow(i.productId)} style={{ border: "1px dashed #E8943A", background: "#FFF7EC", color: ACCENT_DK, borderRadius: 7, padding: "3px 10px", fontSize: 11.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>＋ เพิ่มน้ำหนัก (ชั่งหลายก้อน)</button>
+                          {i.weightTotal > 0 && <span style={{ fontSize: 12, color: "#6b6358", fontWeight: 700 }}>รวม {fmt(i.weightTotal)} กก</span>}
+                        </div>
                       </div>
                     )}
                     {over && <div style={{ ...S.overWarn, color: "#B45309" }}><AlertCircle size={12} /> เกินสต็อคระบบ (เหลือ {fmt(stock[i.productId])} → จะติดลบ {fmt(stock[i.productId] - i.qty)}) — ขายได้ รอเสมียนคีย์ยอดเข้า</div>}
@@ -2499,7 +2522,7 @@ function exportBillsExcel(bills, payments) {
   const payLabel = (b) => { const p = pm[b.no]; if (p && p.paid >= b.total) return "ชำระแล้ว"; if (p && p.paid > 0) return "ชำระบางส่วน"; return "ค้างชำระ"; };
   const gv = (b) => (b.total != null ? b.total : (b.grandTotal || 0));   // ยอดบิลนี้ (ไม่รวมยอดค้างยกมา)
   const nv = (b) => (gv(b) - (b.whtAmt || 0));
-  const itemText = (b) => (b.items || []).map((i) => `${i.name} ×${fmt(i.qty)}${i.weight ? " " + i.weight + "กก" : ""} @${money(i.price)}`).join("\n");
+  const itemText = (b) => (b.items || []).map((i) => `${i.name} ×${fmt(i.qty)}${billWtLabel(i)} @${money(i.price)}`).join("\n");
   const ordered = [...bills].sort((a, b) => (a.ts || 0) - (b.ts || 0));
   const sum = (f) => ordered.reduce((s, b) => s + (Number(f(b)) || 0), 0);
   const bdates = [...new Set(ordered.map((b) => b.date).filter(Boolean))];
@@ -2751,7 +2774,7 @@ function BillDetail({ bill, payment, onBack, onCancel }) {
             {b.items.map((i, idx) => (
               <tr key={i.productId} style={{ background: idx % 2 ? "#FCFAF5" : "#fff" }}>
                 <td style={S.noteTd}>{idx + 1}</td>
-                <td style={{ ...S.noteTd, textAlign: "left", fontWeight: 600 }}>{i.name.startsWith("ไข่") ? i.name : "ไข่ไก่ " + i.name}{i.weight > 0 ? ` ${fmt(i.weight)} กก` : ""}</td>
+                <td style={{ ...S.noteTd, textAlign: "left", fontWeight: 600 }}>{i.name.startsWith("ไข่") ? i.name : "ไข่ไก่ " + i.name}{billWtLabel(i)}</td>
                 <td style={S.noteTd}>{fmt(i.qty)} แผง</td>
                 <td style={S.noteTd}>{fmt2(i.price)}</td>
                 <td style={{ ...S.noteTd, textAlign: "right", fontWeight: 600 }}>{fmt2(i.subtotal)}</td>
@@ -3403,9 +3426,11 @@ function manageDayData(production, rearingByDate, flocks, alertCfg, date) {
     const goodPrang = goodFong / PER_PRADANG;
     const offPrang = sumVals(grade.ตกเกรด);
     const offFong = offPrang * PER_PRADANG;
-    const totalFong = goodFong + offFong;
-    const totalPrang = goodPrang + offPrang;
-    const prodRate = chickens > 0 ? (goodFong / chickens) * 100 : null;   // ไข่ดี/ไก่ (≈ hen-day %)
+    const klaPrang = sumVals(grade.คละ || {});          // ไข่คละ (แผง) — ฟาร์มขายจริง ต้องนับในไข่รวม
+    const klaFong = klaPrang * PER_PRADANG;
+    const totalFong = goodFong + offFong + klaFong;     // ไข่รวม = ดี + ตกเกรด + คละ (ให้ตรงกับ %ไข่รวม หน้าผลผลิตประจำวัน)
+    const totalPrang = goodPrang + offPrang + klaPrang;
+    const prodRate = chickens > 0 ? (totalFong / chickens) * 100 : null;   // ผลผลิต% = ไข่รวม ÷ ไก่ (= hen-day มาตรฐาน ตรงกับที่เทียบ Hy-Line)
     const stdHD = hylineHD(age);
     const rateDiff = (prodRate != null && stdHD != null) ? prodRate - stdHD : null;
     const offPct = totalFong > 0 ? (offFong / totalFong) * 100 : 0;
@@ -3424,7 +3449,7 @@ function manageDayData(production, rearingByDate, flocks, alertCfg, date) {
     const stdWaterMl = stdFeedG != null ? stdFeedG * 2.0 : null;
     const waterPct = (waterMl != null && stdWaterMl) ? (waterMl / stdWaterMl) * 100 : null;
     const alerts = chickens > 0 ? computeHouseAlerts(h, alertCfg) : [];
-    return { hid, chickens, age, goodFong, goodPrang, offPrang, offFong, totalFong, totalPrang, prodRate, stdHD, rateDiff, offPct, berFong, deaths, cull, deathPct, feedUsed, stdFeedKg, feedPct, waterMl, stdWaterMl, waterPct, alerts, hasRear: !!r, issues: [] };
+    return { hid, chickens, age, goodFong, goodPrang, offPrang, offFong, klaPrang, klaFong, totalFong, totalPrang, prodRate, stdHD, rateDiff, offPct, berFong, deaths, cull, deathPct, feedUsed, stdFeedKg, feedPct, waterMl, stdWaterMl, waterPct, alerts, hasRear: !!r, issues: [] };
   });
   // ค่าเฉลี่ยฟาร์ม (สัดส่วนเบอร์ไข่) → ใช้เทียบว่าหลังไหนเบอร์ผิดกลุ่ม
   const farmBer = {}; BER_KEYS.forEach((k) => { farmBer[k] = 0; });
@@ -3456,16 +3481,17 @@ function manageDayData(production, rearingByDate, flocks, alertCfg, date) {
   const cullSum = houses.reduce((s, h) => s + (h.cull || 0), 0);
   const goodPrangSum = houses.reduce((s, h) => s + h.goodPrang, 0);
   const offPrangSum = houses.reduce((s, h) => s + h.offPrang, 0);
+  const klaPrangSum = houses.reduce((s, h) => s + (h.klaPrang || 0), 0);
   const totalFongSum = houses.reduce((s, h) => s + h.totalFong, 0);
   const goodFongSum = houses.reduce((s, h) => s + h.goodFong, 0);
-  const avgRate = chickensSum > 0 ? (goodFongSum / chickensSum) * 100 : null;
+  const avgRate = chickensSum > 0 ? (totalFongSum / chickensSum) * 100 : null;   // ผลผลิตเฉลี่ย = ไข่รวม ÷ ไก่ (ตรงกับ %ไข่รวม)
   let stdW = 0, stdWc = 0;
   houses.forEach((h) => { if (h.stdHD != null && h.chickens > 0) { stdW += h.stdHD * h.chickens; stdWc += h.chickens; } });
   const stdAvgRate = stdWc > 0 ? stdW / stdWc : null;
   const offPctAll = totalFongSum > 0 ? (offPrangSum * PER_PRADANG / totalFongSum) * 100 : 0;
   const farm = {
     nHouses: houses.length, chickens: chickensSum, deaths: deathsSum, cull: cullSum,
-    goodPrang: goodPrangSum, offPrang: offPrangSum, totalPrang: goodPrangSum + offPrangSum,
+    goodPrang: goodPrangSum, offPrang: offPrangSum, totalPrang: goodPrangSum + offPrangSum + klaPrangSum,
     avgRate, stdAvgRate, offPctAll,
     deathPct: chickensSum > 0 ? (deathsSum / chickensSum) * 100 : null,
     housesIssue: houses.filter((h) => h.issues.some((i) => i.sev !== "info")).length,
@@ -3600,7 +3626,7 @@ function ManageDashView({ production = {}, rearingByDate = {}, flocks = {} }) {
                 })}
               </tbody>
             </table>
-            <div style={{ fontSize: 11, color: "#9b8e78", marginTop: 8 }}>อาหาร/น้ำ %มฐ = เทียบมาตรฐาน Hy-Line Brown ตามอายุ (แดง = ต่ำกว่า 90% · น้ำแดงเมื่อ &lt;90% หรือ &gt;160%) · ผลผลิต% = ไข่ดี ÷ จำนวนไก่ · น้ำต้องกรอกมิเตอร์ต่อเนื่อง 2 วันจึงคำนวณได้</div>
+            <div style={{ fontSize: 11, color: "#9b8e78", marginTop: 8 }}>อาหาร/น้ำ %มฐ = เทียบมาตรฐาน Hy-Line Brown ตามอายุ (แดง = ต่ำกว่า 90% · น้ำแดงเมื่อ &lt;90% หรือ &gt;160%) · ผลผลิต% = ไข่รวม (ดี+ตกเกรด+คละ) ÷ จำนวนไก่ = hen-day มาตรฐาน (ตรงกับ %ไข่รวม หน้าผลผลิตประจำวัน) · น้ำต้องกรอกมิเตอร์ต่อเนื่อง 2 วันจึงคำนวณได้</div>
           </div>
 
           {/* กระจายเบอร์ไข่ต่อหลัง (เทียบค่าเฉลี่ยฟาร์ม) */}
@@ -5299,6 +5325,12 @@ function MedBookModal({ rearingByDate = {}, vaccines = {}, houseIds = [], initia
           const detail = [m.period, m.qty, m.route === "feed" ? "🌾 มากับอาหาร" : (m.water ? `ผสมน้ำ ${m.water} ล.` : ""), m.time ? `เวลา ${m.time}` : ""].filter(Boolean).join(" · ");
           rows.push({ d, hid, type: "med", name: m.name, detail, _k: "m" + d + hid + i });
         });
+        // ยาที่ใส่มาในอาหาร (สูตรยาในอาหาร ข้างเบอร์อาหาร) — รวมเข้าสมุดยาด้วย (ยาจากโรงงานอาหาร ไม่ตัดสต๊อก/ต้นทุนของฟาร์ม)
+        const mif = String(rec?.feed?.medInFeed || "").trim();
+        if (mif) {
+          const fno = String(rec?.feed?.no || "").trim();
+          rows.push({ d, hid, type: "med", name: mif, detail: ["🌾 มากับอาหาร", fno ? `อาหารเบอร์ ${fno}` : ""].filter(Boolean).join(" · "), _k: "mif" + d + hid });
+        }
       });
     });
   }
