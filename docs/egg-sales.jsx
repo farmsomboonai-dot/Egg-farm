@@ -742,28 +742,28 @@ const DIFF_REASONS = ["แตก", "หาย", "แถม", "นับพลา
 const EXPENSE_CATS = ["ค่าไฟ", "ค่าแรง", "ค่าอาหาร", "ค่ายา+วัสดุสิ้นเปลือง", "ค่าสายพันธุ์", "ค่าเสื่อมโรงเรือน"];
 const FEED_SUPPLIERS = ["JBF", "หนองบัวฟีดมิลล์"];   // ซัพพลายเออร์อาหารไก่ (เลือกตอนรับอาหารเข้า)
 
-// ---------- สต๊อกยาและวิตามิน — จากชีต "สรุปยอดคงเหลือ ยา" ณ 7/7/69 (ยารักษา) ----------
-// opening = คงเหลือ ณ วันตั้งต้น (since) ; เบิกใช้ = ระบบดึงจากบันทึกให้ยารายวัน (จับคู่ด้วยชื่อ) ; ราคา = บาท/หน่วย
-const MED_STOCK_SINCE = "2026-07-07";
+// ---------- สต๊อกยาและวิตามิน — รีเซ็ตยอดตามชีต "สรุปยอดคงเหลือ ยา" ณ 23/7/69 (ยารักษา) ----------
+// opening = คงเหลือจริง ณ วันตั้งต้น (since=24/7 → ยอดนับ 23/7 เป็นยกมาของวันถัดไป) ; เบิกใช้ = ระบบดึงจากบันทึกให้ยารายวัน (จับคู่ด้วยชื่อ ตั้งแต่ since) ; ราคา = บาท/หน่วย
+const MED_STOCK_SINCE = "2026-07-24";
 const MED_STOCK_SEED = [
   { id: "md01", name: "ทันใจ 100 ซอง/กล่อง", desc: "ยาแก้ปวด ลดไข้", unit: "กล่อง", opening: 130, price: 154, company: "อินเตอร์เวชภัณฑ์", mfg: "13/1/25", expiry: "13/1/27", since: MED_STOCK_SINCE },
   { id: "md02", name: "Acetin (อาซิติน)", desc: "ยาละลายเสมหะ", unit: "หน่วย", opening: 300, price: 154, company: "อินเตอร์เวชภัณฑ์", mfg: "02/2026", expiry: "02/2029", since: MED_STOCK_SINCE },
-  { id: "md03", name: "ทาร์โลชิน 1 กก", desc: "ยารักษาระบบทางเดินหายใจ", unit: "กก.", opening: 87, price: 1700, company: "บิ๊คเคมีคอล", mfg: "20/3/26", expiry: "20/3/28", since: MED_STOCK_SINCE },
-  { id: "md04", name: "โคลิเคียว 40% (500 กรัม/ถุง)", desc: "ยารักษาระบบทางเดินอาหาร", unit: "ถุง", opening: 478, price: 160, company: "บิ๊คเคมีคอล", mfg: "18/5/26", expiry: "18/5/29", since: MED_STOCK_SINCE },
+  { id: "md03", name: "ทาร์โลชิน 1 กก", desc: "ยารักษาระบบทางเดินหายใจ", unit: "กก.", opening: 69, price: 1700, company: "บิ๊คเคมีคอล", mfg: "20/3/26", expiry: "20/3/28", since: MED_STOCK_SINCE },
+  { id: "md04", name: "โคลิเคียว 40% (500 กรัม/ถุง)", desc: "ยารักษาระบบทางเดินอาหาร", unit: "ถุง", opening: 418, price: 160, company: "บิ๊คเคมีคอล", mfg: "18/5/26", expiry: "18/5/29", since: MED_STOCK_SINCE },
   { id: "md05", name: "ด็อกซิเคียว-50", desc: "ยารักษาระบบทางเดินหายใจ", unit: "หน่วย", opening: 272, price: 1000, company: "บิ๊คเคมีคอล", mfg: "23/2/26", expiry: "23/2/28", since: MED_STOCK_SINCE },
-  { id: "md06", name: "ม็อกซี่การ์ด 50% เอส 1 กก", desc: "ยารักษา แก้อักเสบติดเชื้อ หลอดลม/กล่องเสียงอักเสบ", unit: "กก.", opening: 191, price: 660, company: "บิ๊คเคมีคอล", mfg: "12/5/26", expiry: "12/5/29", since: MED_STOCK_SINCE },
+  { id: "md06", name: "ม็อกซี่การ์ด 50% เอส 1 กก", desc: "ยารักษา แก้อักเสบติดเชื้อ หลอดลม/กล่องเสียงอักเสบ", unit: "กก.", opening: 1, price: 660, company: "บิ๊คเคมีคอล", mfg: "26/5/26", expiry: "26/5/29", since: MED_STOCK_SINCE },
   { id: "md07", name: "เอ็นโรการ์ด 10% (1 ลิตร/ขวด)", desc: "ยารักษา การติดเชื้อแทรกซ้อน", unit: "ขวด", opening: 216, price: 170, company: "บิ๊คเคมีคอล", mfg: "24/04/26", expiry: "24/04/29", since: MED_STOCK_SINCE },
   { id: "md08", name: "โนวามื็อกซิน", desc: "ยารักษา แก้อักเสบ ติดเชื้อทั่วไป", unit: "หน่วย", opening: 21, price: null, company: "แอลไอซี", mfg: "6/3/26", expiry: "6/3/29", since: MED_STOCK_SINCE },
-  { id: "md09", name: "กัท โปร-พลัส (1 ลิตร/ขวด)", desc: "โปรไบโอติก บำรุงลำไส้ ปรับสมดุล", unit: "ขวด", opening: 1, price: 230, company: "บิ๊คเคมีคอล", mfg: "5/1/26", expiry: "05/01/27", since: MED_STOCK_SINCE },
-  { id: "md10", name: "รีโวไลท์", desc: "วิตามิน อิเล็กโทรไลต์ ลดสเตรส เพิ่มเกลือแร่", unit: "หน่วย", opening: 78, price: 160, company: "บิ๊คเคมีคอล", mfg: "22/4/26", expiry: "22/10/26", since: MED_STOCK_SINCE },
-  { id: "md11", name: "แอล-แอสคอร์บิค แอซิด", desc: "วิตามินซี เสริมภูมิต้านทาน ลดเครียด", unit: "หน่วย", opening: 100, price: 130, company: "บิ๊คเคมีคอล", mfg: "06/05/26", expiry: "06/05/27", since: MED_STOCK_SINCE },
+  { id: "md09", name: "กัท โปร-พลัส (1 ลิตร/ขวด)", desc: "โปรไบโอติก บำรุงลำไส้ ปรับสมดุล", unit: "ขวด", opening: 301, price: 230, company: "บิ๊คเคมีคอล", mfg: "01/04/26", expiry: "01/04/27", since: MED_STOCK_SINCE },
+  { id: "md10", name: "รีโวไลท์", desc: "วิตามิน อิเล็กโทรไลต์ ลดสเตรส เพิ่มเกลือแร่", unit: "หน่วย", opening: 188, price: 160, company: "บิ๊คเคมีคอล", mfg: "12/5/26", expiry: "12/11/26", since: MED_STOCK_SINCE },
+  { id: "md11", name: "แอล-แอสคอร์บิค แอซิด", desc: "วิตามินซี เสริมภูมิต้านทาน ลดเครียด", unit: "หน่วย", opening: 0, price: 130, company: "บิ๊คเคมีคอล", mfg: "06/05/26", expiry: "06/05/27", since: MED_STOCK_SINCE },
   { id: "md12", name: "ซีลีเนี่ยม", desc: "วิตามิน บำรุงระบบสืบพันธุ์", unit: "หน่วย", opening: 275, price: 270, company: "บิ๊คเคมีคอล", mfg: "13/03/26", expiry: "-", since: MED_STOCK_SINCE },
-  { id: "md13", name: "Supersan Soluble 1 ลิตร", desc: "วิตามินรวม ลดเครียด เสริมภูมิ บำรุงร่างกาย", unit: "ขวด", opening: 80, price: 580, company: "แอลไอซี", mfg: "1/9/25", expiry: "1/9/28", since: MED_STOCK_SINCE },
-  { id: "md14", name: "พลูโมแม็กซ์", desc: "สมุนไพร ช่วยเคลียร์ระบบทางเดินหายใจ", unit: "หน่วย", opening: 34, price: 1250, company: "ซีเอ็ล โฟกัส", mfg: "14/5/26", expiry: "13/5/28", since: MED_STOCK_SINCE },
+  { id: "md13", name: "Supersan Soluble 1 ลิตร", desc: "วิตามินรวม ลดเครียด เสริมภูมิ บำรุงร่างกาย", unit: "ขวด", opening: 71, price: 580, company: "แอลไอซี", mfg: "1/9/25", expiry: "1/9/28", since: MED_STOCK_SINCE },
+  { id: "md14", name: "พลูโมแม็กซ์", desc: "สมุนไพร ช่วยเคลียร์ระบบทางเดินหายใจ", unit: "หน่วย", opening: 7, price: 1250, company: "ซีเอ็ล โฟกัส", mfg: "14/5/26", expiry: "13/5/28", since: MED_STOCK_SINCE },
   { id: "md15", name: "รีไวทัล", desc: "วิตามิน ต้านไวรัส ฟื้นลำไส้", unit: "หน่วย", opening: 0, price: null, company: "แอลไอซี", mfg: "03/2025", expiry: "03/2027", since: MED_STOCK_SINCE },
   { id: "md16", name: "Poustin-C", desc: "วิตามินซี ลดการแพ้วัคซีน ฟื้นฟูจากภาวะป่วย", unit: "หน่วย", opening: 0, price: 1500, company: "แอลไอซี", mfg: "09/01/26", expiry: "08/01/28", since: MED_STOCK_SINCE },
   { id: "md17", name: "Miaphos", desc: "วิตามิน แคลเซียมบำรุงกระดูก", unit: "หน่วย", opening: 0, price: 525, company: "แอลไอซี", mfg: "07/2025", expiry: "07/2027", since: MED_STOCK_SINCE },
-  { id: "md18", name: "Calcium + D3", desc: "วิตามิน แคลเซียม บำรุงเปลือกไข่", unit: "หน่วย", opening: 20, price: 525, company: "แอลไอซี", mfg: "01/2026", expiry: "01/2028", since: MED_STOCK_SINCE },
+  { id: "md18", name: "Calcium + D3", desc: "วิตามิน แคลเซียม บำรุงเปลือกไข่", unit: "หน่วย", opening: 0, price: 525, company: "แอลไอซี", mfg: "01/2026", expiry: "01/2028", since: MED_STOCK_SINCE },
   { id: "md19", name: "เฟนโดน่า 1 L", desc: "ยาฆ่าแมลง พ่นกำจัดไร", unit: "ขวด", opening: 154, price: 1500, company: "เบสท์ เวท โซลูชั่นส์", mfg: "4/7/68", expiry: "04/07/27", since: MED_STOCK_SINCE },
   { id: "md20", name: "ลินท์ือป", desc: "ยาฆ่าแมลง พ่นกำจัดไร", unit: "หน่วย", opening: 19, price: 1000, company: "รอชัย ฟาร์ม่า", mfg: "13/03/26", expiry: "13/9/26", since: MED_STOCK_SINCE },
   { id: "md21", name: "ไอเวอร์การ์ด", desc: "ยาถ่ายพยาธิ กำจัดไร", unit: "หน่วย", opening: 230, price: 90, company: "บิ๊คเคมีคอล", mfg: "09/2025", expiry: "09/2028", since: MED_STOCK_SINCE },
@@ -1300,7 +1300,7 @@ export default function App() {
           (r?.medsList || []).forEach((x) => { if (x.route === "feed") return; if ((x.name || "").trim() === nm) used += parseFloat(x.qty) || 0; });   // ยามากับอาหาร = ของโรงงานอาหาร ไม่ตัดสต๊อกเรา
         });
       });
-      const recv = medReceipts.filter((r) => r.medId === it.id).reduce((s, r) => s + (parseFloat(r.qty) || 0), 0);
+      const recv = medReceipts.filter((r) => r.medId === it.id && (!it.since || (r.date || "") >= it.since)).reduce((s, r) => s + (parseFloat(r.qty) || 0), 0);   // นับเฉพาะรับเข้าตั้งแต่วันตั้งต้น (กันซ้ำเวลารีเซ็ตยอดยกมา)
       m[nm] = { id: it.id, remain: (it.opening || 0) + recv - used, used, recv, price: it.price, unit: it.unit || "หน่วย" };
     });
     return m;
@@ -1694,6 +1694,13 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
   const addToCart = (p, amount = 1) => {
     setCart((prev) => {
       const ex = prev[p.id];
+      if (p.wt) {   // สินค้าชั่งขาย → เพิ่มจำนวนแผงเข้าก้อนแรก
+        const cur = chunkList(ex).map((c) => ({ ...c }));
+        const first = cur[0] || { q: "", p: "", w: "" };
+        const price = (first.p !== "" && first.p != null) ? first.p : (lastPriceValue(p.id) ?? "");
+        cur[0] = { ...first, q: (parseFloat(first.q) || 0) + amount, p: price };
+        return { ...prev, [p.id]: { chunks: cur } };
+      }
       return { ...prev, [p.id]: { qty: (ex?.qty ?? 0) + amount, price: ex?.price ?? lastPriceValue(p.id) ?? "" } };
     });
   };
@@ -1705,17 +1712,45 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
     setCart((prev) => ({ ...prev, [pid]: { ...prev[pid], qty } }));
   };
   const setPrice = (pid, price) => setCart((prev) => ({ ...prev, [pid]: { ...prev[pid], price } }));
-  // น้ำหนักไข่ที่ชั่งขาย (กก) — รองรับ "หลายก้อน" ต่อสินค้าเดียว (เช่น ลูกค้าซื้อไข่บุบ 19 กก + 20 กก ในบิลเดียว)
-  const wtList = (it) => Array.isArray(it?.weights) ? it.weights : (it?.weight != null && String(it.weight) !== "" ? [it.weight] : [""]);
-  const setWeightAt = (pid, idx, val) => setCart((prev) => { const cur = wtList(prev[pid]).slice(); cur[idx] = val; const n = { ...prev[pid], weights: cur }; delete n.weight; return { ...prev, [pid]: n }; });
-  const addWeightRow = (pid) => setCart((prev) => { const n = { ...prev[pid], weights: [...wtList(prev[pid]), ""] }; delete n.weight; return { ...prev, [pid]: n }; });
-  const removeWeightRow = (pid, idx) => setCart((prev) => { const cur = wtList(prev[pid]).filter((_, i) => i !== idx); const n = { ...prev[pid], weights: cur.length ? cur : [""] }; delete n.weight; return { ...prev, [pid]: n }; });
+  // สินค้าชั่งขาย (wt) — ขายเป็น "ก้อน" ได้หลายก้อนต่อสินค้าเดียว แต่ละก้อนมีจำนวนแผง/ราคาต่อแผง/น้ำหนัก(กก)ของตัวเอง
+  // (เช่น ลูกค้าซื้อไข่บุบ 2 ก้อน: 19 กก ราคาหนึ่ง + 20 กก อีกราคาหนึ่ง ในบิลเดียว)
+  const chunkList = (it) => {
+    if (Array.isArray(it?.chunks) && it.chunks.length) return it.chunks;
+    // แปลงจากโครงสร้างเก่า {qty, price, weights[]} → ก้อนเดียว
+    const ws = Array.isArray(it?.weights) ? it.weights : (it?.weight != null && String(it.weight) !== "" ? [it.weight] : [""]);
+    return [{ q: it?.qty ?? "", p: it?.price ?? "", w: ws[0] ?? "" }];
+  };
+  const stripLegacy = (n) => { delete n.qty; delete n.price; delete n.weight; delete n.weights; return n; };
+  const setChunkAt = (pid, idx, field, val) => setCart((prev) => {
+    const cur = chunkList(prev[pid]).map((c) => ({ ...c }));
+    cur[idx] = { ...cur[idx], [field]: val };
+    return { ...prev, [pid]: stripLegacy({ ...prev[pid], chunks: cur }) };
+  });
+  const addChunk = (pid) => setCart((prev) => {
+    const cur = chunkList(prev[pid]).map((c) => ({ ...c }));
+    const last = cur[cur.length - 1] || {};
+    cur.push({ q: "", p: last.p ?? "", w: "" });   // ราคาเริ่มต้น = ก้อนก่อนหน้า (แก้ได้)
+    return { ...prev, [pid]: stripLegacy({ ...prev[pid], chunks: cur }) };
+  });
+  const removeChunk = (pid, idx) => setCart((prev) => {
+    const cur = chunkList(prev[pid]).filter((_, i) => i !== idx);
+    return { ...prev, [pid]: stripLegacy({ ...prev[pid], chunks: cur.length ? cur : [{ q: "", p: "", w: "" }] }) };
+  });
 
   const cartItems = Object.entries(cart).map(([pid, it]) => {
+    const product = PRODUCT_BY_ID[pid];
+    if (product?.wt) {   // สินค้าชั่งขาย → คิดจากก้อน (แต่ละก้อนราคาต่อแผงต่างกันได้)
+      const chunks = chunkList(it).map((c) => ({ q: parseFloat(c.q) || 0, p: parseFloat(c.p) || 0, w: parseFloat(c.w) || 0, raw: c }));
+      const qty = chunks.reduce((s, c) => s + c.q, 0);
+      const subtotal = chunks.reduce((s, c) => s + c.q * c.p, 0);
+      const weights = chunks.map((c) => c.w).filter((w) => w > 0);
+      const weightTotal = weights.reduce((s, w) => s + w, 0);
+      // "ใส่ราคาครบ" = ทุกก้อนที่มีจำนวนแผง > 0 ต้องมีราคา > 0
+      const priced = chunks.some((c) => c.q > 0) && chunks.every((c) => c.q <= 0 || c.p > 0);
+      return { productId: pid, product, wt: true, chunks, qty, price: chunks[0]?.p || "", weights, weightTotal, subtotal, priced };
+    }
     const priceNum = parseFloat(it.price) || 0;
-    const weights = wtList(it);
-    const weightTotal = weights.reduce((s, w) => s + (parseFloat(w) || 0), 0);
-    return { productId: pid, product: PRODUCT_BY_ID[pid], ...it, weights, weightTotal, subtotal: it.qty * priceNum };
+    return { productId: pid, product, ...it, qty: it.qty, price: it.price, weights: [], weightTotal: 0, subtotal: (it.qty || 0) * priceNum, priced: priceNum > 0 };
   }).sort((a, b) => {                                           // เรียงตามเบอร์ (n0,n1,...) ไม่ใช่ลำดับที่กด
     const ia = STOCK_ORDER.indexOf(a.productId), ib = STOCK_ORDER.indexOf(b.productId);
     return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
@@ -1789,7 +1824,7 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
 
   // ขายเกินสต็อคระบบได้ (สต็อคติดลบ) — ไข่ที่เก็บวันนี้อยู่ในสต็อคจริงแล้ว แต่เสมียนคีย์ยอดเข้า ~17.00 น.
   const overStock = cartItems.filter((i) => i.qty > stock[i.productId]);
-  const noPrice = cartItems.filter((i) => !(parseFloat(i.price) > 0));  // รายการที่ยังไม่ใส่ราคา
+  const noPrice = cartItems.filter((i) => !i.priced);  // รายการที่ยังไม่ใส่ราคา (สินค้าชั่ง = ทุกก้อนต้องมีราคา)
   const canConfirm = customer && cartItems.length > 0 && noPrice.length === 0;
 
   const confirmBill = () => {
@@ -1799,7 +1834,15 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
       book: "086",
       customer, customerId,
       // เก็บรายการแบบเบา (ไม่พ่วง object product ทั้งก้อน เผื่อใช้ในหน้าอื่น)
-      items: cartItems.map((i) => ({ productId: i.productId, name: i.product.name, qty: i.qty, price: parseFloat(i.price) || 0, weights: (i.weights || []).map((w) => parseFloat(w) || 0).filter((w) => w > 0), weight: i.weightTotal || 0, subtotal: i.subtotal })),
+      // สินค้าชั่ง (หลายก้อน ราคาต่างกัน) → แตกเป็นบรรทัดละก้อน เพื่อให้สต็อก/รายงาน/บิลคิดถูกทุกก้อน
+      items: cartItems.flatMap((i) => {
+        if (i.wt) {
+          const chs = i.chunks.filter((c) => c.q > 0);
+          const src = chs.length ? chs : [{ q: i.qty, p: parseFloat(i.price) || 0, w: 0 }];
+          return src.map((c) => ({ productId: i.productId, name: i.product.name, qty: c.q, price: c.p, weights: c.w > 0 ? [c.w] : [], weight: c.w > 0 ? c.w : 0, subtotal: c.q * c.p }));
+        }
+        return [{ productId: i.productId, name: i.product.name, qty: i.qty, price: parseFloat(i.price) || 0, weights: [], weight: 0, subtotal: i.subtotal }];
+      }),
       eggTotal, depositCharge, depositLines, traySummary, deliveryFee: deliveryFeeAmt, discount: discountAmt, note: note.trim(), total, totalPrang,
       billRef: billRef.trim(), whtPct: whtRate, whtBase, whtAmt, netPay,
       carryOver, grandTotal,
@@ -2287,32 +2330,39 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
                       <span style={S.ciName}>{i.product.name}</span>
                       <button style={S.ciDel} onClick={() => setQty(i.productId, 0)}><Trash2 size={14} /></button>
                     </div>
-                    <div style={S.ciControls}>
-                      <div style={S.ciField}><label style={S.ciLabel}>แผง</label>
-                        <input type="number" style={S.ciInput} value={i.qty} onChange={(e) => setQty(i.productId, parseInt(e.target.value) || 0)} /></div>
-                      <span style={S.ciX}>×</span>
-                      <div style={S.ciField}><label style={S.ciLabel}>บาท/แผง</label>
-                        <input type="number" inputMode="decimal" placeholder="ใส่ราคา" style={S.ciInput} value={i.price} onChange={(e) => setPrice(i.productId, e.target.value)} /></div>
-                      <div style={S.ciSubWrap}><label style={S.ciLabel}>รวม</label><div style={S.ciSub}>{fmt(i.subtotal)}</div></div>
-                    </div>
-                    {i.product.wt && (
-                      <div style={{ marginTop: 6 }}>
-                        {i.weights.map((w, wi) => (
-                          <div key={wi} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                            <label style={{ ...S.ciLabel, marginBottom: 0, whiteSpace: "nowrap" }}>นน.{i.weights.length > 1 ? ` #${wi + 1}` : ""}</label>
-                            <input type="number" inputMode="decimal" placeholder="—" style={{ ...S.ciInput, width: 66, flex: "none" }} value={w ?? ""} onChange={(e) => setWeightAt(i.productId, wi, e.target.value)} />
-                            <span style={{ fontSize: 11.5, color: "#9b8e78" }}>กก</span>
-                            {i.weights.length > 1 && <button onClick={() => removeWeightRow(i.productId, wi)} title="ลบน้ำหนักก้อนนี้" style={{ border: "none", background: "none", color: "#B91C1C", cursor: "pointer", fontSize: 15, fontWeight: 800, padding: "0 4px", lineHeight: 1 }}>✕</button>}
+                    {i.wt ? (
+                      <div style={{ marginTop: 4 }}>
+                        {i.chunks.map((c, ci) => (
+                          <div key={ci} style={{ display: "flex", alignItems: "flex-end", gap: 5, marginBottom: 5 }}>
+                            {i.chunks.length > 1 && <span style={{ fontSize: 11, fontWeight: 800, color: ACCENT_DK, alignSelf: "center", width: 16 }}>#{ci + 1}</span>}
+                            <div style={S.ciField}><label style={S.ciLabel}>แผง</label>
+                              <input type="number" style={{ ...S.ciInput, width: 50 }} value={c.raw.q ?? ""} onChange={(e) => setChunkAt(i.productId, ci, "q", e.target.value)} /></div>
+                            <span style={S.ciX}>×</span>
+                            <div style={S.ciField}><label style={S.ciLabel}>บาท/แผง</label>
+                              <input type="number" inputMode="decimal" placeholder="ราคา" style={{ ...S.ciInput, width: 58 }} value={c.raw.p ?? ""} onChange={(e) => setChunkAt(i.productId, ci, "p", e.target.value)} /></div>
+                            <div style={S.ciField}><label style={S.ciLabel}>นน.กก</label>
+                              <input type="number" inputMode="decimal" placeholder="—" style={{ ...S.ciInput, width: 50 }} value={c.raw.w ?? ""} onChange={(e) => setChunkAt(i.productId, ci, "w", e.target.value)} /></div>
+                            <div style={S.ciSubWrap}><label style={S.ciLabel}>รวม</label><div style={S.ciSub}>{fmt((parseFloat(c.raw.q) || 0) * (parseFloat(c.raw.p) || 0))}</div></div>
+                            {i.chunks.length > 1 && <button onClick={() => removeChunk(i.productId, ci)} title="ลบก้อนนี้" style={{ border: "none", background: "none", color: "#B91C1C", cursor: "pointer", fontSize: 15, fontWeight: 800, padding: "0 2px 4px", lineHeight: 1 }}>✕</button>}
                           </div>
                         ))}
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
-                          <button onClick={() => addWeightRow(i.productId)} style={{ border: "1px dashed #E8943A", background: "#FFF7EC", color: ACCENT_DK, borderRadius: 7, padding: "3px 10px", fontSize: 11.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>＋ เพิ่มน้ำหนัก (ชั่งหลายก้อน)</button>
-                          {i.weightTotal > 0 && <span style={{ fontSize: 12, color: "#6b6358", fontWeight: 700 }}>รวม {fmt(i.weightTotal)} กก</span>}
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2, flexWrap: "wrap" }}>
+                          <button onClick={() => addChunk(i.productId)} style={{ border: "1px dashed #E8943A", background: "#FFF7EC", color: ACCENT_DK, borderRadius: 7, padding: "3px 10px", fontSize: 11.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>＋ เพิ่มก้อน (ราคา/นน. ต่างกัน)</button>
+                          {i.chunks.length > 1 && <span style={{ fontSize: 12, color: "#6b6358", fontWeight: 700 }}>รวม {fmt(i.qty)} แผง{i.weightTotal > 0 ? ` · ${fmt(i.weightTotal)} กก` : ""} = {fmt(i.subtotal)} บ.</span>}
                         </div>
+                      </div>
+                    ) : (
+                      <div style={S.ciControls}>
+                        <div style={S.ciField}><label style={S.ciLabel}>แผง</label>
+                          <input type="number" style={S.ciInput} value={i.qty} onChange={(e) => setQty(i.productId, parseInt(e.target.value) || 0)} /></div>
+                        <span style={S.ciX}>×</span>
+                        <div style={S.ciField}><label style={S.ciLabel}>บาท/แผง</label>
+                          <input type="number" inputMode="decimal" placeholder="ใส่ราคา" style={S.ciInput} value={i.price} onChange={(e) => setPrice(i.productId, e.target.value)} /></div>
+                        <div style={S.ciSubWrap}><label style={S.ciLabel}>รวม</label><div style={S.ciSub}>{fmt(i.subtotal)}</div></div>
                       </div>
                     )}
                     {over && <div style={{ ...S.overWarn, color: "#B45309" }}><AlertCircle size={12} /> เกินสต็อคระบบ (เหลือ {fmt(stock[i.productId])} → จะติดลบ {fmt(stock[i.productId] - i.qty)}) — ขายได้ รอเสมียนคีย์ยอดเข้า</div>}
-                    {!(parseFloat(i.price) > 0) && <div style={S.overWarn}><AlertCircle size={12} /> ยังไม่ใส่ราคา/แผง</div>}
+                    {!i.priced && <div style={S.overWarn}><AlertCircle size={12} /> ยังไม่ใส่ราคา/แผง{i.wt && i.chunks.length > 1 ? " (ทุกก้อน)" : ""}</div>}
                   </div>
                 );
               })}
@@ -3682,13 +3732,13 @@ function houseEconData(production, flocks, expenses, medCostByMonth, feedCostByM
   Object.keys(feedCostByMonth[ym]?.byHouse || {}).forEach((h) => ids.add(h));
   Object.keys(feedUseByMonth[ym]?.byHouse || {}).forEach((h) => ids.add(h));
   const idList = [...ids].sort((a, b) => HOUSE_IDS.indexOf(a) - HOUSE_IDS.indexOf(b) || String(a).localeCompare(String(b)));
-  const perHouse = {}; idList.forEach((hid) => { perHouse[hid] = { hid, days: 0, chSum: 0, goodFong: 0, offPrang: 0, pidPrang: {} }; });
+  const perHouse = {}; idList.forEach((hid) => { perHouse[hid] = { hid, days: 0, chSum: 0, goodFong: 0, offPrang: 0, klaPrang: 0, pidPrang: {} }; });
   daysInMonth.forEach((d) => {
     (production[d] || []).forEach((h) => {
       const ph = perHouse[h.id]; if (!ph) return;
-      const good = sumVals(h.grade?.เบอร์), off = sumVals(h.grade?.ตกเกรด);
-      if ((h.chickens || 0) > 0 || good > 0 || off > 0) { ph.days++; ph.chSum += (h.chickens || 0); }
-      ph.goodFong += good; ph.offPrang += off;
+      const good = sumVals(h.grade?.เบอร์), off = sumVals(h.grade?.ตกเกรด), kla = sumVals(h.grade?.คละ);
+      if ((h.chickens || 0) > 0 || good > 0 || off > 0 || kla > 0) { ph.days++; ph.chSum += (h.chickens || 0); }
+      ph.goodFong += good; ph.offPrang += off; ph.klaPrang += kla;
       const ps = productionToStock([h]);
       Object.entries(ps).forEach(([pid, pr]) => { ph.pidPrang[pid] = (ph.pidPrang[pid] || 0) + pr; });
     });
@@ -3704,7 +3754,8 @@ function houseEconData(production, flocks, expenses, medCostByMonth, feedCostByM
     const eggsFong = ph.goodFong + ph.offPrang * PER_PRADANG;
     const goodPrang = ph.goodFong / PER_PRADANG;
     const totalPrang = goodPrang + ph.offPrang;
-    const hendayPct = (avgCh > 0 && ph.days > 0) ? (ph.goodFong / (avgCh * ph.days)) * 100 : null;
+    const totalFongMonth = ph.goodFong + (ph.offPrang + ph.klaPrang) * PER_PRADANG;   // ไข่รวม (เบอร์+ตกเกรด+คละ) เป็นฟอง — ตรงกับ %ไข่รวม หน้าผลผลิต/แดชบอร์ด
+    const hendayPct = (avgCh > 0 && ph.days > 0) ? (totalFongMonth / (avgCh * ph.days)) * 100 : null;
     let revenue = 0; Object.entries(ph.pidPrang).forEach(([pid, pr]) => { revenue += pr * (refPrices[pid] != null ? refPrices[pid] : (REF_PRICE_FALLBACK[pid] || 0)); });
     const feedCost = feedCostByMonth[ym]?.byHouse?.[hid] || 0;
     const feedKg = feedUseByMonth[ym]?.byHouse?.[hid] || 0;
@@ -4574,8 +4625,10 @@ function computeHouseAlerts(h, cfg) {
 }
 
 /* ---------- ฐานความรู้คำแนะนำ + มาตรฐานสายพันธุ์ Hy-Line Brown ----------
-   มาตรฐานผลผลิต (% hen-day) ตามอายุ = ค่าประมาณตามเส้นโค้ง Hy-Line Brown — ควรตรวจคู่มือฉบับจริงตามอายุจริง */
-const HYLINE_HD = [[18, 5], [19, 25], [20, 55], [21, 80], [22, 90], [24, 94], [26, 95.5], [30, 96], [35, 95], [40, 93], [45, 91], [50, 89], [55, 87], [60, 85], [65, 82], [70, 79], [75, 76], [80, 72], [90, 64]];
+   มาตรฐานผลผลิต (% hen-day) ตามอายุ — ค่าจริงจากคู่มือ Hy-Line Brown Commercial Layers,
+   International Standards ธันวาคม 2025 (v2025.12.30) ใช้ค่ากลางของช่วง low–high ต่อสัปดาห์
+   ไก่ทุกหลังของฟาร์มเป็นสายพันธุ์ Hy-Line (ยืนยันโดยเจ้าของ 23/7/69) · peak 26 wk = 96.1% */
+const HYLINE_HD = [[18, 6.9], [19, 24.6], [20, 53.8], [21, 77.8], [22, 89.1], [23, 93.0], [24, 94.7], [25, 95.8], [26, 96.1], [28, 96.0], [30, 95.8], [32, 95.6], [35, 95.3], [40, 94.6], [45, 93.8], [50, 92.8], [55, 91.7], [60, 90.3], [65, 88.5], [70, 86.7], [75, 84.9], [80, 82.9], [85, 80.9], [90, 78.7], [95, 76.5], [100, 74.2]];
 function hylineHD(wk) {
   if (wk == null) return null;
   if (wk <= HYLINE_HD[0][0]) return HYLINE_HD[0][1];
@@ -4583,8 +4636,9 @@ function hylineHD(wk) {
   for (let i = 0; i < HYLINE_HD.length - 1; i++) { const [w0, v0] = HYLINE_HD[i], [w1, v1] = HYLINE_HD[i + 1]; if (wk >= w0 && wk <= w1) return v0 + (v1 - v0) * (wk - w0) / (w1 - w0); }
   return null;
 }
-// มาตรฐานอาหาร Hy-Line Brown (กรัม/ตัว/วัน) ตามอายุ — ค่าประมาณตามคู่มือ (ควรเทียบเล่มจริงตามอายุจริง)
-const HYLINE_FEED_G = [[6, 40], [12, 58], [16, 72], [17, 78], [18, 84], [19, 90], [20, 96], [22, 105], [25, 110], [30, 113], [40, 116], [50, 115], [60, 114], [70, 112], [80, 110], [90, 107]];
+// มาตรฐานอาหาร Hy-Line Brown (กรัม/ตัว/วัน) ตามอายุ — ค่าจริงจากคู่มือฉบับ ธ.ค. 2025 (ค่ากลางของช่วง)
+// ช่วงไข่ไต่ขึ้นถึง ~114 ก./วัน แล้วคงที่ (ช่วงจริง 110–118) ตั้งแต่ ~28 wk เป็นต้นไป
+const HYLINE_FEED_G = [[6, 38.5], [12, 65.5], [16, 75.5], [17, 79.5], [18, 83.5], [19, 89], [20, 94.5], [21, 99.5], [22, 104.5], [23, 108], [24, 110.5], [25, 112], [26, 113], [28, 114], [40, 114], [60, 114], [80, 114], [100, 114]];
 function hylineFeedG(wk) {
   if (wk == null) return null;
   if (wk <= HYLINE_FEED_G[0][0]) return HYLINE_FEED_G[0][1];
@@ -7032,7 +7086,7 @@ function MedView({ production = {}, medStock = [], medInfo = {}, medReceipts = [
           </tbody>
         </table>
       </div>
-      <div style={{ fontSize: 12, color: "#9b8e78", margin: "-6px 2px 14px" }}>เบิกใช้ = ระบบรวมจากบันทึกให้ยารายวันของสัตวบาล (แท็บ เก็บข้อมูลการเลี้ยง — พิมพ์ชื่อตรงกับสต๊อก) ตั้งแต่ 7 ก.ค. 69 · คงเหลือ = ยกมา + รับเข้า − เบิกใช้ · ค่ายาเข้าบัญชีต้นทุนหมวด "ค่ายา+วัสดุสิ้นเปลือง" อัตโนมัติ</div>
+      <div style={{ fontSize: 12, color: "#9b8e78", margin: "-6px 2px 14px" }}>เบิกใช้ = ระบบรวมจากบันทึกให้ยารายวันของสัตวบาล (แท็บ เก็บข้อมูลการเลี้ยง — พิมพ์ชื่อตรงกับสต๊อก) ตั้งแต่ 24 ก.ค. 69 (รีเซ็ตยอดตามชีตนับจริง 23/7/69) · คงเหลือ = ยกมา + รับเข้า − เบิกใช้ · ค่ายาเข้าบัญชีต้นทุนหมวด "ค่ายา+วัสดุสิ้นเปลือง" อัตโนมัติ</div>
 
       {/* 📅 สรุปค่ายารายเดือน (จากบันทึกให้ยา × ราคาสต๊อก) แยกต่อหลัง */}
       {Object.keys(medCostByMonth).length > 0 && (
