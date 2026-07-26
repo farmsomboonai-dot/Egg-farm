@@ -32,6 +32,19 @@ const SB_SKIP = new Set(["eggDeviceId", "eggSyncMeta", "eggCurrentRole", "eggAcc
 // ลิสต์ (อาเรย์) ที่ให้รวมแบบ union ตาม id/เลขบิล แทนการทับทั้งก้อน — เฉพาะลิสต์ที่ "ไม่เคยลบสมาชิกออก"
 // (บิล: ยกเลิก = ติดธง cancelled ไม่ได้ลบออก) จึง union ปลอดภัย กัน 2 คนเพิ่มพร้อมกันแล้วหาย
 const SB_MERGE_ARRAY_KEYS = new Set(["eggBills"]);
+// 📋 บันทึกกิจกรรม: ป้ายชื่อไทยของแต่ละคีย์ข้อมูล (ไว้โชว์ว่า "แก้อะไร" ในหน้าใครแก้อะไร)
+const ACTIVITY_KEY_LABELS = {
+  eggBills: "บิลขาย", eggPayments: "รับชำระเงิน", eggProduction: "ผลผลิตประจำวัน",
+  eggRearing: "บันทึกการเลี้ยง", eggFlocks: "รุ่นการเลี้ยง", eggVaccines: "วัคซีน", eggLabTests: "ผลตรวจแล็บ",
+  eggMedStock: "สต๊อกยา", eggMedReceipts: "รับยาเข้าสต๊อก", eggMedTrials: "ทดลอง·ติดตามผล",
+  eggFeedDeliveries: "รับอาหาร", eggFeedPrice: "ราคาอาหาร", eggStockCounts: "ปิดยอดสต๊อกไข่", eggCloseMeta: "ปิดยอดสิ้นวัน",
+  eggExpenses: "ค่าใช้จ่าย/ต้นทุน", eggBookings: "จองออเดอร์", eggPlanEstimates: "วางแผนออเดอร์",
+  eggTrayStock: "บัญชีแผงไข่", eggTrayRecords: "บัญชีแผงไข่", eggTrayEvents: "บัญชีแผงไข่",
+  eggCustomers: "ข้อมูลลูกค้า", eggCustomerEdits: "แก้ข้อมูลลูกค้า", eggCustomerGroups: "กลุ่มลูกค้า",
+  eggDrafts: "บิลร่าง", eggRoles: "ตั้งค่าสิทธิ์", eggCostRates: "ตั้งค่าต้นทุน", eggHealthPlan: "แผนสุขภาพ",
+  eggFeedAlertMin: "ตั้งค่าเตือนอาหาร", eggMedExpiryDays: "ตั้งค่าเตือนยา", eggMedLowStock: "ตั้งค่าเตือนยา",
+};
+function activityLabel(key) { return ACTIVITY_KEY_LABELS[key] || key.replace(/^egg/, ""); }
 function sbDeviceId() {
   let d = null; try { d = localStorage.getItem("eggDeviceId"); } catch (e) {}
   if (!d) { d = "dev-" + Math.random().toString(36).slice(2, 9); try { localStorage.setItem("eggDeviceId", d); } catch (e) {} }
@@ -57,6 +70,12 @@ async function sbFlush() {
   if (!supabase) return;
   const keys = Object.keys(__sbQueue); if (!keys.length) return;
   const now = new Date().toISOString(), dev = sbDeviceId();
+  // 📋 บันทึกกิจกรรม "ใครแก้อะไร" — แปะบทบาทที่ล็อกอินอยู่ + หมวดที่แก้ (fire-and-forget ไม่ขวางการ sync)
+  try {
+    let role = ""; try { role = localStorage.getItem("eggCurrentRole") || ""; } catch (e) {}
+    const changes = [...new Set(keys.filter((k) => !SB_SKIP.has(k)).map(activityLabel))];
+    if (changes.length) supabase.from("activity_log").insert({ role, device: dev, changes, key_count: changes.length }).then(() => {}, () => {});
+  } catch (e) {}
   // แยก 2 ทาง: ค่าที่เป็น "ออบเจกต์" (เช่น สมุดการเลี้ยง eggRearing ที่คีย์ด้วยวันที่, ผลผลิต, วัคซีน ฯลฯ)
   // → ใช้ merge ฝั่งฐานข้อมูล (app_snapshot_merge) รวมแบบลึกกับของเดิม กันเครื่องที่ถือข้อมูลเก่าทับของใหม่
   //   ที่เครื่องอื่นเพิ่งคีย์ (เหตุการณ์ 21 ก.ค. — คีย์ย้อนหลังหลายคนพร้อมกันแล้วหายทั้งช่วง)
@@ -1092,6 +1111,85 @@ function RolePickerModal({ roles, current, onPick, onClose }) {
   );
 }
 
+// 📋 หน้า "ใครแก้อะไร" (เจ้าของเท่านั้น) — อ่าน activity_log จากคลาวด์: เวลา · บทบาทที่ทำ · หมวดที่แก้
+function ActivityLogView({ roles = [] }) {
+  const [rows, setRows] = useState(null);   // null=กำลังโหลด, []=ว่าง
+  const [err, setErr] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
+  const [loading, setLoading] = useState(false);
+  const roleInfo = (rid) => roles.find((r) => r.id === rid) || DEFAULT_ROLES.find((r) => r.id === rid) || null;
+  const load = async () => {
+    if (!supabase) { setErr("no-sb"); setRows([]); return; }
+    setLoading(true); setErr("");
+    try {
+      const { data, error } = await supabase.from("activity_log").select("*").order("at", { ascending: false }).limit(400);
+      if (error) { setErr(error.message); setRows([]); } else setRows(data || []);
+    } catch (e) { setErr(String((e && e.message) || e)); setRows([]); }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+  const all = rows || [];
+  const roleIds = [...new Set(all.map((r) => r.role).filter(Boolean))];
+  const filtered = roleFilter ? all.filter((r) => r.role === roleFilter) : all;
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const todayCount = all.filter((r) => (r.at || "").slice(0, 10) === todayISO).length;
+  const fmtTime = (iso) => { try { return new Date(iso).toLocaleString("th-TH", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }); } catch (e) { return iso; } };
+  const box = { background: "#fff", border: "1px dashed #d8cdb6", borderRadius: 14, padding: "30px 20px", textAlign: "center", color: "#9b8e78", fontWeight: 600 };
+  const cTh = { padding: "7px 10px", fontSize: 12, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", textAlign: "left", position: "sticky", top: 0, whiteSpace: "nowrap" };
+  const cTd = { padding: "6px 10px", fontSize: 12.5, borderBottom: "1px solid #f3eee2", verticalAlign: "top" };
+  const chip = (active, onClick, children, key) => (
+    <button key={key} onClick={onClick} style={{ padding: "5px 12px", borderRadius: 999, border: `1.5px solid ${active ? ACCENT_DK : "#e0d7c3"}`, background: active ? ACCENT_DK : "#fff", color: active ? "#fff" : "#7a6f5c", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>{children}</button>
+  );
+  return (
+    <div style={{ maxWidth: 980, margin: "0 auto" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+        <span style={{ fontSize: 18, fontWeight: 800, color: INK }}>📋 ใครแก้อะไร · บันทึกกิจกรรม</span>
+        <span style={{ fontSize: 12.5, color: "#9b8e78" }}>ทั้งหมด {all.length} · วันนี้ {todayCount}</span>
+        <button onClick={load} style={{ marginLeft: "auto", padding: "6px 13px", border: "1.5px solid #d8cdb6", background: "#fff", color: "#7a6f5c", borderRadius: 8, fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>{loading ? "กำลังโหลด…" : "↻ รีเฟรช"}</button>
+      </div>
+      {roleIds.length > 0 && (
+        <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 12 }}>
+          {chip(!roleFilter, () => setRoleFilter(""), "ทุกคน", "_all")}
+          {roleIds.map((rid) => { const ri = roleInfo(rid); return chip(roleFilter === rid, () => setRoleFilter(rid), ri ? `${ri.emoji} ${ri.name}` : rid, rid); })}
+        </div>
+      )}
+      {err === "no-sb" ? (
+        <div style={box}>ยังไม่ได้เชื่อมฐานข้อมูล (บันทึกกิจกรรมแสดงเฉพาะบนเว็บจริง)</div>
+      ) : err ? (
+        <div style={{ ...box, color: "#B91C1C" }}>โหลดไม่สำเร็จ: {err}</div>
+      ) : rows === null ? (
+        <div style={box}>กำลังโหลด…</div>
+      ) : filtered.length === 0 ? (
+        <div style={box}>ยังไม่มีบันทึกกิจกรรม — พอมีคนเข้ามาแก้ข้อมูล จะขึ้นที่นี่อัตโนมัติ</div>
+      ) : (
+        <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflow: "auto", maxHeight: "74vh" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 640 }}>
+            <thead><tr>
+              <th style={cTh}>เวลา</th>
+              <th style={cTh}>ผู้ทำ (บทบาท)</th>
+              <th style={cTh}>แก้อะไร</th>
+              <th style={{ ...cTh, textAlign: "right" }}>เครื่อง</th>
+            </tr></thead>
+            <tbody>
+              {filtered.map((r, i) => { const ri = roleInfo(r.role); const ch = Array.isArray(r.changes) ? r.changes : []; return (
+                <tr key={r.id != null ? r.id : i} style={{ background: i % 2 ? "#FDFAF3" : "#fff" }}>
+                  <td style={{ ...cTd, whiteSpace: "nowrap", color: "#5b5347" }}>{fmtTime(r.at)}</td>
+                  <td style={{ ...cTd, whiteSpace: "nowrap", fontWeight: 700, color: INK }}>{ri ? `${ri.emoji} ${ri.name}` : (r.role || "—")}</td>
+                  <td style={cTd}>{ch.length ? ch.map((c, j) => <span key={j} style={{ display: "inline-block", background: "#EFF6FF", color: "#0369A1", border: "1px solid #BFDBFE", borderRadius: 999, padding: "1px 9px", fontSize: 11.5, fontWeight: 700, margin: "0 5px 4px 0" }}>{c}</span>) : <span style={{ color: "#c9c0ad" }}>—</span>}</td>
+                  <td style={{ ...cTd, textAlign: "right", color: "#b8ab90", fontSize: 11, whiteSpace: "nowrap" }}>{r.device || "—"}</td>
+                </tr>
+              ); })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div style={{ fontSize: 11.5, color: "#9b8e78", marginTop: 10, lineHeight: 1.7 }}>
+        บันทึกอัตโนมัติทุกครั้งที่มีการเซฟข้อมูลขึ้นคลาวด์ · แสดง<b>บทบาทที่ล็อกอินอยู่</b> + หมวดข้อมูลที่แก้ · ล่าสุด 400 รายการ · เห็นเฉพาะเจ้าของ · แก้/ลบบันทึกไม่ได้ (กันแก้ประวัติ)
+      </div>
+    </div>
+  );
+}
+
 function RoleSettingsModal({ roles, onSave, accessLog = [], onClose }) {
   const [local, setLocal] = useState(() => roles.map((r) => ({ ...r, topics: [...(r.topics || [])] })));
   const toggleTopic = (rid, tid) => setLocal((prev) => prev.map((r) => r.id !== rid ? r : { ...r, topics: r.topics.includes(tid) ? r.topics.filter((x) => x !== tid) : [...r.topics, tid] }));
@@ -1161,6 +1259,7 @@ export default function App() {
   useEffect(() => { try { localStorage.setItem("eggAccessLog", JSON.stringify(accessLog)); } catch {} }, [accessLog]);
   const [showRolePicker, setShowRolePicker] = useState(false);
   const [showRoleSettings, setShowRoleSettings] = useState(false);
+  const [openNav, setOpenNav] = useState(null);   // กลุ่มเมนูที่กำลังเปิด dropdown (null = ปิดหมด)
   const roleObj = roles.find((r) => r.id === currentRole) || roles[0];
   const allowedTopics = roleObj.id === "owner" ? ALL_TOPIC_IDS : (roleObj.topics || []);
   const roleCustGroup = roleObj.id === "owner" ? null : (roleObj.custGroup || null);   // บทบาทร้านค้า → จำกัดให้เห็นเฉพาะกลุ่มลูกค้านี้
@@ -1495,34 +1594,63 @@ export default function App() {
           </div>
         </div>
         <nav className="mainNav" style={S.nav}>
-          {[
-            { id: "sales", icon: <ShoppingCart size={16} />, label: "ขายไข่", c: "#EA580C" },
-            { id: "bills", icon: <FileText size={16} />, label: "ประวัติบิล", c: "#475569" },
-            { id: "account", icon: <Wallet size={16} />, label: "บัญชีลูกหนี้", c: "#B91C1C" },
-            { id: "tray", icon: <RotateCcw size={16} />, label: "บัญชีแผงไข่", c: "#7C3AED" },
-            { id: "stock", icon: <Warehouse size={16} />, label: "สต๊อคไข่ประจำวัน", c: "#0E7490" },
-            { id: "production", icon: <Egg size={16} />, label: "ผลผลิตประจำวัน", c: "#15803D" },
-            { id: "dash", icon: <LayoutDashboard size={16} />, label: "แดชบอร์ด", c: "#1D4ED8" },
-            { id: "manage", icon: <Activity size={16} />, label: "แดชบอร์ดผู้บริหาร", c: "#9333EA" },
-            { id: "booking", icon: <Receipt size={16} />, label: "จองออเดอร์", c: "#BE185D" },
-            { id: "plan", icon: <Calendar size={16} />, label: "วางแผนออเดอร์", c: "#7E22CE" },
-            { id: "rear", icon: <ClipboardCheck size={16} />, label: "เก็บข้อมูลการเลี้ยง", c: "#B45309" },
-            { id: "feed", icon: <Wheat size={16} />, label: "อาหารไก่", c: "#4D7C0F" },
-            { id: "med", icon: <Pill size={16} />, label: "ยาและวิตามิน", c: "#0F766E" },
-            { id: "trial", icon: <TrendingUp size={16} />, label: "ทดลอง·ติดตามผล", c: "#0891B2" },
-            { id: "health", icon: <Stethoscope size={16} />, label: "สุขภาพไก่", c: "#E11D48" },
-            { id: "cost", icon: <Calculator size={16} />, label: "บัญชีต้นทุน", c: "#A16207" },
-            { id: "houseecon", icon: <CircleDollarSign size={16} />, label: "ประสิทธิภาพไก่", c: "#047857" },
-            { id: "roles", icon: <Settings size={16} />, label: "ตั้งค่าสิทธิ์", c: "#6D28D9", ownerOnly: true, action: true },
-          ].filter((t) => t.ownerOnly ? roleObj.id === "owner" : allowedTopics.includes(t.id)).map((t) => (
-            <button
-              key={t.id}
-              style={{ ...S.navBtn, border: `1.5px solid ${t.c}`, ...(view === t.id ? { background: t.c, color: "#fff", borderColor: t.c } : { color: t.c }) }}
-              onClick={() => t.action && t.id === "roles" ? setShowRoleSettings(true) : setView(t.id)}
-            >
-              {t.icon} {t.label}
-            </button>
-          ))}
+          {(() => {
+            const TOPIC_META = {
+              sales: { icon: <ShoppingCart size={15} />, label: "ขายไข่", c: "#EA580C" },
+              booking: { icon: <Receipt size={15} />, label: "จองออเดอร์", c: "#BE185D" },
+              plan: { icon: <Calendar size={15} />, label: "วางแผนออเดอร์", c: "#7E22CE" },
+              stock: { icon: <Warehouse size={15} />, label: "สต๊อคไข่ประจำวัน", c: "#0E7490" },
+              bills: { icon: <FileText size={15} />, label: "ประวัติบิล", c: "#475569" },
+              tray: { icon: <RotateCcw size={15} />, label: "บัญชีแผงไข่", c: "#7C3AED" },
+              production: { icon: <Egg size={15} />, label: "ผลผลิตประจำวัน", c: "#15803D" },
+              rear: { icon: <ClipboardCheck size={15} />, label: "เก็บข้อมูลการเลี้ยง", c: "#B45309" },
+              feed: { icon: <Wheat size={15} />, label: "อาหารไก่", c: "#4D7C0F" },
+              med: { icon: <Pill size={15} />, label: "ยาและวิตามิน", c: "#0F766E" },
+              health: { icon: <Stethoscope size={15} />, label: "สุขภาพไก่", c: "#E11D48" },
+              trial: { icon: <TrendingUp size={15} />, label: "ทดลอง·ติดตามผล", c: "#0891B2" },
+              account: { icon: <Wallet size={15} />, label: "บัญชีลูกหนี้", c: "#B91C1C" },
+              cost: { icon: <Calculator size={15} />, label: "บัญชีต้นทุน", c: "#A16207" },
+              dash: { icon: <LayoutDashboard size={15} />, label: "แดชบอร์ด", c: "#1D4ED8" },
+              manage: { icon: <Activity size={15} />, label: "แดชบอร์ดผู้บริหาร", c: "#9333EA" },
+              houseecon: { icon: <CircleDollarSign size={15} />, label: "ประสิทธิภาพไก่", c: "#047857" },
+              activity: { icon: <FileText size={15} />, label: "ใครแก้อะไร", c: "#0369A1", ownerOnly: true },
+              roles: { icon: <Settings size={15} />, label: "ตั้งค่าสิทธิ์", c: "#6D28D9", ownerOnly: true, action: true },
+            };
+            const GROUPS = [
+              { id: "g_sales", emoji: "🛒", label: "งานขาย", c: "#EA580C", items: ["sales", "booking", "plan", "stock", "bills", "tray"] },
+              { id: "g_farm", emoji: "🐔", label: "งานสัตวบาล", c: "#B45309", items: ["production", "rear", "feed", "med", "health", "trial"] },
+              { id: "g_acct", emoji: "💰", label: "งานบัญชี", c: "#A16207", items: ["account", "cost"] },
+              { id: "g_mgr", emoji: "📊", label: "ผู้บริหาร", c: "#7C3AED", items: ["dash", "manage", "houseecon", "activity", "roles"] },
+            ];
+            const canSee = (id) => TOPIC_META[id].ownerOnly ? roleObj.id === "owner" : allowedTopics.includes(id);
+            return (<>
+              {openNav && <div onClick={() => setOpenNav(null)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />}
+              {GROUPS.map((g) => {
+                const items = g.items.filter(canSee);
+                if (!items.length) return null;
+                const activeInGroup = items.includes(view);
+                const open = openNav === g.id;
+                return (
+                  <div key={g.id} style={{ position: "relative", zIndex: open ? 60 : "auto" }}>
+                    <button onClick={() => setOpenNav(open ? null : g.id)}
+                      style={{ ...S.navBtn, border: `1.5px solid ${g.c}`, ...(activeInGroup ? { background: g.c, color: "#fff", borderColor: g.c } : { color: g.c }) }}>
+                      <span style={{ fontSize: 15 }}>{g.emoji}</span> {g.label} <span style={{ fontSize: 9, opacity: 0.85 }}>{open ? "▲" : "▼"}</span>
+                    </button>
+                    {open && (
+                      <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, background: "#fff", border: "1px solid #e6ddca", borderRadius: 12, boxShadow: "0 10px 28px rgba(60,45,20,0.16)", padding: 6, minWidth: 218 }}>
+                        {items.map((id) => { const t = TOPIC_META[id]; const on = view === id; return (
+                          <button key={id} onClick={() => { setOpenNav(null); if (t.action) setShowRoleSettings(true); else setView(id); }}
+                            style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", textAlign: "left", padding: "9px 11px", border: "none", borderRadius: 8, background: on ? "#FBF3E7" : "transparent", color: on ? t.c : INK, fontWeight: on ? 800 : 600, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
+                            <span style={{ color: t.c, display: "inline-flex" }}>{t.icon}</span> {t.label}
+                          </button>
+                        ); })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </>);
+          })()}
         </nav>
       </header>
 
@@ -1540,6 +1668,7 @@ export default function App() {
       {view === "health" && <HealthHubView production={productionByDate} flocks={flocks} vaccines={vaccines} addVaccine={addVaccine} deleteVaccine={deleteVaccine} />}
       {view === "cost" && <CostView expenses={expenses} addExpense={addExpense} deleteExpense={deleteExpense} production={productionByDate} medCostByMonth={medCostByMonth} feedCostByMonth={feedCostByMonth} feedPrice={feedPrice} bills={activeBills} />}
       {view === "houseecon" && <HouseEconView production={productionByDate} flocks={flocks} expenses={expenses} medCostByMonth={medCostByMonth} feedCostByMonth={feedCostByMonth} feedUseByMonth={feedUseByMonth} feedPrice={feedPrice} refPrices={refPrices} bills={activeBills} />}
+      {view === "activity" && <ActivityLogView roles={roles} />}
       {view === "tray" && <PanelTrayView trayStock={trayStock} setTrayStock={setTrayStock} bills={activeBills} trayRecords={trayRecords} setTrayRecords={setTrayRecords} trayEvents={trayEvents} addTrayEvent={addTrayEvent} deleteTrayEvent={deleteTrayEvent} />}
       {view === "booking" && <BookingEntry bookings={bookings} addBooking={addBooking} updateBooking={updateBooking} deleteBooking={deleteBooking} production={productionByDate} planEstimates={planEstimates} custGroup={roleCustGroup} />}
       {view === "plan" && <PlanBoard bookings={bookings} production={productionByDate} planEstimates={planEstimates} setPlanEstimate={setPlanEstimate} />}
@@ -3568,6 +3697,99 @@ function manageSummaryText(data) {
   });
   return L.join("\n");
 }
+// 📈 กราฟผลผลิตรายเดือน แยกรายหลัง (เส้นต่อหลัง · x=เดือน) — SVG ล้วน ไม่ต้องใช้ไลบรารี
+const HOUSE_COLORS = ["#EA580C", "#0369A1", "#15803D", "#9333EA", "#B91C1C", "#B45309", "#0891B2", "#BE185D"];
+function MonthlyProdChart({ production = {} }) {
+  const [metric, setMetric] = useState("pct");   // "pct" = ผลผลิต% · "prang" = ไข่รวม (แผง)
+  const [hidden, setHidden] = useState({});
+  const agg = useMemo(() => {
+    const m = {};   // m[ym][hid] = { good(ฟอง), off(แผง), kla(แผง), ch(ยอดไก่สะสมรายวัน), days }
+    Object.keys(production).forEach((d) => {
+      const ym = (d || "").slice(0, 7); if (!ym) return;
+      (production[d] || []).forEach((h) => {
+        if (!h || !h.id) return;
+        const good = sumVals(h.grade && h.grade.เบอร์), off = sumVals(h.grade && h.grade.ตกเกรด), kla = sumVals(h.grade && h.grade.คละ);
+        const ch = h.chickens || 0;
+        if (!(ch > 0 || good > 0 || off > 0 || kla > 0)) return;
+        m[ym] = m[ym] || {};
+        const a = (m[ym][h.id] = m[ym][h.id] || { good: 0, off: 0, kla: 0, ch: 0, days: 0 });
+        a.good += good; a.off += off; a.kla += kla; a.ch += ch; a.days += 1;
+      });
+    });
+    const yms = Object.keys(m).sort();
+    const hids = [...new Set(yms.flatMap((ym) => Object.keys(m[ym])))].sort((x, y) => (HOUSE_IDS.indexOf(x) - HOUSE_IDS.indexOf(y)) || String(x).localeCompare(y));
+    const value = (ym, hid) => {
+      const a = m[ym] && m[ym][hid]; if (!a) return null;
+      if (metric === "prang") return a.good / PER_PRADANG + a.off + a.kla;                 // ไข่รวมเป็นแผง
+      return a.ch > 0 ? ((a.good + (a.off + a.kla) * PER_PRADANG) / a.ch) * 100 : null;    // ผลผลิต% (hen-day, ไข่รวม)
+    };
+    return { yms, hids, value };
+  }, [production, metric]);
+  const { yms, hids, value } = agg;
+  const color = (hid) => HOUSE_COLORS[Math.max(0, hids.indexOf(hid)) % HOUSE_COLORS.length];
+  const shown = hids.filter((h) => !hidden[h]);
+  let ymax = 100;
+  if (metric === "prang") {
+    ymax = 0; yms.forEach((ym) => shown.forEach((h) => { const v = value(ym, h); if (v != null && v > ymax) ymax = v; }));
+    ymax = Math.max(100, Math.ceil(ymax / 100) * 100);
+  }
+  const W = 720, H = 300, padL = 46, padR = 14, padT = 14, padB = 46;
+  const plotW = W - padL - padR, plotH = H - padT - padB, n = yms.length;
+  const xOf = (i) => padL + (n <= 1 ? plotW / 2 : (plotW * i) / (n - 1));
+  const yOf = (v) => padT + plotH - (plotH * Math.min(v, ymax)) / ymax;
+  const ticks = metric === "prang" ? [0, ymax / 4, ymax / 2, (ymax * 3) / 4, ymax] : [0, 25, 50, 75, 100];
+  const btn = (k, lb) => <button key={k} onClick={() => setMetric(k)} style={{ padding: "5px 12px", borderRadius: 999, border: `1.5px solid ${metric === k ? ACCENT_DK : "#e0d7c3"}`, background: metric === k ? ACCENT_DK : "#fff", color: metric === k ? "#fff" : "#7a6f5c", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>{lb}</button>;
+  return (
+    <div style={{ ...S.dashCard, marginTop: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+        <span style={S.dashCardTitle}><TrendingUp size={16} /> กราฟผลผลิตรายเดือน · แยกรายหลัง</span>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>{btn("pct", "ผลผลิต %")}{btn("prang", "ไข่รวม (แผง)")}</div>
+      </div>
+      {yms.length === 0 ? (
+        <div style={{ padding: "14px 6px", color: "#9b8e78" }}>ยังไม่มีข้อมูลผลผลิตให้แสดงกราฟ</div>
+      ) : (<>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "5px 14px", marginBottom: 8 }}>
+          {hids.map((h) => (
+            <button key={h} onClick={() => setHidden((p) => ({ ...p, [h]: !p[h] }))} title="แตะเพื่อซ่อน/แสดงเส้น" style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", opacity: hidden[h] ? 0.4 : 1, padding: 0 }}>
+              <span style={{ width: 13, height: 13, borderRadius: 3, background: color(h), display: "inline-block" }} />
+              <span style={{ fontSize: 12.5, fontWeight: 800, color: INK, textDecoration: hidden[h] ? "line-through" : "none" }}>{h}</span>
+            </button>
+          ))}
+        </div>
+        <div style={{ overflowX: "auto" }}>
+          <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", minWidth: 520, display: "block" }} preserveAspectRatio="xMidYMid meet">
+            {ticks.map((t, i) => (
+              <g key={i}>
+                <line x1={padL} y1={yOf(t)} x2={W - padR} y2={yOf(t)} stroke="#eee3cd" strokeWidth="1" />
+                <text x={padL - 7} y={yOf(t) + 3} textAnchor="end" fontSize="10" fill="#9b8e78">{metric === "prang" ? fmt(Math.round(t)) : t + "%"}</text>
+              </g>
+            ))}
+            {yms.map((ym, i) => ((n <= 9 || i % Math.ceil(n / 9) === 0) ? (
+              <text key={ym} x={xOf(i)} y={H - padB + 17} textAnchor="middle" fontSize="10" fill="#7a6f5c">{ymTH(ym)}</text>
+            ) : null))}
+            {shown.map((h) => {
+              const pts = yms.map((ym, i) => ({ i, v: value(ym, h) })).filter((p) => p.v != null);
+              if (!pts.length) return null;
+              const dpath = pts.map((p, k) => `${k ? "L" : "M"}${xOf(p.i).toFixed(1)},${yOf(p.v).toFixed(1)}`).join(" ");
+              return (
+                <g key={h}>
+                  <path d={dpath} fill="none" stroke={color(h)} strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round" />
+                  {pts.map((p) => (
+                    <circle key={p.i} cx={xOf(p.i)} cy={yOf(p.v)} r="3.2" fill="#fff" stroke={color(h)} strokeWidth="2">
+                      <title>{h} · {ymTH(yms[p.i])} · {metric === "prang" ? fmt(Math.round(p.v)) + " แผง" : p.v.toFixed(0) + "%"}</title>
+                    </circle>
+                  ))}
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+        <div style={{ fontSize: 11, color: "#9b8e78", marginTop: 8 }}>ผลผลิต% = ไข่รวม (ดี+ตกเกรด+คละ) ÷ จำนวนไก่ เฉลี่ยทั้งเดือน (hen-day) · แตะชื่อหลังด้านบนเพื่อซ่อน/แสดงเส้น · แตะจุดบนกราฟเพื่อดูตัวเลข</div>
+      </>)}
+    </div>
+  );
+}
+
 function ManageDashView({ production = {}, rearingByDate = {}, flocks = {} }) {
   const prodDates = useMemo(() => Object.keys(production).sort(), [production]);
   const [date, setDate] = useState(() => prodDates[prodDates.length - 1] || isoFromTs(Date.now()));
@@ -3678,6 +3900,9 @@ function ManageDashView({ production = {}, rearingByDate = {}, flocks = {} }) {
             </table>
             <div style={{ fontSize: 11, color: "#9b8e78", marginTop: 8 }}>อาหาร/น้ำ %มฐ = เทียบมาตรฐาน Hy-Line Brown ตามอายุ (แดง = ต่ำกว่า 90% · น้ำแดงเมื่อ &lt;90% หรือ &gt;160%) · ผลผลิต% = ไข่รวม (ดี+ตกเกรด+คละ) ÷ จำนวนไก่ = hen-day มาตรฐาน (ตรงกับ %ไข่รวม หน้าผลผลิตประจำวัน) · น้ำต้องกรอกมิเตอร์ต่อเนื่อง 2 วันจึงคำนวณได้</div>
           </div>
+
+          {/* 📈 กราฟผลผลิตรายเดือน แยกรายหลัง */}
+          <MonthlyProdChart production={production} />
 
           {/* กระจายเบอร์ไข่ต่อหลัง (เทียบค่าเฉลี่ยฟาร์ม) */}
           <div style={{ ...S.dashCard, marginTop: 14, overflowX: "auto" }}>
@@ -7776,6 +8001,69 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
       )}
 
       {mode === "day" && (<>
+      {/* 📊 รายงานเทียบมาตรฐานสายพันธุ์ Hy-Line ตามอายุ — หลังไหนกินอาหาร/น้ำ ต่ำหรือสูงกว่าเกณฑ์ */}
+      {(() => {
+        const flags = rows.filter((x) => x.r && x.ageWk != null && x.remainBirds).map((x) => {
+          const stdG = hylineFeedG(x.ageWk);
+          const gPerBird = x.gPerBird;
+          const feedPct = (stdG && gPerBird != null) ? (gPerBird / stdG) * 100 : null;
+          const wMl = (x.water != null && x.remainBirds) ? (x.water * waterUnitToMl(x.hid)) / x.remainBirds : null;
+          const stdWMl = stdG != null ? stdG * 2.0 : null;
+          const waterPct = (wMl != null && stdWMl) ? (wMl / stdWMl) * 100 : null;
+          return { hid: x.hid, ageWk: x.ageWk, stdG, stdWMl, gPerBird, wMl, feedPct, waterPct };
+        });
+        const data = flags.filter((f) => f.feedPct != null || f.waterPct != null);
+        if (data.length === 0) return null;
+        const fLow = data.filter((f) => f.feedPct != null && f.feedPct < 90).map((f) => f.hid);
+        const fHigh = data.filter((f) => f.feedPct != null && f.feedPct > 110).map((f) => f.hid);
+        const wLow = data.filter((f) => f.waterPct != null && f.waterPct < 90).map((f) => f.hid);
+        const wHigh = data.filter((f) => f.waterPct != null && f.waterPct > 160).map((f) => f.hid);
+        const allOk = !fLow.length && !fHigh.length && !wLow.length && !wHigh.length;
+        const pctStyle = (pct, kind) => {
+          if (pct == null) return { color: "#c9c0ad" };
+          if (pct < 90) return { color: "#B91C1C", fontWeight: 800 };
+          if (kind === "feed" ? pct > 110 : pct > 160) return { color: "#B45309", fontWeight: 800 };
+          return { color: "#15803D", fontWeight: 700 };
+        };
+        const arrow = (pct, kind) => pct == null ? "" : (pct < 90 ? " ▼" : ((kind === "feed" ? pct > 110 : pct > 160) ? " ▲" : ""));
+        const rTh = { ...th, padding: "5px 16px", fontSize: 11.5, whiteSpace: "nowrap", lineHeight: 1.25 };
+        const rTd = { ...td, padding: "5px 16px", fontSize: 12.5, textAlign: "center", whiteSpace: "nowrap" };
+        const gray = { color: "#a89c85", fontWeight: 400 };
+        return (
+          <div style={{ background: allOk ? "#F2F9F1" : "#FFFCF5", border: `1.5px solid ${allOk ? "#BBE3B4" : "#F1DFBF"}`, borderRadius: 12, padding: "12px 15px", marginBottom: 12, display: "inline-block", maxWidth: "100%" }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: INK, marginBottom: 7 }}>
+              📊 เทียบมาตรฐาน Hy-Line ตามอายุ <span style={{ fontSize: 11, fontWeight: 600, color: "#9b8e78" }}>· กินจริง/มฐ ต่อตัว · ▼ ต่ำ &lt;90%</span>
+            </div>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ borderCollapse: "collapse", fontSize: 12.5 }}>
+                <thead>
+                  <tr>
+                    <th style={{ ...rTh, textAlign: "left" }}>หลัง</th>
+                    <th style={rTh}>อายุ</th>
+                    <th style={{ ...rTh, color: "#B45309" }}>อาหาร<br />ก./ตัว</th>
+                    <th style={rTh}>%มฐ</th>
+                    <th style={{ ...rTh, color: "#0369A1" }}>น้ำ<br />มล./ตัว</th>
+                    <th style={rTh}>%มฐ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.map((f, i) => (
+                    <tr key={f.hid} style={{ background: i % 2 ? "#FFFDF8" : "transparent" }}>
+                      <td style={{ ...rTd, textAlign: "left", fontWeight: 800 }}>{f.hid}</td>
+                      <td style={rTd}>{f.ageWk}</td>
+                      <td style={rTd}>{f.gPerBird != null ? fmt1(f.gPerBird) : "—"}<span style={gray}> / {f.stdG != null ? fmt1(f.stdG) : "—"}</span></td>
+                      <td style={{ ...rTd, ...pctStyle(f.feedPct, "feed") }}>{f.feedPct != null ? f.feedPct.toFixed(0) + "%" + arrow(f.feedPct, "feed") : "—"}</td>
+                      <td style={rTd}>{f.wMl != null ? fmt(Math.round(f.wMl)) : "—"}<span style={gray}> / {f.stdWMl != null ? fmt(Math.round(f.stdWMl)) : "—"}</span></td>
+                      <td style={{ ...rTd, ...pctStyle(f.waterPct, "water") }}>{f.waterPct != null ? f.waterPct.toFixed(0) + "%" + arrow(f.waterPct, "water") : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ fontSize: 10.5, color: "#9b8e78", marginTop: 5 }}>เลขเทา = มาตรฐาน Hy-Line ตามอายุ (น้ำ ≈ 2× อาหาร) · <b style={{ color: "#B91C1C" }}>แดง</b> ต่ำ · <b style={{ color: "#B45309" }}>ส้ม</b> สูง</div>
+          </div>
+        );
+      })()}
       <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflow: "auto", maxHeight: "72vh" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1000 }}>
           <thead>
