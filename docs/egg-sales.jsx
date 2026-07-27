@@ -1651,15 +1651,16 @@ export default function App() {
                 const items = g.items.filter(canSee);
                 if (!items.length) return null;
                 const activeInGroup = items.includes(view);
-                const open = openNav === g.id;
+                const open = openNav && openNav.id === g.id;
                 return (
-                  <div key={g.id} style={{ position: "relative", zIndex: open ? 60 : "auto" }}>
-                    <button onClick={() => setOpenNav(open ? null : g.id)}
+                  <div key={g.id}>
+                    <button onClick={(e) => { if (open) { setOpenNav(null); return; } const rc = e.currentTarget.getBoundingClientRect(); setOpenNav({ id: g.id, left: rc.left, top: rc.bottom }); }}
                       style={{ ...S.navBtn, border: `1.5px solid ${g.c}`, ...(activeInGroup ? { background: g.c, color: "#fff", borderColor: g.c } : { color: g.c }) }}>
                       <span style={{ fontSize: 15 }}>{g.emoji}</span> {g.label} <span style={{ fontSize: 9, opacity: 0.85 }}>{open ? "▲" : "▼"}</span>
                     </button>
                     {open && (
-                      <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, background: "#fff", border: "1px solid #e6ddca", borderRadius: 12, boxShadow: "0 10px 28px rgba(60,45,20,0.16)", padding: 6, minWidth: 218 }}>
+                      // fixed หลุดจากกรอบ overflow-x ของ .mainNav บนมือถือ (absolute โดนตัดทิ้ง → กดเมนูย่อยไม่ได้)
+                      <div style={{ position: "fixed", top: openNav.top + 6, left: Math.max(8, Math.min(openNav.left, (window.innerWidth || 360) - 242)), zIndex: 60, background: "#fff", border: "1px solid #e6ddca", borderRadius: 12, boxShadow: "0 10px 28px rgba(60,45,20,0.16)", padding: 6, minWidth: 218, maxHeight: "62vh", overflowY: "auto" }}>
                         {items.map((id) => { const t = TOPIC_META[id]; const on = view === id; return (
                           <button key={id} onClick={() => { setOpenNav(null); if (t.action) setShowRoleSettings(true); else setView(id); }}
                             style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", textAlign: "left", padding: "9px 11px", border: "none", borderRadius: 8, background: on ? "#FBF3E7" : "transparent", color: on ? t.c : INK, fontWeight: on ? 800 : 600, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
