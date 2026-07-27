@@ -330,7 +330,7 @@ function bahtText(num) {
 
 // ---------- กลุ่มลูกค้า ----------
 let CUSTOMER_GROUPS = [
-  { id: "retail", name: "ร้านขายปลีก (ฉันจะกินไข่สดทุกวัน)" },
+  { id: "retail", name: "ร้านฉันจะกินไข่สดทุกวัน" },
   { id: "branch", name: "ร้านสาขาฟาร์มสมบูรณ์" },
   { id: "route_mk", name: "สายส่งรถฟาร์ม · แม่กลอง" },
   { id: "route_npt", name: "สายส่งรถฟาร์ม · นครปฐม" },
@@ -1043,6 +1043,9 @@ const DEFAULT_ROLES = [
   { id: "branch_shop", name: "ร้านฟาร์มสมบูรณ์", emoji: "🏪", pin: "", topics: ["booking"], custGroup: "branch" },
 ];
 
+// บทบาทผูกกับบัญชีล็อกอิน (ชั้นเดียว) — อยากได้มุมไหนต้องล็อกอินบัญชีนั้น ไม่มี PIN ชั้นสอง
+// ต้องตรงกับ ACCOUNTS ใน LoginScreen
+const AUTH_ROLE_BY_USER = { owner: "owner", office: "sales", farm: "farm", acct: "acct", medclerk: "medclerk", retail: "retail_shop", branch: "branch_shop" };
 function RolePickerModal({ roles, current, onPick, onClose }) {
   const [sel, setSel] = useState(null);
   const [pin, setPin] = useState("");
@@ -1076,7 +1079,17 @@ function RolePickerModal({ roles, current, onPick, onClose }) {
         </div>
         {!sel ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {roles.map((r) => (
+            {AUTH_ROLE_BY_USER[authUser] ? (() => {
+              // 🔒 ล็อกอินอยู่ → บทบาทผูกกับบัญชี สลับไม่ได้ (ชั้นเดียวจบ) — เปลี่ยนบทบาท = ออกจากระบบแล้วเข้าบัญชีอื่น
+              const cur = roles.find((r) => r.id === current) || roles[0];
+              return (
+                <div style={{ display: "flex", alignItems: "center", gap: 11, padding: "12px 14px", border: `1.5px solid ${ACCENT}`, background: "#FFF7EC", borderRadius: 11 }}>
+                  <span style={{ fontSize: 22 }}>{cur.emoji}</span>
+                  <span style={{ flex: 1 }}><div style={{ fontWeight: 800, color: INK, fontSize: 14.5 }}>{cur.name}</div><div style={{ fontSize: 11.5, color: "#9b8e78" }}>บทบาทผูกกับบัญชีที่ล็อกอิน — เปลี่ยนบทบาทโดยออกจากระบบแล้วเข้าด้วยบัญชีอื่น</div></span>
+                  <span style={{ fontSize: 11.5, fontWeight: 800, color: ACCENT_DK }}>ใช้อยู่</span>
+                </div>
+              );
+            })() : roles.map((r) => (
               <button key={r.id} onClick={() => choose(r)} style={{ display: "flex", alignItems: "center", gap: 11, padding: "12px 14px", border: `1.5px solid ${r.id === current ? ACCENT : "#e3ddd0"}`, background: r.id === current ? "#FFF7EC" : "#fff", borderRadius: 11, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
                 <span style={{ fontSize: 22 }}>{r.emoji}</span>
                 <span style={{ flex: 1 }}><div style={{ fontWeight: 800, color: INK, fontSize: 14.5 }}>{r.name}</div><div style={{ fontSize: 11.5, color: "#9b8e78" }}>{r.id === "owner" ? ALL_TOPIC_IDS.length : (r.topics || []).length} หัวข้อ{r.pin ? " · 🔒 มี PIN" : ""}</div></span>
@@ -1255,6 +1268,15 @@ export default function App() {
   useEffect(() => { try { localStorage.setItem("eggRoles", JSON.stringify(roles)); } catch {} }, [roles]);
   const [currentRole, setCurrentRole] = useState(() => { try { return localStorage.getItem("eggCurrentRole") || "owner"; } catch { return "owner"; } });
   useEffect(() => { try { localStorage.setItem("eggCurrentRole", currentRole); } catch {} }, [currentRole]);
+  // 🔒 บทบาทผูกกับบัญชีล็อกอิน (ชั้นเดียว): ถ้ามี session ให้บังคับบทบาทตามบัญชีเสมอ (กันค่าเก่าค้างจากยุคสลับด้วย PIN)
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getSession().then((r) => {
+      const em = (r && r.data && r.data.session && r.data.session.user && r.data.session.user.email) || "";
+      const locked = AUTH_ROLE_BY_USER[em.replace(/@sjffarm\.app$/, "")];
+      if (locked) setCurrentRole((c) => (c === locked ? c : locked));
+    }).catch(() => {});
+  }, []);
   const [accessLog, setAccessLog] = useState(() => { try { return JSON.parse(localStorage.getItem("eggAccessLog") || "[]"); } catch { return []; } });
   useEffect(() => { try { localStorage.setItem("eggAccessLog", JSON.stringify(accessLog)); } catch {} }, [accessLog]);
   const [showRolePicker, setShowRolePicker] = useState(false);
@@ -8001,31 +8023,44 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
       )}
 
       {mode === "day" && (<>
-      {/* 📊 รายงานเทียบมาตรฐานสายพันธุ์ Hy-Line ตามอายุ — หลังไหนกินอาหาร/น้ำ ต่ำหรือสูงกว่าเกณฑ์ */}
+      {/* 📊 รายงานเทียบมาตรฐานสายพันธุ์ Hy-Line ตามอายุ — หลังไหนผลผลิต/อาหาร/น้ำ ต่ำหรือสูงกว่าเกณฑ์ */}
       {(() => {
-        const flags = rows.filter((x) => x.r && x.ageWk != null && x.remainBirds).map((x) => {
+        const prodDay = production[day] || [];
+        const flags = rows.filter((x) => x.ageWk != null && ((x.r && x.remainBirds) || prodDay.some((p) => p && p.id === x.hid))).map((x) => {
           const stdG = hylineFeedG(x.ageWk);
           const gPerBird = x.gPerBird;
           const feedPct = (stdG && gPerBird != null) ? (gPerBird / stdG) * 100 : null;
           const wMl = (x.water != null && x.remainBirds) ? (x.water * waterUnitToMl(x.hid)) / x.remainBirds : null;
           const stdWMl = stdG != null ? stdG * 2.0 : null;
           const waterPct = (wMl != null && stdWMl) ? (wMl / stdWMl) * 100 : null;
-          return { hid: x.hid, ageWk: x.ageWk, stdG, stdWMl, gPerBird, wMl, feedPct, waterPct };
+          // เกณฑ์ผลผลิต: %ไข่รวม (ดี+ตกเกรด+คละ เป็นฟอง ÷ จำนวนไก่) เทียบมาตรฐาน hen-day Hy-Line ตามอายุ
+          const ph = prodDay.find((p) => p && p.id === x.hid);
+          let eggPct = null;
+          if (ph) {
+            const ch = nf(ph.chickens) || x.remainBirds || 0;
+            const totalF = sumVals(ph.grade?.เบอร์ || {}) + (sumVals(ph.grade?.ตกเกรด || {}) + sumVals(ph.grade?.คละ || {})) * PER_PRADANG;
+            if (ch > 0 && totalF > 0) eggPct = (totalF / ch) * 100;
+          }
+          const stdHD = hylineHD(x.ageWk);
+          const eggVsStd = (eggPct != null && stdHD) ? (eggPct / stdHD) * 100 : null;
+          return { hid: x.hid, ageWk: x.ageWk, stdG, stdWMl, gPerBird, wMl, feedPct, waterPct, eggPct, stdHD, eggVsStd };
         });
-        const data = flags.filter((f) => f.feedPct != null || f.waterPct != null);
+        const data = flags.filter((f) => f.feedPct != null || f.waterPct != null || f.eggVsStd != null);
         if (data.length === 0) return null;
         const fLow = data.filter((f) => f.feedPct != null && f.feedPct < 90).map((f) => f.hid);
         const fHigh = data.filter((f) => f.feedPct != null && f.feedPct > 110).map((f) => f.hid);
         const wLow = data.filter((f) => f.waterPct != null && f.waterPct < 90).map((f) => f.hid);
         const wHigh = data.filter((f) => f.waterPct != null && f.waterPct > 160).map((f) => f.hid);
-        const allOk = !fLow.length && !fHigh.length && !wLow.length && !wHigh.length;
+        const eLow = data.filter((f) => f.eggVsStd != null && f.eggVsStd < 90).map((f) => f.hid);
+        const allOk = !fLow.length && !fHigh.length && !wLow.length && !wHigh.length && !eLow.length;
+        const isHigh = (pct, kind) => kind === "feed" ? pct > 110 : kind === "water" ? pct > 160 : false;   // ไข่เกินมาตรฐาน = ดี ไม่ติดธง
         const pctStyle = (pct, kind) => {
           if (pct == null) return { color: "#c9c0ad" };
           if (pct < 90) return { color: "#B91C1C", fontWeight: 800 };
-          if (kind === "feed" ? pct > 110 : pct > 160) return { color: "#B45309", fontWeight: 800 };
+          if (isHigh(pct, kind)) return { color: "#B45309", fontWeight: 800 };
           return { color: "#15803D", fontWeight: 700 };
         };
-        const arrow = (pct, kind) => pct == null ? "" : (pct < 90 ? " ▼" : ((kind === "feed" ? pct > 110 : pct > 160) ? " ▲" : ""));
+        const arrow = (pct, kind) => pct == null ? "" : (pct < 90 ? " ▼" : (isHigh(pct, kind) ? " ▲" : ""));
         const rTh = { ...th, padding: "5px 16px", fontSize: 11.5, whiteSpace: "nowrap", lineHeight: 1.25 };
         const rTd = { ...td, padding: "5px 16px", fontSize: 12.5, textAlign: "center", whiteSpace: "nowrap" };
         const gray = { color: "#a89c85", fontWeight: 400 };
@@ -8040,6 +8075,8 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                   <tr>
                     <th style={{ ...rTh, textAlign: "left" }}>หลัง</th>
                     <th style={rTh}>อายุ</th>
+                    <th style={{ ...rTh, color: "#15803D" }}>ไข่<br />%ผลผลิต</th>
+                    <th style={rTh}>%มฐ</th>
                     <th style={{ ...rTh, color: "#B45309" }}>อาหาร<br />ก./ตัว</th>
                     <th style={rTh}>%มฐ</th>
                     <th style={{ ...rTh, color: "#0369A1" }}>น้ำ<br />มล./ตัว</th>
@@ -8051,6 +8088,8 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                     <tr key={f.hid} style={{ background: i % 2 ? "#FFFDF8" : "transparent" }}>
                       <td style={{ ...rTd, textAlign: "left", fontWeight: 800 }}>{f.hid}</td>
                       <td style={rTd}>{f.ageWk}</td>
+                      <td style={rTd}>{f.eggPct != null ? f.eggPct.toFixed(1) : "—"}<span style={gray}> / {f.stdHD != null ? f.stdHD.toFixed(1) : "—"}</span></td>
+                      <td style={{ ...rTd, ...pctStyle(f.eggVsStd, "egg") }}>{f.eggVsStd != null ? f.eggVsStd.toFixed(0) + "%" + arrow(f.eggVsStd, "egg") : "—"}</td>
                       <td style={rTd}>{f.gPerBird != null ? fmt1(f.gPerBird) : "—"}<span style={gray}> / {f.stdG != null ? fmt1(f.stdG) : "—"}</span></td>
                       <td style={{ ...rTd, ...pctStyle(f.feedPct, "feed") }}>{f.feedPct != null ? f.feedPct.toFixed(0) + "%" + arrow(f.feedPct, "feed") : "—"}</td>
                       <td style={rTd}>{f.wMl != null ? fmt(Math.round(f.wMl)) : "—"}<span style={gray}> / {f.stdWMl != null ? fmt(Math.round(f.stdWMl)) : "—"}</span></td>
@@ -8060,7 +8099,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                 </tbody>
               </table>
             </div>
-            <div style={{ fontSize: 10.5, color: "#9b8e78", marginTop: 5 }}>เลขเทา = มาตรฐาน Hy-Line ตามอายุ (น้ำ ≈ 2× อาหาร) · <b style={{ color: "#B91C1C" }}>แดง</b> ต่ำ · <b style={{ color: "#B45309" }}>ส้ม</b> สูง</div>
+            <div style={{ fontSize: 10.5, color: "#9b8e78", marginTop: 5 }}>เลขเทา = มาตรฐาน Hy-Line ตามอายุ · ไข่ %ผลผลิต = ไข่รวม (ดี+ตกเกรด+คละ) ÷ จำนวนไก่ เทียบมาตรฐาน hen-day (เกินมาตรฐาน = ดี ไม่ติดธง) · น้ำ ≈ 2× อาหาร · <b style={{ color: "#B91C1C" }}>แดง</b> ต่ำ &lt;90% · <b style={{ color: "#B45309" }}>ส้ม</b> สูง</div>
           </div>
         );
       })()}
