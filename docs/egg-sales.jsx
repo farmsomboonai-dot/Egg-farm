@@ -126,6 +126,15 @@ async function sbFlush() {
   sbSetMeta(meta);
   if (okCount) console.log("[sync] ⬆ อัปขึ้นคลาวด์ " + okCount + " รายการ (merge " + mergeKeys.length + ")");
 }
+// 🛟 รวมค่าคลาวด์เข้ากับของเครื่องตอนดึง (คลาวด์ชนะช่องที่ชนกัน แต่คีย์ที่มีเฉพาะในเครื่อง เช่น วันที่ยังไม่เคยอัปขึ้น จะไม่หาย)
+function sbPullMerge(cloud, local) {
+  if (cloud && local && typeof cloud === "object" && !Array.isArray(cloud) && typeof local === "object" && !Array.isArray(local)) {
+    const out = { ...local };
+    Object.keys(cloud).forEach((k) => { out[k] = sbPullMerge(cloud[k], local[k]); });
+    return out;
+  }
+  return cloud === undefined ? local : cloud;
+}
 async function pullFromCloud() {
   if (!supabase) return { applied: 0 };
   let res; try { res = await supabase.from(SB_TABLE).select("key,data,snapshot_at"); } catch (e) { console.warn("[sync] ดึงคลาวด์ error:", e && e.message); return { applied: 0 }; }
@@ -144,7 +153,21 @@ async function pullFromCloud() {
       // หมายเหตุ 19 ก.ค.: เดิมมีกติกา "เครื่องที่ไม่เคย sync แต่มีข้อมูล → เครื่องชนะ" (ไว้ย้ายข้อมูลยุคก่อนต่อคลาวด์ 13 ก.ค.)
       // ตอนนี้ทุกเครื่องจริง sync หมดแล้ว กติกานั้นกลายเป็นช่องให้เครื่องใหม่เอาข้อมูลโครงมาล้างคลาวด์ → ตัดทิ้ง ให้คลาวด์ชนะเสมอ
       if (localStr == null || cloudTs > localTs) {
-        const str = JSON.stringify(row.data);
+        // 🛟 19-31 ก.ค.: เดิม "คลาวด์ทับของเครื่องทั้งก้อน" — เครื่องที่คีย์ค้างไว้แต่ยังไม่เคยอัปขึ้น (เช่น แท็บเล็ตซิงก์ล่ม 4 วัน) จะข้อมูลหายตอนรีเฟรช
+        // ตอนนี้: รวมกัน (คลาวด์ชนะช่องที่ชนกัน · ส่วนที่มีเฉพาะในเครื่องรอด) แล้วอัปส่วนเกินขึ้นคลาวด์ต่อให้เอง
+        let out = row.data;
+        if (localStr != null) {
+          try {
+            const localVal = JSON.parse(localStr);
+            const mergedVal = sbPullMerge(row.data, localVal);
+            if (JSON.stringify(mergedVal) !== JSON.stringify(row.data)) {
+              out = mergedVal;
+              __sbQueue[key] = mergedVal;   // ส่วนที่เครื่องมีเกินคลาวด์ → ตั้งคิวอัปขึ้น
+              clearTimeout(__sbTimer); __sbTimer = setTimeout(sbFlush, 1500);
+            }
+          } catch (e) {}
+        }
+        const str = JSON.stringify(out);
         try { localStorage.setItem(key, str); meta[key] = cloudTs; __sbLast[key] = str; applied++; } catch (e) {}
       } else {
         __sbLast[key] = localStr;   // เก็บของเดิม กัน mount เขียนซ้ำแล้วอัปทับ
@@ -9884,6 +9907,14 @@ async function __hydrate() {
   let waitMs = 15000;
   try { waitMs = Object.keys(JSON.parse(localStorage.getItem("eggSyncMeta") || "{}")).length > 0 ? 3500 : 15000; } catch (e) {}
   try { await Promise.race([pullFromCloud().catch(() => {}), new Promise((r) => setTimeout(r, waitMs))]); } catch (e) {}
+  // 🛟 ถ้าดึงครั้งแรกไม่สำเร็จ (__sbSafe ยังปิด = ห้ามอัปขึ้นคลาวด์ทั้ง session) → ลองใหม่เองทุก 60 วิ จนกว่าจะสำเร็จ
+  // กันเหตุแท็บเล็ตเปิดตอนเน็ตสะดุดแล้วคีย์งานต่อทั้งวันโดยไม่ซิงก์เลย (เจอจริง 27-30 ก.ค. 69: ข้อมูลค้างเครื่องเดียว 4 วัน)
+  try {
+    const retry = setInterval(() => {
+      if (__sbSafe) { clearInterval(retry); return; }
+      pullFromCloud().catch(() => {});
+    }, 60000);
+  } catch (e) {}
 }
 function LoginScreen({ onDone }) {
   // บัญชีฟาร์ม — กดเลือกว่าเป็นใคร แล้วใส่รหัสของคนนั้น · ล็อกอินสำเร็จ = ตั้งบทบาทในแอปให้อัตโนมัติ ไม่ต้องใส่ PIN ซ้ำ
