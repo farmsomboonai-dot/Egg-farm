@@ -4481,7 +4481,7 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
       {showClose && (
         <CloseDayModal
           dayTH={dayTH}
-          rows={rows.filter((r) => r.total > 0)}
+          rows={rows.filter((r) => r.total > 0 || r.sold !== 0 || r.remain !== 0)}   // รวมไข่ที่ขายทั้งที่สต๊อคเป็น 0 (ขายก่อนเข้า เช่น เบอร์ 3 ติดลบ) — เดิมหายจากหน้าปิดยอด
           initial={physical}
           initialMeta={meta}
           refPrices={refPrices}
