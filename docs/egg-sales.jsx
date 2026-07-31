@@ -53,6 +53,12 @@ function sbDeviceId() {
 function sbGetMeta() { try { return JSON.parse(localStorage.getItem("eggSyncMeta") || "{}"); } catch (e) { return {}; } }
 function sbSetMeta(m) { try { localStorage.setItem("eggSyncMeta", JSON.stringify(m)); } catch (e) {} }
 let __sbQueue = {}, __sbLast = {}, __sbTimer = null, __sbHydrating = false;
+// 🤖 แยก "ซิงก์อัตโนมัติ" กับ "คนแก้จริง" ในบันทึกกิจกรรม: ถ้ายังไม่มีการแตะจอ/กดคีย์เลยตั้งแต่เปิดหน้า = การเซฟรอบนั้นเป็นการจัดระเบียบอัตโนมัติ
+let __userActed = false;
+try {
+  window.addEventListener("pointerdown", () => { __userActed = true; }, { once: true, capture: true });
+  window.addEventListener("keydown", () => { __userActed = true; }, { once: true, capture: true });
+} catch (e) {}
 // 🛡️ กันข้อมูลคลาวด์โดนทับด้วยค่าว่าง (เหตุการณ์ 19 ก.ค. โดน 2 รอบ): ห้ามอัปขึ้นคลาวด์เด็ดขาด
 // จนกว่ารอบนี้จะ "ดึงข้อมูลจากคลาวด์สำเร็จ" เท่านั้น — เคย sync มาก่อน (มี meta) ก็ไม่พอ
 // เพราะเครื่องที่ค้างสถานะเก่า/ว่าง แล้วรีโหลดตอนเน็ตช้า จะเอาสถานะค้างอัปทับข้อมูลจริงทั้งฟาร์ม
@@ -74,7 +80,7 @@ async function sbFlush() {
   try {
     let role = ""; try { role = localStorage.getItem("eggCurrentRole") || ""; } catch (e) {}
     const changes = [...new Set(keys.filter((k) => !SB_SKIP.has(k)).map(activityLabel))];
-    if (changes.length) supabase.from("activity_log").insert({ role, device: dev, changes, key_count: changes.length }).then(() => {}, () => {});
+    if (changes.length) supabase.from("activity_log").insert({ role, device: dev, changes, key_count: changes.length, auto: !__userActed }).then(() => {}, () => {});
   } catch (e) {}
   // แยก 2 ทาง: ค่าที่เป็น "ออบเจกต์" (เช่น สมุดการเลี้ยง eggRearing ที่คีย์ด้วยวันที่, ผลผลิต, วัคซีน ฯลฯ)
   // → ใช้ merge ฝั่งฐานข้อมูล (app_snapshot_merge) รวมแบบลึกกับของเดิม กันเครื่องที่ถือข้อมูลเก่าทับของใหม่
@@ -1152,6 +1158,7 @@ function ActivityLogView({ roles = [] }) {
   const [rows, setRows] = useState(null);   // null=กำลังโหลด, []=ว่าง
   const [err, setErr] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
+  const [showAuto, setShowAuto] = useState(false);   // 🤖 ซ่อนรายการซิงก์อัตโนมัติโดยปริยาย ให้เหลือแต่ "คนแก้จริง"
   const [loading, setLoading] = useState(false);
   const roleInfo = (rid) => roles.find((r) => r.id === rid) || DEFAULT_ROLES.find((r) => r.id === rid) || null;
   const load = async () => {
@@ -1166,9 +1173,11 @@ function ActivityLogView({ roles = [] }) {
   useEffect(() => { load(); }, []);
   const all = rows || [];
   const roleIds = [...new Set(all.map((r) => r.role).filter(Boolean))];
-  const filtered = roleFilter ? all.filter((r) => r.role === roleFilter) : all;
+  const autoCount = all.filter((r) => r.auto === true).length;
+  const visible = showAuto ? all : all.filter((r) => r.auto !== true);   // auto=null (ข้อมูลเก่า) ถือว่าเป็นของคนแก้ ให้แสดง
+  const filtered = roleFilter ? visible.filter((r) => r.role === roleFilter) : visible;
   const todayISO = new Date().toISOString().slice(0, 10);
-  const todayCount = all.filter((r) => (r.at || "").slice(0, 10) === todayISO).length;
+  const todayCount = visible.filter((r) => (r.at || "").slice(0, 10) === todayISO).length;
   const fmtTime = (iso) => { try { return new Date(iso).toLocaleString("th-TH", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }); } catch (e) { return iso; } };
   const box = { background: "#fff", border: "1px dashed #d8cdb6", borderRadius: 14, padding: "30px 20px", textAlign: "center", color: "#9b8e78", fontWeight: 600 };
   const cTh = { padding: "7px 10px", fontSize: 12, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", textAlign: "left", position: "sticky", top: 0, whiteSpace: "nowrap" };
@@ -1180,7 +1189,8 @@ function ActivityLogView({ roles = [] }) {
     <div style={{ maxWidth: 980, margin: "0 auto" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
         <span style={{ fontSize: 18, fontWeight: 800, color: INK }}>📋 ใครแก้อะไร · บันทึกกิจกรรม</span>
-        <span style={{ fontSize: 12.5, color: "#9b8e78" }}>ทั้งหมด {all.length} · วันนี้ {todayCount}</span>
+        <span style={{ fontSize: 12.5, color: "#9b8e78" }}>แสดง {visible.length} · วันนี้ {todayCount}</span>
+        {autoCount > 0 && chip(showAuto, () => setShowAuto((v) => !v), `🤖 ซิงก์อัตโนมัติ ${autoCount}`, "_auto")}
         <button onClick={load} style={{ marginLeft: "auto", padding: "6px 13px", border: "1.5px solid #d8cdb6", background: "#fff", color: "#7a6f5c", borderRadius: 8, fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>{loading ? "กำลังโหลด…" : "↻ รีเฟรช"}</button>
       </div>
       {roleIds.length > 0 && (
@@ -1210,7 +1220,7 @@ function ActivityLogView({ roles = [] }) {
               {filtered.map((r, i) => { const ri = roleInfo(r.role); const ch = Array.isArray(r.changes) ? r.changes : []; return (
                 <tr key={r.id != null ? r.id : i} style={{ background: i % 2 ? "#FDFAF3" : "#fff" }}>
                   <td style={{ ...cTd, whiteSpace: "nowrap", color: "#5b5347" }}>{fmtTime(r.at)}</td>
-                  <td style={{ ...cTd, whiteSpace: "nowrap", fontWeight: 700, color: INK }}>{ri ? `${ri.emoji} ${ri.name}` : (r.role || "—")}</td>
+                  <td style={{ ...cTd, whiteSpace: "nowrap", fontWeight: 700, color: INK }}>{ri ? `${ri.emoji} ${ri.name}` : (r.role || "—")}{r.auto === true && <span title="เซฟอัตโนมัติตอนเปิดแอป ไม่ใช่คนกดแก้" style={{ marginLeft: 5, fontSize: 11 }}>🤖</span>}</td>
                   <td style={cTd}>{ch.length ? ch.map((c, j) => <span key={j} style={{ display: "inline-block", background: "#EFF6FF", color: "#0369A1", border: "1px solid #BFDBFE", borderRadius: 999, padding: "1px 9px", fontSize: 11.5, fontWeight: 700, margin: "0 5px 4px 0" }}>{c}</span>) : <span style={{ color: "#c9c0ad" }}>—</span>}</td>
                   <td style={{ ...cTd, textAlign: "right", color: "#b8ab90", fontSize: 11, whiteSpace: "nowrap" }}>{r.device || "—"}</td>
                 </tr>
@@ -1220,7 +1230,7 @@ function ActivityLogView({ roles = [] }) {
         </div>
       )}
       <div style={{ fontSize: 11.5, color: "#9b8e78", marginTop: 10, lineHeight: 1.7 }}>
-        บันทึกอัตโนมัติทุกครั้งที่มีการเซฟข้อมูลขึ้นคลาวด์ · แสดง<b>บทบาทที่ล็อกอินอยู่</b> + หมวดข้อมูลที่แก้ · ล่าสุด 400 รายการ · เห็นเฉพาะเจ้าของ · แก้/ลบบันทึกไม่ได้ (กันแก้ประวัติ)
+        บันทึกอัตโนมัติทุกครั้งที่มีการเซฟข้อมูลขึ้นคลาวด์ · แสดง<b>บทบาทที่ล็อกอินอยู่</b> + หมวดข้อมูลที่แก้ · รายการ 🤖 = เครื่องเซฟจัดระเบียบข้อมูลเองตอนเปิดแอป (ไม่ใช่คนกดแก้ — ซ่อนไว้ กดปุ่ม 🤖 ด้านบนเพื่อดู) · ล่าสุด 400 รายการ · เห็นเฉพาะเจ้าของ · แก้/ลบบันทึกไม่ได้ (กันแก้ประวัติ)
       </div>
     </div>
   );
