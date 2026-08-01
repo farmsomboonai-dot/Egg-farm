@@ -4469,6 +4469,7 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
               <th style={{ ...thX, background: "#F5EFE3" }}>รวม</th>
               {activeCustomers.map((c) => <th key={c.id} style={thCustX}>{c.name}</th>)}
               <th style={{ ...thX, background: "#FBEFDD" }}>ขายรวม</th>
+              {reconciled && <th style={{ ...thX, background: "#E7F0E9" }}>คงเหลือ<br />(ระบบ)</th>}
               <th style={{ ...thX, background: "#15803D", color: "#fff" }}>คงเหลือ<br />{reconciled ? "(นับจริง)" : "(17:00)"}</th>
               {showDiff && <th style={{ ...thX, background: "#FDECEC" }}>ส่วนต่าง<br />(นับ−ระบบ)</th>}
               <th style={{ ...thX, background: "#DBEAFE" }}>ประมาณการ<br />พรุ่งนี้</th>
@@ -4489,6 +4490,7 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
                     </td>
                   ))}
                   <td style={{ ...tdX, background: "#FEF8F0", fontWeight: 600 }}>{fmt(r.sold)}</td>
+                  {reconciled && <td style={{ ...tdX, background: "#F4F9F5", fontWeight: 600, color: r.computedRemain < 0 ? "#dc2626" : "#4b5f4e" }}>{fmt(r.computedRemain)}</td>}
                   <td style={{ ...tdX, background: "#F1F8F2", fontWeight: 700, color: r.remain < 0 ? "#dc2626" : "#15803D" }}>{fmt(r.remain)}</td>
                   {showDiff && <td style={{ ...tdX, background: "#FEF6F6", fontWeight: 700, color: diffColor(r.diff) }}>{diffText(r.diff)}</td>}
                   <td style={{ ...tdX, background: "#EFF5FE", fontWeight: 700, color: "#1D4ED8" }}>{fmt(r.remain + r.received)}</td>
@@ -4505,6 +4507,7 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
                 return <td key={c.id} style={{ ...tdX, ...S.tfoot }}>{fmt(cs)}</td>;
               })}
               <td style={{ ...tdX, ...S.tfoot }}>{fmt(totals.sold)}</td>
+              {reconciled && <td style={{ ...tdX, ...S.tfoot }}>{fmt(rows.reduce((s, r) => s + r.computedRemain, 0))}</td>}
               <td style={{ ...tdX, ...S.tfoot }}>{fmt(totals.remain)}</td>
               {showDiff && <td style={{ ...tdX, ...S.tfoot, color: diffColor(totals.diff) }}>{diffText(totals.diff)}</td>}
               <td style={{ ...tdX, ...S.tfoot, color: "#1D4ED8" }}>{fmt(totals.remain + totals.received)}</td>
@@ -4514,7 +4517,7 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
       </div>
       <div style={S.hint}>
         {reconciled
-          ? <span>วันนี้ <b>ปิดยอดแล้ว</b> — <b style={{ color: "#15803D" }}>คงเหลือ = ยอดนับจริง</b> (กลายเป็น "ยกมา" ของพรุ่งนี้อัตโนมัติ) · ขายรวม = ยอดขายจริงจากบิล · <b>ส่วนต่าง = นับจริง − (ยกมา+รับเข้า−ขาย)</b> ติดลบ = ของขาด/แตก/หาย · กด "แก้ยอดนับ" เพื่อแก้ หรือ "ยกเลิกปิดยอด" เพื่อกลับไปคำนวณ</span>
+          ? <span>วันนี้ <b>ปิดยอดแล้ว</b> — <b style={{ color: "#4b5f4e" }}>คงเหลือ (ระบบ) = ยกมา+รับเข้า−ขาย</b> · <b style={{ color: "#15803D" }}>คงเหลือ (นับจริง) = ที่นับตอนปิดยอด</b> (กลายเป็น "ยกมา" ของพรุ่งนี้อัตโนมัติ) · <b>ส่วนต่าง = นับจริง − ระบบ</b> ติดลบ = ของขาด/แตก/หาย · กด "แก้ยอดนับ" เพื่อแก้ หรือ "ยกเลิกปิดยอด" เพื่อกลับไปคำนวณ</span>
           : <span>ยกมา = คงเหลือจริงของเมื่อวาน · รับเข้า = ผลผลิตวันนี้ (อัตโนมัติ) · ขายรวม = ยอดขายจริงจากบิล · <b style={{ color: "#15803D" }}>คงเหลือ (17:00) = ยกมา + รับเข้า − ขาย</b> · เลิกงานกด <b style={{ color: "#15803D" }}>"🔒 ปิดยอดสิ้นวัน"</b> เพื่อกรอกยอดนับจริง แล้วยกไปเป็นต้นวันของพรุ่งนี้</span>}
       </div>
 
@@ -5462,17 +5465,25 @@ function rearingCum(rearingByDate, houseId, uptoISO, flock) {
 }
 // อาหารคงเหลือต่อไซโล (rolling: ยกมา + Σรับ − Σใช้ ภายในรุ่น) จนถึงวันที่ระบุ
 // วันไหนกรอก "ยกมา" (sNopen) ไว้ = ตั้งยอดต้นวันใหม่ตามที่กรอก (ใช้วันแรก/วันเช็คสต็อกจริง) — ทับยอดทดจากระบบ
+// 🏗️ ตั้งต้นยอดไซโลใหม่ 1 ส.ค. 69 (เจ้าของสั่ง — ก่อนหน้านี้ติดลบเพราะคีย์รับอาหารย้อนหลังไม่ครบ):
+// ยอดวัดจริงสิ้นวัน 1 ส.ค. = ยกมาตั้งแต่ 2 ส.ค. เป็นต้นไป · ถ้าวันหลังมีการกรอก "ยกมา" เอง ค่านั้นชนะ (เช็คสต็อกจริงใหม่)
+const FEED_SILO_BASE = { since: "2026-08-02", H2: { s1: 0, s2: 15529 }, H3: { s1: 13440, s2: 16039 }, H4: { s1: 0, s2: 17847 }, H5: { s1: 0, s2: 20788 }, H6: { s1: 12242, s2: 0 }, H7: { s1: 10864, s2: 0 } };
 function feedRemain(rearingByDate, houseId, uptoISO, flock) {
   let s1 = 0, s2 = 0;
+  const base = FEED_SILO_BASE[houseId];
+  let baseApplied = false;
   Object.keys(rearingByDate).sort().forEach((d) => {
     if (d > uptoISO) return;
     if (flock?.startDate && d < flock.startDate) return;
+    if (base && !baseApplied && d >= FEED_SILO_BASE.since) { s1 = base.s1; s2 = base.s2; baseApplied = true; }
     const f = rearingByDate[d]?.[houseId]?.feed;
     if (!f) return;
     if (f.s1open !== "" && f.s1open != null) s1 = nf(f.s1open);
     if (f.s2open !== "" && f.s2open != null) s2 = nf(f.s2open);
     s1 += nf(f.s1recv) - nf(f.s1used); s2 += nf(f.s2recv) - nf(f.s2used);
   });
+  // ยังไม่มีข้อมูลการเลี้ยงหลังวันตั้งต้นเลย แต่ถามยอด ณ วันหลังตั้งต้น → ใช้ยอดตั้งต้นตรงๆ
+  if (base && !baseApplied && uptoISO >= FEED_SILO_BASE.since) return { s1: base.s1, s2: base.s2 };
   return { s1, s2 };
 }
 // หน่วยมิเตอร์น้ำต่างกันตามโรงเรือน: H2-H3 จดเป็น "ลิตร" · H4-H7 จดเป็น "คิว" (1 คิว = 1,000 ลิตร)
