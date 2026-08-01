@@ -7976,7 +7976,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                   </tr>
                 </thead>
                 <tbody>
-                  {bookRows.map((b, i) => b.type === "sum" ? (() => {
+                  {[...bookRows].reverse().map((b, i) => b.type === "sum" ? (() => {   // ⬇️ วันล่าสุดขึ้นก่อน — แถวผลรวมสัปดาห์กลายเป็นหัวกลุ่มของสัปดาห์นั้น
                     // ค่าเฉลี่ยต่อตัวต่อวันของสัปดาห์นี้ = ยอดรวมทั้งสัปดาห์ ÷ จำนวน "ตัว-วัน" (นับเฉพาะวันที่มีข้อมูล)
                     const fedDays = b.items.filter((x) => x.feedUsed > 0 && x.birds);
                     const feedBirdDays = gsum(fedDays, (x) => x.birds);
