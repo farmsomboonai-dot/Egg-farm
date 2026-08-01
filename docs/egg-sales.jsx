@@ -79,8 +79,9 @@ async function sbFlush() {
   // 📋 บันทึกกิจกรรม "ใครแก้อะไร" — แปะบทบาทที่ล็อกอินอยู่ + หมวดที่แก้ (fire-and-forget ไม่ขวางการ sync)
   try {
     let role = ""; try { role = localStorage.getItem("eggCurrentRole") || ""; } catch (e) {}
+    let account = ""; try { account = localStorage.getItem("sjfAuthUsername") || ""; } catch (e) {}
     const changes = [...new Set(keys.filter((k) => !SB_SKIP.has(k)).map(activityLabel))];
-    if (changes.length) supabase.from("activity_log").insert({ role, device: dev, changes, key_count: changes.length, auto: !__userActed }).then(() => {}, () => {});
+    if (changes.length) supabase.from("activity_log").insert({ role, device: dev, changes, key_count: changes.length, auto: !__userActed, account }).then(() => {}, () => {});
   } catch (e) {}
   // แยก 2 ทาง: ค่าที่เป็น "ออบเจกต์" (เช่น สมุดการเลี้ยง eggRearing ที่คีย์ด้วยวันที่, ผลผลิต, วัคซีน ฯลฯ)
   // → ใช้ merge ฝั่งฐานข้อมูล (app_snapshot_merge) รวมแบบลึกกับของเดิม กันเครื่องที่ถือข้อมูลเก่าทับของใหม่
@@ -1073,8 +1074,10 @@ const DEFAULT_ROLES = [
 ];
 
 // บทบาทผูกกับบัญชีล็อกอิน (ชั้นเดียว) — อยากได้มุมไหนต้องล็อกอินบัญชีนั้น ไม่มี PIN ชั้นสอง
-// ต้องตรงกับ ACCOUNTS ใน LoginScreen
-const AUTH_ROLE_BY_USER = { owner: "owner", office: "sales", farm: "farm", acct: "acct", medclerk: "medclerk", retail: "retail_shop", branch: "branch_shop" };
+// ต้องตรงกับ ACCOUNTS ใน LoginScreen · farm/office = บัญชีรวมยุคเก่า (เครื่องที่ล็อกอินค้างยังใช้ได้ แต่หน้าล็อกอินไม่มีการ์ดแล้ว)
+const AUTH_ROLE_BY_USER = { owner: "owner", office: "sales", farm: "farm", acct: "acct", medclerk: "medclerk", retail: "retail_shop", branch: "branch_shop", mai: "farm", beam: "farm", meaw: "sales", fai: "sales", orn: "sales", lek: "sales" };
+// ชื่อจริงของแต่ละบัญชี — โชว์ในบันทึกกิจกรรม "ใครแก้อะไร" ให้รู้ตัวคน
+const ACCOUNT_LABELS = { mai: "หมอใหม่", beam: "หมอบีม", meaw: "ส.เหมียว", fai: "ส.ฝ้าย", orn: "ส.อร", lek: "ส.เล็ก", farm: "บัญชีรวม(เก่า)", office: "บัญชีรวม(เก่า)" };
 function RolePickerModal({ roles, current, onPick, onClose }) {
   const [sel, setSel] = useState(null);
   const [pin, setPin] = useState("");
@@ -1220,7 +1223,7 @@ function ActivityLogView({ roles = [] }) {
               {filtered.map((r, i) => { const ri = roleInfo(r.role); const ch = Array.isArray(r.changes) ? r.changes : []; return (
                 <tr key={r.id != null ? r.id : i} style={{ background: i % 2 ? "#FDFAF3" : "#fff" }}>
                   <td style={{ ...cTd, whiteSpace: "nowrap", color: "#5b5347" }}>{fmtTime(r.at)}</td>
-                  <td style={{ ...cTd, whiteSpace: "nowrap", fontWeight: 700, color: INK }}>{ri ? `${ri.emoji} ${ri.name}` : (r.role || "—")}{r.auto === true && <span title="เซฟอัตโนมัติตอนเปิดแอป ไม่ใช่คนกดแก้" style={{ marginLeft: 5, fontSize: 11 }}>🤖</span>}</td>
+                  <td style={{ ...cTd, whiteSpace: "nowrap", fontWeight: 700, color: INK }}>{ri ? `${ri.emoji} ${ri.name}` : (r.role || "—")}{r.account && ACCOUNT_LABELS[r.account] && <span style={{ marginLeft: 5, color: "#B45309", fontWeight: 800 }}>· {ACCOUNT_LABELS[r.account]}</span>}{r.auto === true && <span title="เซฟอัตโนมัติตอนเปิดแอป ไม่ใช่คนกดแก้" style={{ marginLeft: 5, fontSize: 11 }}>🤖</span>}</td>
                   <td style={cTd}>{ch.length ? ch.map((c, j) => <span key={j} style={{ display: "inline-block", background: "#EFF6FF", color: "#0369A1", border: "1px solid #BFDBFE", borderRadius: 999, padding: "1px 9px", fontSize: 11.5, fontWeight: 700, margin: "0 5px 4px 0" }}>{c}</span>) : <span style={{ color: "#c9c0ad" }}>—</span>}</td>
                   <td style={{ ...cTd, textAlign: "right", color: "#b8ab90", fontSize: 11, whiteSpace: "nowrap" }}>{r.device || "—"}</td>
                 </tr>
@@ -1306,8 +1309,12 @@ export default function App() {
     if (!supabase) return;
     supabase.auth.getSession().then((r) => {
       const em = (r && r.data && r.data.session && r.data.session.user && r.data.session.user.email) || "";
-      const locked = AUTH_ROLE_BY_USER[em.replace(/@sjffarm\.app$/, "")];
-      if (locked) setCurrentRole((c) => (c === locked ? c : locked));
+      const uname = em.replace(/@sjffarm\.app$/, "");
+      const locked = AUTH_ROLE_BY_USER[uname];
+      if (locked) {
+        setCurrentRole((c) => (c === locked ? c : locked));
+        try { localStorage.setItem("sjfAuthUsername", uname); } catch (e) {}   // เครื่องที่ล็อกอินค้างอยู่ก่อนฟีเจอร์นี้ ก็ให้รู้ชื่อบัญชี
+      }
     }).catch(() => {});
   }, []);
   const [accessLog, setAccessLog] = useState(() => { try { return JSON.parse(localStorage.getItem("eggAccessLog") || "[]"); } catch { return []; } });
@@ -9931,8 +9938,12 @@ function LoginScreen({ onDone }) {
   // role ต้องตรงกับ id ใน DEFAULT_ROLES
   const ACCOUNTS = [
     { u: "owner",    label: "เจ้าของฟาร์ม",                        desc: "ดูได้ทุกหัวข้อ",             emoji: "👑", role: "owner" },
-    { u: "office",   label: "เสมียน/ออฟฟิศ",                       desc: "ขายไข่ · บิล · สต็อค",       emoji: "🛒", role: "sales" },
-    { u: "farm",     label: "สัตวบาล/หน้าฟาร์ม",                   desc: "ผลผลิต · การเลี้ยง · ยา",    emoji: "🐔", role: "farm" },
+    { u: "meaw",     label: "ส.เหมียว · เสมียนโรงคัด",             desc: "ขายไข่ · บิล · สต็อค",       emoji: "🛒", role: "sales" },
+    { u: "fai",      label: "ส.ฝ้าย · เสมียนโรงคัด",               desc: "ขายไข่ · บิล · สต็อค",       emoji: "🛒", role: "sales" },
+    { u: "orn",      label: "ส.อร · เสมียนโรงคัด",                 desc: "ขายไข่ · บิล · สต็อค",       emoji: "🛒", role: "sales" },
+    { u: "lek",      label: "ส.เล็ก · เสมียนโรงคัด",               desc: "ขายไข่ · บิล · สต็อค",       emoji: "🛒", role: "sales" },
+    { u: "mai",      label: "หมอใหม่ · สัตวบาล",                   desc: "ผลผลิต · การเลี้ยง · ยา",    emoji: "🐔", role: "farm" },
+    { u: "beam",     label: "หมอบีม · สัตวบาล",                    desc: "ผลผลิต · การเลี้ยง · ยา",    emoji: "🐔", role: "farm" },
     { u: "acct",     label: "บัญชี",                                desc: "บิล · ลูกหนี้ · ต้นทุน",     emoji: "💰", role: "acct" },
     { u: "medclerk", label: "เสมียนห้องสต๊อคยา",                    desc: "สต็อคยาและวิตามิน",          emoji: "💊", role: "medclerk" },
     { u: "retail",   label: "ร้านค้าขายปลีก (ฉันจะกินไข่สดทุกวัน)", desc: "จองออเดอร์ร้านขายปลีก",      emoji: "🛍️", role: "retail_shop" },
@@ -9953,6 +9964,7 @@ function LoginScreen({ onDone }) {
       }
       try { localStorage.setItem("sjfAuthOk", "1"); } catch (e) {}
       try { localStorage.setItem("eggCurrentRole", acct.role); } catch (e) {}
+      try { localStorage.setItem("sjfAuthUsername", acct.u); } catch (e) {}   // ชื่อบัญชี → โชว์ตัวคนในบันทึกกิจกรรม
       onDone();
     } catch (e) {
       setErr("เชื่อมต่อไม่ได้ — ตรวจอินเทอร์เน็ตแล้วลองใหม่อีกครั้ง");
