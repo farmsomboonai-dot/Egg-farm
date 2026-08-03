@@ -201,6 +201,43 @@ async function pullFromCloud() {
   }
   return { applied };
 }
+// 🔄 ดึงอัตโนมัติแบบประหยัด (เรียกทุก ~2.5 นาที): เช็คก่อนว่าคีย์ไหนบนคลาวด์ใหม่กว่าที่เครื่องรู้จัก แล้วดึงเฉพาะคีย์นั้น
+// → เครื่องทุกเครื่องเห็นข้อมูลของกันเองโดยไม่ต้องรีเฟรช (เช่น เสมียนคีย์ใบจอง เจ้าของเห็นภายใน ~3 นาที)
+async function pullChangedFromCloud() {
+  if (!supabase || !__sbSafe) return;
+  let res; try { res = await supabase.from(SB_TABLE).select("key,snapshot_at"); } catch (e) { return; }
+  if (res.error || !Array.isArray(res.data)) return;
+  const meta = sbGetMeta();
+  const changed = res.data.filter((r) => r.key && SB_SYNC_RE.test(r.key) && !SB_SKIP.has(r.key) && (r.snapshot_at || "") > (meta[r.key] || ""));
+  if (!changed.length) return;
+  let full; try { full = await supabase.from(SB_TABLE).select("key,data,snapshot_at").in("key", changed.map((r) => r.key)); } catch (e) { return; }
+  if (full.error || !Array.isArray(full.data)) return;
+  __sbHydrating = true; let applied = 0;
+  try {
+    full.data.forEach((row) => {
+      const key = row.key;
+      let localStr = null; try { localStr = localStorage.getItem(key); } catch (e) {}
+      let out = row.data;
+      if (localStr != null) {
+        try {
+          const mergedVal = sbPullMerge(row.data, JSON.parse(localStr));
+          if (JSON.stringify(mergedVal) !== JSON.stringify(row.data)) {
+            out = mergedVal;
+            __sbQueue[key] = mergedVal;
+            clearTimeout(__sbTimer); __sbTimer = setTimeout(sbFlush, 1500);
+          }
+        } catch (e) {}
+      }
+      const str = JSON.stringify(out);
+      try { localStorage.setItem(key, str); meta[key] = row.snapshot_at || ""; __sbLast[key] = str; applied++; } catch (e) {}
+    });
+  } finally { __sbHydrating = false; }
+  sbSetMeta(meta);
+  if (applied) {
+    console.log("[sync] 🔄 อัปเดตจากคลาวด์ " + applied + " คีย์ (ดึงอัตโนมัติ)");
+    try { window.dispatchEvent(new CustomEvent("sjf-pulled", { detail: { applied } })); } catch (e) {}
+  }
+}
 // 💾 สำรองข้อมูลทั้งหมด → ดาวน์โหลดเป็นไฟล์ JSON (ประกันชั้นสอง นอกเหนือจากคลาวด์)
 function exportAllEggData() {
   const dump = {};
@@ -1553,6 +1590,34 @@ export default function App() {
   useEffect(() => {
     try { const lite = {}; Object.entries(payments).forEach(([k, v]) => { lite[k] = { paid: v.paid, date: v.date, method: v.method, note: v.note, slip: null }; }); localStorage.setItem("eggPayments", JSON.stringify(lite)); } catch {}
   }, [payments]);
+
+  // 🔄 เมื่อระบบดึงข้อมูลใหม่จากคลาวด์ (อัตโนมัติทุก ~2.5 นาที) → อัปเดตหน้าจอทันที ไม่ต้องรีเฟรช
+  useEffect(() => {
+    const onPulled = () => {
+      const rd = (k, fb) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? fb : v; } catch { return fb; } };
+      setProductionByDate(rd("eggProduction", {}));
+      setStockCounts(rd("eggStockCounts", {}));
+      setCloseMeta(rd("eggCloseMeta", {}));
+      setRearingByDate(rd("eggRearing", {}));
+      setFlocks(rd("eggFlocks", {}));
+      setFeedDeliveries(rd("eggFeedDeliveries", []));
+      setMedTrials(rd("eggMedTrials", []));
+      setExpenses(rd("eggExpenses", []));
+      setMedStock(rd("eggMedStock", []));
+      setVaccines(rd("eggVaccines", {}));
+      setLabTests(rd("eggLabTests", {}));
+      setBookings(rd("eggBookings", []));
+      setPlanEstimates(rd("eggPlanEstimates", {}));
+      setMedReceipts(rd("eggMedReceipts", []));
+      setTrayStock(rd("eggTrayStock", { ใหญ่: 1240, เล็ก: 860 }));
+      setTrayRecords(rd("eggTrayRecords", []));
+      setTrayEvents(rd("eggTrayEvents", []));
+      setBills(normalizeBillWorkDays(rd("eggBills", [])));
+      setPayments(rd("eggPayments", {}));
+    };
+    window.addEventListener("sjf-pulled", onPulled);
+    return () => window.removeEventListener("sjf-pulled", onPulled);
+  }, []);
 
   // บิลร่าง (draft) — เก็บลง localStorage เพื่อไม่ให้หายเมื่อรีเฟรช
   const [drafts, setDrafts] = useState(() => {
@@ -5105,7 +5170,14 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
   const prodDateTH = toThaiDate(prodDate);
   const sortedDates = Object.keys(production).sort();   // วันที่ที่มีข้อมูล (เก่า→ใหม่)
   const curIdx = sortedDates.indexOf(prodDate);
-  const goDay = (delta) => { const i = curIdx + delta; if (i >= 0 && i < sortedDates.length) setProdDate(sortedDates[i]); };
+  // ⬅➡ ก้าวเฉพาะวันที่มีข้อมูล · ถ้าวันที่ดูอยู่ไม่อยู่ในลิสต์ (เช่น วันนี้ยังไม่คีย์) → กระโดดไปวันที่มีข้อมูลใกล้สุดตามทิศ (เดิมปุ่มตายทั้งคู่)
+  const goDay = (delta) => {
+    if (curIdx >= 0) { const i = curIdx + delta; if (i >= 0 && i < sortedDates.length) setProdDate(sortedDates[i]); return; }
+    if (delta < 0) { const prev = [...sortedDates].reverse().find((d) => d < prodDate); if (prev) setProdDate(prev); }
+    else { const next = sortedDates.find((d) => d > prodDate); if (next) setProdDate(next); }
+  };
+  const hasPrevDay = curIdx > 0 || (curIdx < 0 && sortedDates.some((d) => d < prodDate));
+  const hasNextDay = (curIdx >= 0 && curIdx < sortedDates.length - 1) || (curIdx < 0 && sortedDates.some((d) => d > prodDate));
   const prodRecorded = (d) => (production[d] || []).some((h) => (h.chickens || 0) > 0 || Object.values(h.grade?.เบอร์ || {}).some((v) => v > 0) || Object.values(h.grade?.ตกเกรด || {}).some((v) => v > 0));
   const startNewDay = () => {   // สร้างวันใหม่จากโครงวันล่าสุด (คงจำนวนไก่+ชนิด, เคลียร์จำนวนไข่/สุ่มตรวจ)
     const latest = sortedDates.filter((d) => d < prodDate).pop() || sortedDates[sortedDates.length - 1];
@@ -5179,11 +5251,11 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
             </button>
           )}
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <button onClick={() => goDay(-1)} disabled={curIdx <= 0} title="วันก่อนหน้า"
-              style={{ padding: "6px 11px", border: `1px solid ${ACCENT}`, background: curIdx <= 0 ? "#f3efe6" : "#fff", color: curIdx <= 0 ? "#c9c0ad" : ACCENT_DK, borderRadius: 8, fontSize: 15, fontWeight: 800, cursor: curIdx <= 0 ? "default" : "pointer" }}>‹</button>
+            <button onClick={() => goDay(-1)} disabled={!hasPrevDay} title="วันก่อนหน้า"
+              style={{ padding: "6px 11px", border: `1px solid ${ACCENT}`, background: !hasPrevDay ? "#f3efe6" : "#fff", color: !hasPrevDay ? "#c9c0ad" : ACCENT_DK, borderRadius: 8, fontSize: 15, fontWeight: 800, cursor: !hasPrevDay ? "default" : "pointer" }}>‹</button>
             <ThaiDateField value={prodDate} onChange={setProdDate} style={{ width: 190, padding: "7px 10px", borderColor: ACCENT, fontSize: 13.5 }} />
-            <button onClick={() => goDay(1)} disabled={curIdx < 0 || curIdx >= sortedDates.length - 1} title="วันถัดไป"
-              style={{ padding: "6px 11px", border: `1px solid ${ACCENT}`, background: (curIdx < 0 || curIdx >= sortedDates.length - 1) ? "#f3efe6" : "#fff", color: (curIdx < 0 || curIdx >= sortedDates.length - 1) ? "#c9c0ad" : ACCENT_DK, borderRadius: 8, fontSize: 15, fontWeight: 800, cursor: (curIdx < 0 || curIdx >= sortedDates.length - 1) ? "default" : "pointer" }}>›</button>
+            <button onClick={() => goDay(1)} disabled={!hasNextDay} title="วันถัดไป"
+              style={{ padding: "6px 11px", border: `1px solid ${ACCENT}`, background: !hasNextDay ? "#f3efe6" : "#fff", color: !hasNextDay ? "#c9c0ad" : ACCENT_DK, borderRadius: 8, fontSize: 15, fontWeight: 800, cursor: !hasNextDay ? "default" : "pointer" }}>›</button>
           </div>
         </div>
       </div>
@@ -9943,6 +10015,8 @@ async function __hydrate() {
       pullFromCloud().catch(() => {});
     }, 60000);
   } catch (e) {}
+  // 🔄 ดึงข้อมูลใหม่จากคลาวด์เองทุก 2.5 นาที (เฉพาะคีย์ที่เปลี่ยน) — ทุกเครื่องเห็นข้อมูลกันเองโดยไม่ต้องรีเฟรช
+  try { setInterval(() => { pullChangedFromCloud().catch(() => {}); }, 150000); } catch (e) {}
 }
 function LoginScreen({ onDone }) {
   // บัญชีฟาร์ม — กดเลือกว่าเป็นใคร แล้วใส่รหัสของคนนั้น · ล็อกอินสำเร็จ = ตั้งบทบาทในแอปให้อัตโนมัติ ไม่ต้องใส่ PIN ซ้ำ
