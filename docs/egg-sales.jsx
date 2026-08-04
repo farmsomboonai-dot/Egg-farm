@@ -1692,7 +1692,7 @@ export default function App() {
       const newSlips = Array.isArray(slip) ? slip : (slip ? [slip] : []);
       const prevSlips = prev[billNo]?.slips || (prev[billNo]?.slip ? [prev[billNo].slip] : []);
       const allSlips = [...prevSlips, ...newSlips];
-      return { ...prev, [billNo]: { paid: prevPaid + amount, date: new Date().toLocaleDateString("th-TH"), method, slip: allSlips[0] || null, slips: allSlips.length ? allSlips : undefined, note: mergedNote || undefined } };
+      return { ...prev, [billNo]: { paid: prevPaid + amount, date: new Date().toLocaleDateString("th-TH"), ts: Date.now(), method, slip: allSlips[0] || null, slips: allSlips.length ? allSlips : undefined, note: mergedNote || undefined } };
     });
   // ยกเลิกใบเสร็จ (soft void + audit): เก็บเหตุผล/เวลา/ผู้ยกเลิก ; บิลยังอยู่ในประวัติแต่ถูกตัดออกจากทุกยอดคำนวณ (activeBills)
   const cancelBill = (billNo, reason, by) => {
@@ -2996,7 +2996,7 @@ function BillHistoryView({ bills, payments, cancelBill }) {
                         <button key={b.no} style={{ ...S.billRow, ...(b.cancelled ? { opacity: 0.62, background: "#FBFBFA" } : null) }} className="customerCard" onClick={() => setSelected(b)}>
                           <div style={{ flex: 1, textAlign: "left" }}>
                             <div style={S.billRowTop}><span style={{ ...S.billRowNo, ...(b.cancelled ? { textDecoration: "line-through", color: "#9ca3af" } : null) }}>{b.no}</span><span style={{ ...S.statusPill, background: st.bg, color: st.c }}>{st.label}</span></div>
-                            <div style={S.billRowCust}>{b.customer?.name} · {b.date}{b.cancelled && b.cancelReason ? <span style={{ color: "#9ca3af" }}> · เหตุผล: {b.cancelReason}</span> : ""}</div>
+                            <div style={S.billRowCust}>{b.customer?.name} · {b.date}{b.ts ? ` · เปิดบิล ${new Date(b.ts).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })} น.` : ""}{b.cancelled && b.cancelReason ? <span style={{ color: "#9ca3af" }}> · เหตุผล: {b.cancelReason}</span> : ""}</div>
                           </div>
                           <div style={{ textAlign: "right" }}><div style={{ ...S.billRowAmt, ...(b.cancelled ? { textDecoration: "line-through", color: "#9ca3af" } : null) }}>{fmt(b.total)} บ.</div><div style={S.billRowItems}>{b.items.length} รายการ</div></div>
                           <ChevronRight size={18} color="#9ca3af" />
@@ -3141,7 +3141,7 @@ function BillDetail({ bill, payment, onBack, onCancel }) {
             ? <div style={{ color: "#6B7280", fontWeight: 700 }}>— ใบเสร็จนี้ถูกยกเลิกแล้ว —</div>
             : payment && payment.paid >= b.total
             ? <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-                <div style={{ color: "#15803D", fontWeight: 700 }}>✓ ชำระแล้ว {payment.date} ({payment.method})</div>
+                <div style={{ color: "#15803D", fontWeight: 700 }}>✓ ชำระแล้ว {payment.date}{payment.ts ? ` ${new Date(payment.ts).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })} น.` : ""} ({payment.method})</div>
                 {payment.note && <div style={{ fontSize: 12.5, color: "#6b6358", marginTop: 3 }}>📝 หมายเหตุ: {payment.note}</div>}
                 {(payment.slips || (payment.slip ? [payment.slip] : [])).length > 0 && (
                   <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "#6b6358", flexWrap: "wrap", justifyContent: "center" }}>
@@ -3289,6 +3289,12 @@ function AccountView({ bills, payments, recordPayment, isOwner }) {
                           </span>
                         )}
                         {r.owed > 0 && <button style={S.payBtn} onClick={() => setPayModal(r.bill)}>รับชำระ</button>}
+                        {r.owed <= 0 && payments[r.bill.no] && (
+                          <span style={{ fontSize: 11.5, color: "#15803D", fontWeight: 700, lineHeight: 1.5, textAlign: "center" }}>
+                            ปิดบิล {payments[r.bill.no].date}
+                            {payments[r.bill.no].ts ? <><br />{new Date(payments[r.bill.no].ts).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })} น.</> : null}
+                          </span>
+                        )}
                       </div>
                     </td>
                   </tr>
