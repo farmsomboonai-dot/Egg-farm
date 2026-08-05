@@ -63,12 +63,16 @@ try {
 // จนกว่ารอบนี้จะ "ดึงข้อมูลจากคลาวด์สำเร็จ" เท่านั้น — เคย sync มาก่อน (มี meta) ก็ไม่พอ
 // เพราะเครื่องที่ค้างสถานะเก่า/ว่าง แล้วรีโหลดตอนเน็ตช้า จะเอาสถานะค้างอัปทับข้อมูลจริงทั้งฟาร์ม
 let __sbSafe = false;
+// 🔘 สถานะซิงก์สำหรับปุ่มที่หัวเว็บ — พนักงานเห็น/กดส่งซ้ำได้ทุกหน้า (ปัญหาเดิม: บางเครื่องส่งไม่สำเร็จแบบเงียบ ๆ ไม่มีใครรู้)
+let __sbStat = { pending: 0, flushing: false, lastOkAt: 0, lastErrAt: 0, lastPullAt: 0 };
+function __sbStatPending() { __sbStat.pending = Object.keys(__sbQueue).length; }
 function sbQueueKey(key, valueStr) {
   if (!supabase || !__sbSafe || __sbHydrating || SB_SKIP.has(key) || !SB_SYNC_RE.test(key)) return;
   if (__sbLast[key] === valueStr) return;   // ค่าไม่เปลี่ยน → ไม่อัปซ้ำ (กันแค่โหลดหน้าแล้ว re-write ไปทับ edit ของอุปกรณ์อื่น)
   __sbLast[key] = valueStr;
   let data; try { data = JSON.parse(valueStr); } catch (e) { data = valueStr; }
   __sbQueue[key] = data;
+  __sbStatPending();
   clearTimeout(__sbTimer);
   __sbTimer = setTimeout(sbFlush, 1000);
 }
@@ -97,14 +101,16 @@ async function sbFlush() {
     else plainRows.push({ key, data, item_count: Array.isArray(data) ? data.length : null, snapshot_at: now, device: dev });
   });
   const queued = __sbQueue; __sbQueue = {};
+  __sbStat.flushing = true;
+  const failKeys = [];   // คีย์ที่ส่งไม่สำเร็จ → เอากลับเข้าคิว + นัดส่งซ้ำ (เดิมหลุดคิวเงียบ ๆ จนกว่าจะมีการแก้ครั้งถัดไป)
   const meta = sbGetMeta(); let okCount = 0;
   // 1) อาเรย์/สเกลาร์ → upsert ทับ
   if (plainRows.length) {
     try {
       const { error } = await supabase.from(SB_TABLE).upsert(plainRows, { onConflict: "key" });
-      if (error) console.warn("[sync] อัปขึ้นคลาวด์ (upsert) ไม่สำเร็จ:", error.message);
+      if (error) { console.warn("[sync] อัปขึ้นคลาวด์ (upsert) ไม่สำเร็จ:", error.message); plainRows.forEach((r) => failKeys.push(r.key)); }
       else { plainRows.forEach((r) => { meta[r.key] = now; }); okCount += plainRows.length; }
-    } catch (e) { console.warn("[sync] upsert error:", e && e.message); }
+    } catch (e) { console.warn("[sync] upsert error:", e && e.message); plainRows.forEach((r) => failKeys.push(r.key)); }
   }
   // 2) ออบเจกต์ → merge ฝั่งฐานข้อมูล (atomic, ไม่ทับของเครื่องอื่น) แล้วเก็บผลรวมกลับลงเครื่อง
   for (const key of mergeKeys) {
@@ -115,7 +121,7 @@ async function sbFlush() {
         console.warn("[sync] merge ไม่สำเร็จ, ใช้ upsert แทน:", error.message);
         const data = queued[key];
         const { error: e2 } = await supabase.from(SB_TABLE).upsert([{ key, data, item_count: data && typeof data === "object" ? Object.keys(data).length : null, snapshot_at: now, device: dev }], { onConflict: "key" });
-        if (!e2) { meta[key] = now; okCount++; }
+        if (!e2) { meta[key] = now; okCount++; } else failKeys.push(key);
         continue;
       }
       meta[key] = now; okCount++;
@@ -128,9 +134,15 @@ async function sbFlush() {
           __sbLast[key] = str;
         }
       }
-    } catch (e) { console.warn("[sync] merge error:", e && e.message); }
+    } catch (e) { console.warn("[sync] merge error:", e && e.message); failKeys.push(key); }
   }
   sbSetMeta(meta);
+  // คีย์ที่พลาด → กลับเข้าคิว (ไม่ทับค่าที่ใหม่กว่า) + นัดส่งซ้ำใน 30 วิ — ปุ่มสถานะที่หัวเว็บจะโชว์ ❌ ให้พนักงานกดส่งซ้ำได้ทันที
+  failKeys.forEach((k) => { if (!(k in __sbQueue)) __sbQueue[k] = queued[k]; });
+  __sbStatPending();
+  __sbStat.flushing = false;
+  if (failKeys.length) { __sbStat.lastErrAt = Date.now(); clearTimeout(__sbTimer); __sbTimer = setTimeout(sbFlush, 30000); }
+  else if (okCount) __sbStat.lastOkAt = Date.now();
   if (okCount) console.log("[sync] ⬆ อัปขึ้นคลาวด์ " + okCount + " รายการ (merge " + mergeKeys.length + ")");
 }
 // 🛟 รวมค่าคลาวด์เข้ากับของเครื่องตอนดึง (คลาวด์ชนะช่องที่ชนกัน แต่คีย์ที่มีเฉพาะในเครื่อง เช่น วันที่ยังไม่เคยอัปขึ้น จะไม่หาย)
@@ -149,6 +161,7 @@ async function pullFromCloud() {
   const meta = sbGetMeta(); let applied = 0, kept = 0;
   const hadMeta = Object.keys(meta).length > 0;   // เครื่องนี้เคย sync สำเร็จมาก่อนหรือไม่
   __sbSafe = true;   // ดึงคลาวด์สำเร็จแล้ว → เปิดทางอัปขึ้นได้ (ก่อนหน้านี้ห้าม กันเครื่องใหม่ล้างคลาวด์)
+  __sbStat.lastPullAt = Date.now();
   const cloudKeys = new Set();
   __sbHydrating = true;
   try {
@@ -207,6 +220,7 @@ async function pullChangedFromCloud() {
   if (!supabase || !__sbSafe) return;
   let res; try { res = await supabase.from(SB_TABLE).select("key,snapshot_at"); } catch (e) { return; }
   if (res.error || !Array.isArray(res.data)) return;
+  __sbStat.lastPullAt = Date.now();
   const meta = sbGetMeta();
   const changed = res.data.filter((r) => r.key && SB_SYNC_RE.test(r.key) && !SB_SKIP.has(r.key) && (r.snapshot_at || "") > (meta[r.key] || ""));
   if (!changed.length) return;
@@ -237,6 +251,39 @@ async function pullChangedFromCloud() {
     console.log("[sync] 🔄 อัปเดตจากคลาวด์ " + applied + " คีย์ (ดึงอัตโนมัติ)");
     try { window.dispatchEvent(new CustomEvent("sjf-pulled", { detail: { applied } })); } catch (e) {}
   }
+}
+// ☁️ ปุ่มสถานะซิงก์ที่หัวเว็บ (เห็นทุกหน้า) — บอกพนักงานชัด ๆ ว่าข้อมูลที่คีย์ "ขึ้นคลาวด์แล้วหรือยัง"
+// กด = บังคับส่งขึ้น + ดึงลงทันที (เดิมส่งไม่สำเร็จจะเงียบ ไม่มีใครรู้จนข้อมูล "หาย" เช่น ยอดคละ 4 ส.ค.)
+function SyncStatusButton() {
+  const [, tick] = useState(0);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { const t = setInterval(() => tick((x) => x + 1), 2000); return () => clearInterval(t); }, []);
+  if (!supabase) return null;
+  const st = __sbStat;
+  const hhmm = (t) => new Date(t).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" });
+  let bg = "#DCFCE7", bd = "#86EFAC", c = "#15803D", label;
+  if (busy || st.flushing) { bg = "#FEF3C7"; bd = "#FCD34D"; c = "#92400E"; label = "⏳ กำลังส่งขึ้นคลาวด์…"; }
+  else if (!__sbSafe) { bg = "#FEE2E2"; bd = "#FCA5A5"; c = "#B91C1C"; label = "⛔ ยังไม่เชื่อมคลาวด์ · แตะเพื่อลองใหม่"; }
+  else if (st.pending > 0 && st.lastErrAt >= st.lastOkAt) { bg = "#FEE2E2"; bd = "#FCA5A5"; c = "#B91C1C"; label = "❌ ส่งไม่สำเร็จ " + st.pending + " รายการ · แตะส่งซ้ำ"; }
+  else if (st.pending > 0) { bg = "#FEF3C7"; bd = "#FCD34D"; c = "#92400E"; label = "⏳ รอส่ง " + st.pending + " รายการ · แตะเพื่อส่งเลย"; }
+  else { const t = Math.max(st.lastOkAt, st.lastPullAt); label = "✓ บันทึกขึ้นคลาวด์แล้ว" + (t ? " · " + hhmm(t) : ""); }
+  const forceSync = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      if (!__sbSafe) await pullFromCloud();      // เครื่องที่บูตตอนเน็ตล่ม → ลองเปิดทางซิงก์ใหม่
+      clearTimeout(__sbTimer);
+      await sbFlush();                            // ส่งของค้างขึ้นทันที
+      await pullChangedFromCloud();               // แล้วดึงของใหม่จากเครื่องอื่นลงมาด้วย
+    } catch (e) {}
+    setBusy(false); tick((x) => x + 1);
+  };
+  return (
+    <button onClick={forceSync} title="สถานะการบันทึกขึ้นคลาวด์ — แตะเพื่อส่งข้อมูลขึ้น + ดึงข้อมูลใหม่ทันที"
+      style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 11px", border: "1.5px solid " + bd, borderRadius: 999, background: bg, color: c, cursor: "pointer", fontFamily: "inherit", fontWeight: 800, fontSize: 12, whiteSpace: "nowrap" }}>
+      {label}
+    </button>
+  );
 }
 // 💾 สำรองข้อมูลทั้งหมด → ดาวน์โหลดเป็นไฟล์ JSON (ประกันชั้นสอง นอกเหนือจากคลาวด์)
 function exportAllEggData() {
@@ -1713,11 +1760,12 @@ export default function App() {
             <div style={S.brandName}>ฟาร์มไข่สมบูรณ์</div>
             <div style={S.brandSub}>บริษัท เอสเจเอฟ ฟาร์ม จำกัด · ต้นแบบ · 1 แผง = 30 ฟอง</div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 4, paddingLeft: 12, borderLeft: "1px solid #ece6da" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 4, paddingLeft: 12, borderLeft: "1px solid #ece6da", flexWrap: "wrap" }}>
             <button onClick={() => setShowRolePicker(true)} title="สลับผู้ใช้ / เปลี่ยนบทบาท" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 11px", border: "1.5px solid #e3ddd0", borderRadius: 999, background: "#FFFBF3", cursor: "pointer", fontFamily: "inherit", fontWeight: 800, fontSize: 12.5, color: INK }}>
               <span style={{ fontSize: 15 }}>{roleObj.emoji}</span>{roleObj.name}<span style={{ color: "#9b8e78", fontWeight: 600 }}> · สลับ</span>
             </button>
             {roleObj.id === "owner" && <button onClick={() => setShowRoleSettings(true)} title="ตั้งค่าสิทธิ์การเข้าดู" style={{ display: "inline-flex", alignItems: "center", padding: "6px 9px", border: "1.5px solid #e3ddd0", borderRadius: 999, background: "#fff", cursor: "pointer", fontFamily: "inherit" }}><Settings size={15} color="#7a6f5c" /></button>}
+            <SyncStatusButton />
           </div>
         </div>
         <nav className="mainNav" style={S.nav}>
@@ -9644,7 +9692,7 @@ const ACCENT = "#E8943A", ACCENT_DK = "#C9742A", INK = "#2B2620", PAPER = "#FBF8
 const S = {
   app: { fontFamily: "'Noto Sans Thai', system-ui, sans-serif", background: PAPER, minHeight: "100vh", color: INK, paddingBottom: 32 },
   header: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", background: "#fff", borderBottom: "1px solid #ece6da", position: "sticky", top: 0, zIndex: 20, flexWrap: "wrap", gap: 12 },
-  brand: { display: "flex", alignItems: "center", gap: 12 },
+  brand: { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" },
   brandMark: { width: 40, height: 40, borderRadius: 12, background: `linear-gradient(135deg, ${ACCENT}, ${ACCENT_DK})`, color: "#fff", display: "grid", placeItems: "center" },
   brandName: { fontWeight: 700, fontSize: 16 },
   brandSub: { fontSize: 11.5, color: "#9b9384" },
