@@ -815,6 +815,7 @@ const PRODUCTS = {
     { id: "n5", name: "เบอร์ 5", stock: 167 },
   ],
   คละ: [
+    { id: "w17", name: "คละ 17+", stock: 0 },
     { id: "w18", name: "คละ 18+", stock: 0 },
     { id: "w19", name: "คละ 19+", stock: 140 },
     { id: "w20", name: "คละ 20+", stock: 330 },
@@ -848,13 +849,20 @@ const PRODUCT_BY_ID = Object.fromEntries(ALL_PRODUCTS.map((p) => [p.id, p]));
 // ขนาดแผงตามชนิดไข่: เฉพาะเบอร์ 2-5 = แผงเล็ก ; ที่เหลือทั้งหมด (เบอร์ 0,1 + จัมโบ้ + ตกเกรด + คละ) = แผงใหญ่
 const SMALL_TRAY_IDS = new Set(["n2", "n3", "n4", "n5"]);
 
-// ลำดับสำหรับแสดงในรายงานคลัง (ตามรูปจริง)
+// ลำดับสำหรับแสดงในรายงานคลัง (ตามชีทของเจ้าของ 7 ส.ค. 69: เบอร์ → จิ๋ว/ขาว/นวล/หัวทราย/เปื้อน/บุบ/ตอก/ไข่เหลว → จัมโบ้+แฝด → คละ 17++-23++)
+// g_tokdaeng ไม่มีในชีทแต่มีข้อมูลปิดยอดจริงย้อนหลัง → คงไว้ท้ายตาราง
 const STOCK_ORDER = [
   "n0", "n1", "n2", "n3", "n4", "n5",
-  "w18", "w19", "w20", "w21", "w22", "w23",
-  "s_white", "g_nuan", "g_sand", "g_pueanmak", "g_pueannoi", "g_bub", "g_jiw", "g_tok", "g_toklew", "g_tokdaeng",
+  "g_jiw", "s_white", "g_nuan", "g_sand", "g_pueanmak", "g_pueannoi", "g_bub", "g_tok", "g_toklew",
   "s_jumbo",
+  "w17", "w18", "w19", "w20", "w21", "w22", "w23",
+  "g_tokdaeng",
 ];
+// ป้ายชื่อเฉพาะหน้ารายงานคลัง (ชื่อสินค้าจริงในบิล/หน้าขายคงเดิม — เปลี่ยนเฉพาะหัวข้อรายงานตามชีท)
+const STOCK_LABEL = {
+  s_white: "ขาว", g_tok: "ตอก (แก้ว)", g_toklew: "ไข่เหลว", s_jumbo: "จัมโบ้+แฝด",
+  w17: "17++", w18: "18++", w19: "19++", w20: "20++", w21: "21++", w22: "22++", w23: "23++",
+};
 
 // ---------- ราคาล่าสุด แยกตามลูกค้า+สินค้า ----------
 // เก็บ { price: บาท/แผง, date: วันที่อัปเดตราคาล่าสุด }
@@ -1739,7 +1747,9 @@ export default function App() {
       const newSlips = Array.isArray(slip) ? slip : (slip ? [slip] : []);
       const prevSlips = prev[billNo]?.slips || (prev[billNo]?.slip ? [prev[billNo].slip] : []);
       const allSlips = [...prevSlips, ...newSlips];
-      return { ...prev, [billNo]: { paid: prevPaid + amount, date: new Date().toLocaleDateString("th-TH"), ts: Date.now(), method, slip: allSlips[0] || null, slips: allSlips.length ? allSlips : undefined, note: mergedNote || undefined } };
+      // จดชื่อคนรับชำระ (คนปิดบิล) จากบัญชีที่ล็อกอิน — งวดล่าสุดชนะ
+      let by = ""; try { const u = localStorage.getItem("sjfAuthUsername") || ""; by = ACCOUNT_LABELS[u] || u; } catch (e) {}
+      return { ...prev, [billNo]: { paid: prevPaid + amount, date: new Date().toLocaleDateString("th-TH"), ts: Date.now(), method, by: by || prev[billNo]?.by || undefined, slip: allSlips[0] || null, slips: allSlips.length ? allSlips : undefined, note: mergedNote || undefined } };
     });
   // ยกเลิกใบเสร็จ (soft void + audit): เก็บเหตุผล/เวลา/ผู้ยกเลิก ; บิลยังอยู่ในประวัติแต่ถูกตัดออกจากทุกยอดคำนวณ (activeBills)
   const cancelBill = (billNo, reason, by) => {
@@ -1831,7 +1841,7 @@ export default function App() {
       </header>
 
       {view === "sales" && <SalesView stock={stock} addBill={addBill} bills={activeBills} payments={payments} trayStock={trayStock} setTrayStock={setTrayStock} trayRecords={trayRecords} trayEvents={trayEvents} drafts={drafts} setDrafts={setDrafts} />}
-      {view === "bills" && <BillHistoryView bills={bills} payments={payments} cancelBill={cancelBill} />}
+      {view === "bills" && <BillHistoryView bills={bills} payments={payments} cancelBill={cancelBill} recordPayment={recordPayment} isOwner={currentRole === "owner"} />}
       {view === "account" && <AccountView bills={activeBills} payments={payments} recordPayment={recordPayment} isOwner={currentRole === "owner"} />}
       {view === "dash" && <DashboardView bills={activeBills} payments={payments} production={productionByDate} rearingByDate={rearingByDate} flocks={flocks} />}
       {view === "manage" && <ManageDashView production={productionByDate} rearingByDate={rearingByDate} flocks={flocks} />}
@@ -2940,12 +2950,13 @@ function exportBillsExcel(bills, payments) {
   setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
-function BillHistoryView({ bills, payments, cancelBill }) {
+function BillHistoryView({ bills, payments, cancelBill, recordPayment, isOwner }) {
   const [q, setQ] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [statusF, setStatusF] = useState("all");   // all | paid | partial | unpaid
   const [selected, setSelected] = useState(null);
+  const [payModal, setPayModal] = useState(null);   // รับชำระได้จากหน้าประวัติบิล (ไม่ต้องสลับไปหน้าบัญชี)
 
   const toISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   const isoOf = (b) => toISO(new Date(b.ts || 0));                         // วันที่ของบิล (จาก timestamp จริง)
@@ -2985,7 +2996,15 @@ function BillHistoryView({ bills, payments, cancelBill }) {
   const sumLbl = { fontSize: 12, color: "#8a8172", marginBottom: 3 };
   const sumVal = { fontSize: 18, fontWeight: 800 };
 
-  if (selected) return <BillDetail bill={selected} payment={payments[selected.no]} onBack={() => setSelected(null)} onCancel={cancelBill} />;
+  if (selected) return (
+    <>
+      {/* ยกเลิกบิลได้เฉพาะเจ้าของ (เดิมเสมียนก็กดได้) · รับชำระได้ถ้าบิลยังไม่ถูกยกเลิกและยังค้างอยู่ */}
+      <BillDetail bill={selected} payment={payments[selected.no]} onBack={() => setSelected(null)} onCancel={isOwner ? cancelBill : null}
+        onPay={recordPayment && !selected.cancelled && (payments[selected.no]?.paid || 0) < selected.total ? () => setPayModal(selected) : null} />
+      {payModal && <PaymentModal bill={payModal} current={payments[payModal.no]?.paid || 0} isOwner={isOwner} onClose={() => setPayModal(null)}
+        onPay={(amt, method, slip, note) => { recordPayment(payModal.no, amt, method, slip, note); setPayModal(null); }} />}
+    </>
+  );
 
   return (
     <div style={S.wide}>
@@ -3041,7 +3060,7 @@ function BillHistoryView({ bills, payments, cancelBill }) {
                     {gb.map((b) => {
                       const st = STCFG[statusOf(b)];
                       return (
-                        <button key={b.no} style={{ ...S.billRow, ...(b.cancelled ? { opacity: 0.62, background: "#FBFBFA" } : null) }} className="customerCard" onClick={() => setSelected(b)}>
+                        <button key={(b.ts || 0) + "-" + b.no} style={{ ...S.billRow, ...(b.cancelled ? { opacity: 0.62, background: "#FBFBFA" } : null) }} className="customerCard" onClick={() => setSelected(b)}>
                           <div style={{ flex: 1, textAlign: "left" }}>
                             <div style={S.billRowTop}><span style={{ ...S.billRowNo, ...(b.cancelled ? { textDecoration: "line-through", color: "#9ca3af" } : null) }}>{b.no}</span><span style={{ ...S.statusPill, background: st.bg, color: st.c }}>{st.label}</span></div>
                             <div style={S.billRowCust}>{b.customer?.name} · {b.date}{b.ts ? ` · เปิดบิล ${new Date(b.ts).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })} น.` : ""}{b.cancelled && b.cancelReason ? <span style={{ color: "#9ca3af" }}> · เหตุผล: {b.cancelReason}</span> : ""}</div>
@@ -3062,7 +3081,7 @@ function BillHistoryView({ bills, payments, cancelBill }) {
   );
 }
 
-function BillDetail({ bill, payment, onBack, onCancel }) {
+function BillDetail({ bill, payment, onBack, onCancel, onPay }) {
   const b = bill;
   const [showCancel, setShowCancel] = useState(false);
   const [reason, setReason] = useState("");
@@ -3072,6 +3091,7 @@ function BillDetail({ bill, payment, onBack, onCancel }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
         <button style={S.ghostBtn} onClick={onBack}>← กลับ</button>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {onPay && <button style={{ ...S.primarySmBtn, background: "#15803D" }} onClick={onPay}>💰 รับชำระ</button>}
           {onCancel && !b.cancelled && (
             <button style={{ ...S.primarySmBtn, background: "#fff", color: "#B91C1C", border: "1.5px solid #FCA5A5" }} onClick={() => setShowCancel(true)}>✕ ยกเลิกใบเสร็จ</button>
           )}
@@ -3254,8 +3274,11 @@ function MonthBar({ months = [], value, onChange }) {
 function AccountView({ bills, payments, recordPayment, isOwner }) {
   const [payModal, setPayModal] = useState(null);
   const [month, setMonth] = useState("");   // "" = ทุกเดือน
+  const [q, setQ] = useState("");           // ค้นหาชื่อลูกค้า / เลขที่บิล
   const months = useMemo(() => [...new Set((bills || []).map(billYM))].sort(), [bills]);
-  const viewBills = month ? bills.filter((b) => billYM(b) === month) : bills;
+  const monthBills = month ? bills.filter((b) => billYM(b) === month) : bills;
+  const qt = q.trim();
+  const viewBills = qt ? monthBills.filter((b) => (b.customer?.name || "").includes(qt) || (b.no || "").includes(qt)) : monthBills;
 
   const rows = viewBills.map((b) => {
     const p = payments[b.no];
@@ -3268,12 +3291,13 @@ function AccountView({ bills, payments, recordPayment, isOwner }) {
   const totalPaid = rows.reduce((s, r) => s + r.paid, 0);
   const totalOwed = totalSales - totalPaid;
 
-  // รวมยอดค้างรายลูกค้า
+  // รวมยอดค้างรายลูกค้า + นับจำนวนบิลค้างต่อคน (ดูง่ายขึ้น + กดชื่อเพื่อกรองตารางได้)
   const byCustomer = {};
   rows.forEach((r) => {
     if (r.owed > 0) {
       const k = r.bill.customer.name;
-      byCustomer[k] = (byCustomer[k] || 0) + r.owed;
+      const e = byCustomer[k] || (byCustomer[k] = { amt: 0, count: 0 });
+      e.amt += r.owed; e.count += 1;
     }
   });
 
@@ -3281,7 +3305,14 @@ function AccountView({ bills, payments, recordPayment, isOwner }) {
     <div style={S.wide}>
       <div style={S.subBar}>
         <span style={S.subBarTitle}>บัญชี / ลูกหนี้{month ? <span style={{ fontSize: 13, fontWeight: 700, color: ACCENT_DK }}> · {ymTH(month)}</span> : null}</span>
-        <MonthBar months={months} value={month} onChange={setMonth} />
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ position: "relative" }}>
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔍 ค้นหาชื่อลูกค้า / เลขที่บิล..."
+              style={{ padding: "8px 30px 8px 12px", border: "1.5px solid " + (qt ? ACCENT : "#e3ddd0"), borderRadius: 10, fontSize: 13.5, fontFamily: "inherit", width: 230, background: "#fff" }} />
+            {qt && <button onClick={() => setQ("")} title="ล้างคำค้น" style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", border: "none", background: "transparent", cursor: "pointer", fontSize: 14, color: "#9b8e78", fontWeight: 800 }}>✕</button>}
+          </div>
+          <MonthBar months={months} value={month} onChange={setMonth} />
+        </div>
       </div>
       <div style={{ padding: "16px 0" }}>
         <div style={S.summaryGrid}>
@@ -3295,8 +3326,11 @@ function AccountView({ bills, payments, recordPayment, isOwner }) {
           <div style={S.accDebtorBox}>
             <div style={S.accDebtorTitle}>ยอดค้างรายลูกค้า</div>
             <div style={S.accDebtorList}>
-              {Object.entries(byCustomer).sort((a, b) => b[1] - a[1]).map(([name, amt]) => (
-                <div key={name} style={S.accDebtorRow}><span>{name}</span><span style={{ fontWeight: 700, color: "#B91C1C" }}>{fmt(amt)} บ.</span></div>
+              {Object.entries(byCustomer).sort((a, b) => b[1].amt - a[1].amt).map(([name, v]) => (
+                <div key={name} style={{ ...S.accDebtorRow, cursor: "pointer" }} title="กดเพื่อกรองตารางเป็นลูกค้าคนนี้" onClick={() => setQ(q.trim() === name ? "" : name)}>
+                  <span>{name} <span style={{ fontSize: 11, fontWeight: 800, color: "#B45309", background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 999, padding: "1px 8px", marginLeft: 4, whiteSpace: "nowrap" }}>{v.count} บิล</span></span>
+                  <span style={{ fontWeight: 700, color: "#B91C1C" }}>{fmt(v.amt)} บ.</span>
+                </div>
               ))}
             </div>
           </div>
@@ -3317,10 +3351,10 @@ function AccountView({ bills, payments, recordPayment, isOwner }) {
             <tbody>
               {rows.length === 0 ? (
                 <tr><td colSpan={8} style={{ ...S.td, padding: 32, color: "#9b9384" }}>{month ? `ยังไม่มีบิลในเดือน${ymTH(month)}` : "ยังไม่มีบิล"}</td></tr>
-              ) : rows.map((r) => {
+              ) : rows.map((r, ri) => {
                 const stColor = r.status === "ชำระแล้ว" ? "#15803D" : r.status === "บางส่วน" ? "#B45309" : "#B91C1C";
                 return (
-                  <tr key={r.bill.no}>
+                  <tr key={(r.bill.ts || 0) + "-" + r.bill.no + "-" + ri}>{/* เลขบิลสุ่ม 4 หลักซ้ำกันได้ → key ต้องพ่วง ts+ลำดับ ไม่งั้นตารางค้างตอนกรอง */}
                     <td style={{ ...S.td, textAlign: "left", fontWeight: 600 }}>{r.bill.no}</td>
                     <td style={{ ...S.td, textAlign: "left" }}>{r.bill.customer.name}</td>
                     <td style={S.td}>{r.bill.date}</td>
@@ -3341,6 +3375,7 @@ function AccountView({ bills, payments, recordPayment, isOwner }) {
                           <span style={{ fontSize: 11.5, color: "#15803D", fontWeight: 700, lineHeight: 1.5, textAlign: "center" }}>
                             ปิดบิล {payments[r.bill.no].date}
                             {payments[r.bill.no].ts ? <><br />{new Date(payments[r.bill.no].ts).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })} น.</> : null}
+                            {payments[r.bill.no].by ? <><br /><span style={{ color: "#B45309" }}>โดย {payments[r.bill.no].by}</span></> : null}
                           </span>
                         )}
                       </div>
@@ -4494,6 +4529,10 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
     "เบอร์ 4": ["#EFF6FF", "#DBEAFE", "#1E40AF"],
     "เบอร์ 5": ["#F5F3FF", "#EDE9FE", "#5B21B6"],
     "เปลือกขาว": ["#F8FAFC", "#E2E8F0", "#334155"],
+    "ขาว": ["#F8FAFC", "#E2E8F0", "#334155"],
+    "ตอก (แก้ว)": ["#FFF1F2", "#FECDD3", "#BE123C"],
+    "ไข่เหลว": ["#FFF7ED", "#FED7AA", "#9A3412"],
+    "จัมโบ้+แฝด": ["#EEF2FF", "#E0E7FF", "#3730A3"],
     "นวล": ["#FDF4FF", "#F5D0FE", "#86198F"],
     "หัวทราย": ["#FEFCE8", "#FEF08A", "#854D0E"],
     "เปื้อนมาก": ["#FEF2F2", "#FECACA", "#991B1B"],
@@ -4503,7 +4542,7 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
     "จัมโบ้": ["#EEF2FF", "#E0E7FF", "#3730A3"],
     "ตอก": ["#FFF1F2", "#FECDD3", "#BE123C"],
   };
-  const rowTone = (name) => EGG_TONE[name] || (String(name).startsWith("คละ") ? ["#ECFEFF", "#CFFAFE", "#155E75"] : ["#FAFAF9", "#E7E5E4", "#57534E"]);
+  const rowTone = (name) => EGG_TONE[name] || (String(name).startsWith("คละ") || /\+\+$/.test(String(name)) ? ["#ECFEFF", "#CFFAFE", "#155E75"] : ["#FAFAF9", "#E7E5E4", "#57534E"]);
 
   const opening = openingForDay(day, productionByDate, stockCounts);    // ยกมา = คงเหลือจริงของเมื่อวาน (rolling)
   const production = useMemo(() => productionToStock(productionByDate[day] || []), [productionByDate, day]);  // รับเข้า = ผลผลิตวันนั้น (สด)
@@ -4522,7 +4561,7 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
       if (hasBills) { sold = recordedSold; diff = remain - computedRemain; }          // มีบิล → ส่วนต่าง = ของขาด/เกินจริง
       else { sold = op + rec - remain; diff = 0; }                                    // ไม่มีบิล → ถือว่าส่วนที่หายไปคือขาย (back-calc เดิม)
     } else { sold = recordedSold; remain = computedRemain; diff = 0; }
-    return { pid, name: PRODUCT_BY_ID[pid]?.name || pid, opening: op, received: rec, total: op + rec, perCust, sold, computedRemain, remain, diff };
+    return { pid, name: STOCK_LABEL[pid] || PRODUCT_BY_ID[pid]?.name || pid, opening: op, received: rec, total: op + rec, perCust, sold, computedRemain, remain, diff };
   });
 
   const totals = rows.reduce((t, r) => ({
