@@ -1849,7 +1849,7 @@ export default function App() {
         </nav>
       </header>
 
-      {view === "sales" && <SalesView stock={stock} addBill={addBill} bills={activeBills} payments={payments} trayStock={trayStock} setTrayStock={setTrayStock} trayRecords={trayRecords} trayEvents={trayEvents} drafts={drafts} setDrafts={setDrafts} />}
+      {view === "sales" && <SalesView stock={stock} addBill={addBill} bills={activeBills} payments={payments} trayStock={trayStock} setTrayStock={setTrayStock} trayRecords={trayRecords} trayEvents={trayEvents} drafts={drafts} setDrafts={setDrafts} isOwner={currentRole === "owner"} />}
       {view === "bills" && <BillHistoryView bills={bills} payments={payments} cancelBill={cancelBill} recordPayment={recordPayment} isOwner={currentRole === "owner"} />}
       {view === "account" && <AccountView bills={activeBills} payments={payments} recordPayment={recordPayment} isOwner={currentRole === "owner"} />}
       {view === "dash" && <DashboardView bills={activeBills} payments={payments} production={productionByDate} rearingByDate={rearingByDate} flocks={flocks} />}
@@ -1956,7 +1956,7 @@ async function shrinkImage(file, maxDim = 1600, quality = 0.82) {
 /* ============================================================
    หน้าจอ: ขายไข่  (ตรงตามฟอร์มบิลจริง)
 ============================================================ */
-function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, trayRecords = [], trayEvents = [], drafts = [], setDrafts }) {
+function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, trayRecords = [], trayEvents = [], drafts = [], setDrafts, isOwner = false }) {
   const [customerId, setCustomerId] = useState(null);
   const [editingDraftId, setEditingDraftId] = useState(null);  // กำลังแก้บิลร่างใบไหนอยู่
   const [custSearch, setCustSearch] = useState("");
@@ -2488,7 +2488,7 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
           <div style={S.stageLabel}>เลือกลูกค้า</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
             <button style={S.ghostBtn} onClick={() => setCodesMode("select")}><ClipboardCheck size={15} /> รหัสลูกค้า</button>
-            <button style={S.primarySmBtn} onClick={() => setShowAddCust(true)}><Plus size={15} /> เพิ่มลูกค้าใหม่</button>
+            {isOwner && <button style={S.primarySmBtn} onClick={() => setShowAddCust(true)}><Plus size={15} /> เพิ่มลูกค้าใหม่</button>}
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 11, padding: "14px 17px", background: "#FFFBF3", border: `2px solid ${ACCENT}`, borderRadius: 13, marginBottom: 12, boxShadow: "0 3px 10px rgba(232,148,58,0.15)" }}>
