@@ -1640,10 +1640,19 @@ export default function App() {
   useEffect(() => { try { localStorage.setItem("eggBills", JSON.stringify(bills)); } catch {} }, [bills]);
   // บิลที่ยังใช้งาน (ตัดบิลที่ยกเลิกออก) — ใช้คิดยอดขาย/สต๊อก/ลูกหนี้/ต้นทุน/แผง ; ประวัติบิลยังเห็นบิลยกเลิก (มีตราประทับ)
   const activeBills = useMemo(() => (bills || []).filter((b) => !b.cancelled), [bills]);
-  // การรับชำระเงิน: { billNo: { paid, date, method } } — เก็บถาวร (ตัดรูปสลิปออกกันเต็มพื้นที่ ; สถานะ/วันชำระยังอยู่)
+  // การรับชำระเงิน: { billNo: { paid, date, ts, method, by, slips } } — เก็บถาวร
+  // สลิปเก็บเป็น "ลิงก์" ไฟล์บน Supabase Storage (อัปโหลดตอนบันทึกรับชำระ) → ย้อนดูได้ทุกเครื่อง
+  // รูป base64 (ของเก่า/อัปโหลดพลาด) ยังถูกตัดทิ้งเหมือนเดิมกันพื้นที่เต็ม — เก็บเฉพาะ URL
   const [payments, setPayments] = useState(() => { try { return JSON.parse(localStorage.getItem("eggPayments") || "{}"); } catch { return {}; } });
   useEffect(() => {
-    try { const lite = {}; Object.entries(payments).forEach(([k, v]) => { lite[k] = { paid: v.paid, date: v.date, method: v.method, note: v.note, slip: null }; }); localStorage.setItem("eggPayments", JSON.stringify(lite)); } catch {}
+    try {
+      const lite = {};
+      Object.entries(payments).forEach(([k, v]) => {
+        const urls = (v.slips || (v.slip ? [v.slip] : [])).filter((s) => typeof s === "string" && /^https?:/.test(s));
+        lite[k] = { ...v, slip: urls[0] || null, slips: urls.length ? urls : undefined };
+      });
+      localStorage.setItem("eggPayments", JSON.stringify(lite));
+    } catch {}
   }, [payments]);
 
   // 🔄 เมื่อระบบดึงข้อมูลใหม่จากคลาวด์ (อัตโนมัติทุก ~2.5 นาที) → อัปเดตหน้าจอทันที ไม่ต้องรีเฟรช
@@ -2144,8 +2153,11 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
 
   const confirmBill = () => {
     // สต็อกลดอัตโนมัติจากบิลที่บันทึก (bills = แหล่งข้อมูลเดียว) — ไม่ต้องหัก state แยก
+    // เลขบิลสุ่ม 4 หลักต้องไม่ชนกับบิลเดิม — เคยชนแล้วทำระบบรวมข้อมูลเพี้ยน (บิลทวีคูณ 512 ชุด 8 ส.ค. 69)
+    let billNo;
+    do { billNo = "IVE6906-" + String(Math.floor(Math.random() * 9000) + 1000); } while ((bills || []).some((b) => b.no === billNo));
     const bill = {
-      no: "IVE6906-" + String(Math.floor(Math.random() * 9000) + 1000),
+      no: billNo,
       book: "086",
       customer, customerId,
       // เก็บรายการแบบเบา (ไม่พ่วง object product ทั้งก้อน เผื่อใช้ในหน้าอื่น)
@@ -3421,6 +3433,7 @@ function PaymentModal({ bill, current, onClose, onPay, isOwner }) {
   const owed = bill.total - current;
   const [amount, setAmount] = useState(String(owed));
   const method = "โอน";                        // นโยบาย: รับเฉพาะโอนเงินเท่านั้น (งดเงินสด/เช็ค)
+  const [saving, setSaving] = useState(false);              // กำลังอัปโหลดสลิปขึ้นคลาวด์
   const [ownerConfirm, setOwnerConfirm] = useState(false);  // ขั้นยืนยันปิดบิลโดยเจ้าของ
   const [ownerReason, setOwnerReason] = useState("");       // เหตุผลการปิดบิลโดยเจ้าของ (บังคับกรอก)
   const [note, setNote] = useState("");        // หมายเหตุการรับชำระ (เช่น โอนจากบัญชีคนอื่น / จ่ายบางส่วนเพราะอะไร)
@@ -3557,8 +3570,26 @@ function PaymentModal({ bill, current, onClose, onPay, isOwner }) {
           <textarea rows={2} style={{ ...S.fullInput, resize: "vertical", fontFamily: "inherit" }} value={note} onChange={(e) => setNote(e.target.value)}
             placeholder="เช่น โอนจากบัญชีชื่ออื่น · จ่ายบางส่วน นัดจ่ายที่เหลือวันศุกร์" />
         </div>
-        <button style={{ ...S.primaryBtn, ...(valid ? {} : S.confirmBtnDisabled) }} disabled={!valid} onClick={() => onPay(amt, slipHasAmt ? "โอน" : "โอน · ข้ามตรวจสลิป", slips.map((s) => s.src), note.trim())}>
-          บันทึกรับชำระ {fmt(amt)} บาท{slips.length > 1 ? ` (สลิป ${slips.length} ใบ)` : ""}
+        <button style={{ ...S.primaryBtn, ...(valid && !saving ? {} : S.confirmBtnDisabled) }} disabled={!valid || saving} onClick={async () => {
+          // อัปโหลดสลิปขึ้นคลาวด์ก่อน แล้วบันทึกเป็น "ลิงก์" → ย้อนดูได้ทุกเครื่องตลอดไป · อัปไม่สำเร็จ = ไม่ปิดบิล
+          if (!valid || saving) return;
+          setSaving(true);
+          try {
+            const urls = [];
+            for (let i = 0; i < slips.length; i++) {
+              const blob = await (await fetch(slips[i].src)).blob();
+              const path = bill.no + "-" + Date.now() + "-" + (i + 1) + ".jpg";
+              const { error } = await supabase.storage.from("slips").upload(path, blob, { contentType: blob.type || "image/jpeg", upsert: true });
+              if (error) throw error;
+              urls.push(supabase.storage.from("slips").getPublicUrl(path).data.publicUrl);
+            }
+            onPay(amt, slipHasAmt ? "โอน" : "โอน · ข้ามตรวจสลิป", urls, note.trim());
+          } catch (e) {
+            alert("อัปโหลดสลิปขึ้นคลาวด์ไม่สำเร็จ — ยังไม่ได้ปิดบิล\nตรวจอินเทอร์เน็ตแล้วกดบันทึกอีกครั้ง\n(" + ((e && e.message) || "") + ")");
+            setSaving(false);
+          }
+        }}>
+          {saving ? "⏳ กำลังอัปโหลดสลิป…" : `บันทึกรับชำระ ${fmt(amt)} บาท${slips.length > 1 ? ` (สลิป ${slips.length} ใบ)` : ""}`}
         </button>
         {!slips.length && (
           <div style={{ fontSize: 12.5, color: "#B91C1C", textAlign: "center", marginTop: 8 }}>
