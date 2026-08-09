@@ -10129,6 +10129,7 @@ function LoginScreen({ onDone }) {
   ];
   const [acct, setAcct] = useState(null);
   const [pw, setPw] = useState("");
+  const [showPw, setShowPw] = useState(false);   // 👁 กดเพื่อโชว์รหัสที่กรอก (กันพิมพ์ผิดโดยไม่รู้ตัว)
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const submit = async () => {
@@ -10197,8 +10198,14 @@ function LoginScreen({ onDone }) {
             </div>
             <div>
               <div style={{ fontSize: 12.5, fontWeight: 800, color: "#6d6151", marginBottom: 5 }}>ใส่รหัสของ{acct.label}</div>
-              <input value={pw} onChange={(e) => { setPw(e.target.value); setErr(""); }} onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
-                type="password" autoFocus placeholder="● ● ● ●" style={{ width: "100%", padding: "12px 14px", border: "1.5px solid #e3ddd0", borderRadius: 11, fontSize: 18, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: "#fff", textAlign: "center", letterSpacing: 2 }} />
+              <div style={{ position: "relative" }}>
+                <input value={pw} onChange={(e) => { setPw(e.target.value); setErr(""); }} onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+                  type={showPw ? "text" : "password"} autoFocus placeholder="● ● ● ●" style={{ width: "100%", padding: "12px 46px 12px 14px", border: "1.5px solid #e3ddd0", borderRadius: 11, fontSize: 18, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: "#fff", textAlign: "center", letterSpacing: 2 }} />
+                <button type="button" onClick={() => setShowPw((v) => !v)} title={showPw ? "ซ่อนรหัส" : "โชว์รหัสที่กรอก"}
+                  style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", border: "none", background: "transparent", cursor: "pointer", fontSize: 20, padding: 4, lineHeight: 1 }}>
+                  {showPw ? "🙈" : "👁️"}
+                </button>
+              </div>
             </div>
             {err && <div style={{ color: "#B91C1C", fontSize: 12.5, fontWeight: 700, background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 9, padding: "8px 11px" }}>{err}</div>}
             <button onClick={submit} disabled={!pw || busy}
