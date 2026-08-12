@@ -3590,6 +3590,13 @@ function PaymentModal({ bill, current, onClose, onPay, isOwner }) {
           // อัปโหลดสลิปขึ้นคลาวด์ก่อน แล้วบันทึกเป็น "ลิงก์" → ย้อนดูได้ทุกเครื่องตลอดไป · อัปไม่สำเร็จ = ไม่ปิดบิล
           if (!valid || saving) return;
           setSaving(true);
+          // เช็คเซสชันก่อนอัป (เซสชันหมดอายุ = คลาวด์ปฏิเสธสลิป) — getSession จะต่ออายุให้เองถ้ายังต่อได้ ไม่ได้ค่อยให้ล็อกอินใหม่
+          let sess = null;
+          try { const r = await supabase.auth.getSession(); sess = r && r.data ? r.data.session : null; } catch (e) {}
+          if (!sess) {
+            alert("⛔ เซสชันเข้าสู่ระบบหมดอายุ — ยังไม่ได้ปิดบิล\n\nกดปุ่ม \"สลับ\" มุมขวาบน → ออกจากระบบ → เข้าสู่ระบบใหม่ด้วยบัญชีตัวเอง แล้วกลับมาปิดบิลนี้อีกครั้ง (ตัวเลขที่กรอกไม่หาย แค่แนบสลิปใหม่)");
+            setSaving(false); return;
+          }
           try {
             const urls = [];
             for (let i = 0; i < slips.length; i++) {
@@ -10194,6 +10201,7 @@ function LoginScreen({ onDone }) {
         setBusy(false); return;
       }
       try { localStorage.setItem("sjfAuthOk", "1"); } catch (e) {}
+      try { localStorage.setItem("sjfAuthDay", new Date().toDateString()); } catch (e) {}   // 🔐 ตราวันที่ล็อกอิน — ระบบบังคับเข้าสู่ระบบใหม่ทุกวัน
       try { localStorage.setItem("eggCurrentRole", acct.role); } catch (e) {}
       try { localStorage.setItem("sjfAuthUsername", acct.u); } catch (e) {}   // ชื่อบัญชี → โชว์ตัวคนในบันทึกกิจกรรม
       onDone();
@@ -10286,13 +10294,33 @@ function Root() {
       // เคยล็อกอินสำเร็จบนเครื่องนี้ + ตอนนี้ออฟไลน์/เซิร์ฟเวอร์ไม่ตอบ → ปล่อยเข้า (ใช้ข้อมูลในเครื่อง)
       let offlineOk = false;
       try { offlineOk = localStorage.getItem("sjfAuthOk") === "1" && (timedOut || (typeof navigator !== "undefined" && navigator.onLine === false)); } catch (e) {}
+      // 🔐 บังคับล็อกอินใหม่ทุกวัน ทุกคน (คำสั่งเจ้าของ 12 ส.ค. 69) — วันเปลี่ยนแล้วต้องเข้าสู่ระบบใหม่ก่อนใช้งาน
+      // ได้สองต่อ: เซสชันสดทุกวัน (อัปสลิป/เขียนคลาวด์ไม่โดนปฏิเสธเพราะเซสชันค้าง) + เป็นการเช็คอินเทอร์เน็ตทุกเช้าไปในตัว
+      let dayOk = false;
+      try { dayOk = localStorage.getItem("sjfAuthDay") === new Date().toDateString(); } catch (e) {}
+      if ((session || offlineOk) && !dayOk) {
+        try { await supabase.auth.signOut({ scope: "local" }); } catch (e) {}
+        try { localStorage.removeItem("sjfAuthOk"); } catch (e) {}
+        if (alive) setStage("login");
+        return;
+      }
       if (session || offlineOk) { await __hydrate(); if (alive) setStage("ready"); }
       else setStage("login");
     })();
     const sub = supabase.auth.onAuthStateChange((ev) => {
       if (ev === "SIGNED_OUT") { try { localStorage.removeItem("sjfAuthOk"); } catch (e) {} setStage("login"); }
     });
-    return () => { alive = false; try { sub.data.subscription.unsubscribe(); } catch (e) {} };
+    // เครื่องที่เปิดแอปค้างข้ามวัน → เช็คทุก 5 นาที พอวันเปลี่ยนก็เด้งไปหน้าเข้าสู่ระบบเอง
+    const dayTimer = setInterval(() => {
+      try {
+        if (localStorage.getItem("sjfAuthOk") === "1" && localStorage.getItem("sjfAuthDay") !== new Date().toDateString()) {
+          try { supabase.auth.signOut({ scope: "local" }); } catch (e) {}
+          localStorage.removeItem("sjfAuthOk");
+          setStage("login");
+        }
+      } catch (e) {}
+    }, 300000);
+    return () => { alive = false; clearInterval(dayTimer); try { sub.data.subscription.unsubscribe(); } catch (e) {} };
   }, []);
   if (stage === "checking") return (
     <div style={{ minHeight: "100vh", background: "linear-gradient(180deg, #FFF4E6 0%, #FFE7CB 100%)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Noto Sans Thai', sans-serif", color: "#b08a5c", fontSize: 14.5, fontWeight: 700 }}>
