@@ -285,6 +285,22 @@ function SyncStatusButton() {
     </button>
   );
 }
+// ⛔ กันคีย์ข้อมูลตอนเครื่องยังไม่เชื่อมคลาวด์ (เหตุการณ์ H6 22/7 + H7 5,7/8: คีย์ตอน ⛔ แล้วข้อมูลหายเงียบตอนเครื่องกลับมาออนไลน์
+//    เพราะการดึงคลาวด์รอบถัดไปทับค่าที่คีย์ไว้ในเครื่อง) — แถบเตือนแดง + ห้ามกดบันทึกจนกว่าจะเชื่อมสำเร็จ
+function useSbSafe() {
+  const [safe, setSafe] = useState(() => !supabase || __sbSafe);
+  useEffect(() => { const t = setInterval(() => setSafe(!supabase || __sbSafe), 2000); return () => clearInterval(t); }, []);
+  return safe;
+}
+function CloudBlockBanner() {
+  return (
+    <div style={{ display: "flex", alignItems: "flex-start", gap: 9, background: "#FEF2F2", border: "2px solid #FCA5A5", color: "#B91C1C", borderRadius: 12, padding: "11px 15px", fontWeight: 800, fontSize: 13.5, lineHeight: 1.55, margin: "0 0 12px" }}>
+      <span style={{ fontSize: 17 }}>⛔</span>
+      <span>เครื่องนี้ยังไม่เชื่อมคลาวด์ — <u>ห้ามคีย์ข้อมูลตอนนี้</u> เพราะข้อมูลที่คีย์จะหายเมื่อเครื่องเชื่อมคลาวด์ได้อีกครั้ง<br />
+      <span style={{ fontWeight: 700 }}>วิธีแก้: กดปุ่มสถานะสีแดงที่หัวเว็บ (หรือเช็คอินเทอร์เน็ต แล้วรีเฟรชหน้า) รอจนขึ้น ✓ สีเขียว "บันทึกขึ้นคลาวด์แล้ว" ก่อนค่อยคีย์</span></span>
+    </div>
+  );
+}
 // 💾 สำรองข้อมูลทั้งหมด → ดาวน์โหลดเป็นไฟล์ JSON (ประกันชั้นสอง นอกเหนือจากคลาวด์)
 function exportAllEggData() {
   const dump = {};
@@ -7930,6 +7946,7 @@ function CostView({ expenses = [], addExpense, deleteExpense, production = {}, m
 }
 
 function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, production = {}, medTrials = [], medStock = [], medInfo = {}, vaccines = {}, addVaccine, deleteVaccine, labTests = {}, addLabTest, deleteLabTest }) {
+  const sbSafe = useSbSafe();   // ⛔ เครื่องยังไม่เชื่อมคลาวด์ → โชว์แถบเตือน + ห้ามบันทึก (กันข้อมูลหายเงียบ)
   const prodDates = Object.keys(production).sort();
   const houseIds = [...new Set([...(production[prodDates[prodDates.length - 1]] || []).map((h) => h.id), ...HOUSE_IDS])];   // รวมหลังใหม่ที่ยังไม่มีผลผลิต (เช่น H7)
   const rearDates = Object.keys(rearingByDate).sort();
@@ -8070,6 +8087,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
 
   return (
     <div style={{ padding: "18px 22px 40px" }}>
+      {!sbSafe && <CloudBlockBanner />}
       <div style={S.subBar}>
         <span style={S.subBarTitle}>การเลี้ยงไก่ไข่{mode === "house" ? <span style={{ fontSize: 30, verticalAlign: "middle", color: ACCENT_DK }}> · โรงเรือน {selHouse}</span> : ` · ${dayTH}`}{rearDates.length > 0 ? <span style={{ fontSize: 12.5, fontWeight: 600, color: "#9b8e78" }}> · บันทึกแล้ว {rearDates.length} วัน</span> : null}</span>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -8453,7 +8471,10 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
           feedMin={feedMin} medStock={medStock} medInfo={medInfo}
           seqLabel={round ? `หลังที่ ${round.idx + 1}/${houseIds.length}` : null}
           onSkip={round ? advanceRound : null}
-          onSave={(hid, dISO, d) => { saveRearing(dISO, hid, d); if (round) advanceRound(); else setEditHouse(null); }}
+          onSave={(hid, dISO, d) => {
+            if (!sbSafe) { alert("⛔ ยังไม่บันทึก — เครื่องนี้ยังไม่เชื่อมคลาวด์ ข้อมูลจะหายถ้าฝืนบันทึก\n\nข้อมูลที่กรอกไว้ยังอยู่ครบ: กดปุ่มสถานะสีแดงที่หัวเว็บ (หรือเช็คอินเทอร์เน็ต) ให้ขึ้น ✓ สีเขียวก่อน แล้วกลับมากดบันทึกซ้ำอีกครั้ง"); return; }
+            saveRearing(dISO, hid, d); if (round) advanceRound(); else setEditHouse(null);
+          }}
           onClose={() => { setRound(null); setEditHouse(null); }} />
       )}
       {flockHouse && (
