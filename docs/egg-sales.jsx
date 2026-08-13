@@ -1191,6 +1191,7 @@ function RolePickerModal({ roles, current, onPick, onClose }) {
   const [pin, setPin] = useState("");
   const [err, setErr] = useState("");
   const [authUser, setAuthUser] = useState("");   // ชื่อบัญชีล็อกอินฟาร์ม (Supabase Auth)
+  const [confirmOut, setConfirmOut] = useState(false);   // กด "ออกจากระบบ" ครั้งแรก = ขอยืนยัน (ไม่พึ่ง window.confirm ที่เบราว์เซอร์บล็อกได้)
   useEffect(() => {
     if (!supabase) return;
     supabase.auth.getSession().then((r) => {
@@ -1199,9 +1200,11 @@ function RolePickerModal({ roles, current, onPick, onClose }) {
     }).catch(() => {});
   }, []);
   const doLogout = async () => {
-    if (!window.confirm("ออกจากระบบบัญชีฟาร์ม? ครั้งต่อไปต้องใส่รหัสผ่านใหม่")) return;
+    // ยืนยันด้วยการกดปุ่มซ้ำ (เดิมใช้ window.confirm — ถ้าเบราว์เซอร์เคยถูกติ๊ก "ไม่แสดงกล่องโต้ตอบอีก" จะกดออกไม่ได้เงียบๆ)
+    if (!confirmOut) { setConfirmOut(true); setTimeout(() => setConfirmOut(false), 7000); return; }
     try { localStorage.removeItem("sjfAuthOk"); } catch (e) {}
-    try { await supabase.auth.signOut({ scope: "local" }); } catch (e) {}   // ออกเฉพาะเครื่องนี้ — ไม่เตะเครื่องอื่นที่ใช้บัญชีเดียวกันหลุด
+    // ออกเฉพาะเครื่องนี้ — ไม่เตะเครื่องอื่นที่ใช้บัญชีเดียวกันหลุด · เซิร์ฟเวอร์ไม่ตอบใน 2.5 วิ ก็ออกเลย ไม่ค้าง
+    try { await Promise.race([supabase.auth.signOut({ scope: "local" }), new Promise((res) => setTimeout(res, 2500))]); } catch (e) {}
     window.location.reload();
   };
   const choose = (r) => {
@@ -1243,7 +1246,7 @@ function RolePickerModal({ roles, current, onPick, onClose }) {
             {supabase && (
               <div style={{ marginTop: 6, paddingTop: 10, borderTop: "1px solid #efe9dc", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                 <span style={{ fontSize: 11.5, color: "#9b8e78" }}>🔐 บัญชีฟาร์ม: <b style={{ color: "#6d6151" }}>{authUser || "—"}</b></span>
-                <button onClick={doLogout} style={{ border: "1.5px solid #FCA5A5", background: "#FEF2F2", color: "#B91C1C", borderRadius: 9, padding: "7px 12px", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>🚪 ออกจากระบบ</button>
+                <button onClick={doLogout} style={{ border: "1.5px solid #FCA5A5", background: confirmOut ? "#B91C1C" : "#FEF2F2", color: confirmOut ? "#fff" : "#B91C1C", borderRadius: 9, padding: "7px 12px", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>{confirmOut ? "❗ แตะอีกครั้ง เพื่อยืนยันออกจากระบบ" : "🚪 ออกจากระบบ"}</button>
               </div>
             )}
           </div>
