@@ -3898,8 +3898,21 @@ function manageDayData(production, rearingByDate, flocks, alertCfg, date) {
     const waterMl = (waterUsed != null && birdsLive) ? (waterUsed * waterUnitToMl(hid)) / birdsLive : null;   // H2-H3 มิเตอร์ลิตร · H4-H7 คิว
     const stdWaterMl = stdFeedG != null ? stdFeedG * 2.0 : null;
     const waterPct = (waterMl != null && stdWaterMl) ? (waterMl / stdWaterMl) * 100 : null;
+    // 💡 แสงจริงล่าสุด (วันที่เลือก หรือถอยหลังหาไม่เกิน 7 วัน) เทียบโปรแกรมแสง Hy-Line ตามอายุ
+    let lightH = null, lightLux = null;
+    for (let i = 0; i <= 7; i++) {
+      const rr = (rearingByDate[shiftDayISO(date, -i)] || {})[hid];
+      const lg = rr && rr.light;
+      if (lg && (String(lg.hours || "").trim() !== "" || String(lg.lux || "").trim() !== "")) { lightH = parseFloat(lg.hours) || null; lightLux = parseFloat(lg.lux) || null; break; }
+    }
+    const stdLightH = hylineLightH(age), stdLuxMin = hylineLuxMin(age);
+    // 💀 ตายสะสมจริง (นับจากวันรับเข้า) เทียบมาตรฐานอัตรารอดตามอายุ
+    const fl = flocks[hid];
+    const cum = fl && fl.startCount ? rearingCum(rearingByDate, hid, date, fl) : null;
+    const cumDeadPct = (cum && fl.startCount > 0) ? (cum.total / fl.startCount) * 100 : null;
+    const stdCumDeadPct = hylineCumDeadPct(age);
     const alerts = chickens > 0 ? computeHouseAlerts(h, alertCfg) : [];
-    return { hid, chickens, age, goodFong, goodPrang, offPrang, offFong, klaPrang, klaFong, totalFong, totalPrang, prodRate, stdHD, rateDiff, offPct, berFong, deaths, cull, deathPct, feedUsed, stdFeedKg, feedPct, waterMl, stdWaterMl, waterPct, alerts, hasRear: !!r, issues: [] };
+    return { hid, chickens, age, goodFong, goodPrang, offPrang, offFong, klaPrang, klaFong, totalFong, totalPrang, prodRate, stdHD, rateDiff, offPct, berFong, deaths, cull, deathPct, feedUsed, stdFeedKg, feedPct, waterMl, stdWaterMl, waterPct, lightH, lightLux, stdLightH, stdLuxMin, cumDeadPct, stdCumDeadPct, alerts, hasRear: !!r, issues: [] };
   });
   // ค่าเฉลี่ยฟาร์ม (สัดส่วนเบอร์ไข่) → ใช้เทียบว่าหลังไหนเบอร์ผิดกลุ่ม
   const farmBer = {}; BER_KEYS.forEach((k) => { farmBer[k] = 0; });
@@ -3915,6 +3928,8 @@ function manageDayData(production, rearingByDate, flocks, alertCfg, date) {
     if (h.waterPct != null && h.waterPct < 90) iss.push({ sev: "amber", head: `กินน้ำ ${h.waterPct.toFixed(0)}% ของมาตรฐาน`, why: "น้ำน้อยฉุดการกินอาหารและผลผลิตตาม", act: "ตรวจหัวจุ๊บตัน/แรงดันน้ำ/ท่อรั่ว" });
     else if (h.waterPct != null && h.waterPct > 160) iss.push({ sev: "amber", head: `กินน้ำสูงผิดปกติ ${h.waterPct.toFixed(0)}%`, why: "อาจน้ำรั่ว/หกเสีย หรือฝูงเครียดจากความร้อน", act: "ตรวจท่อ-หัวจุ๊บรั่ว · เช็คอุณหภูมิโรงเรือน" });
     if (h.rateDiff != null && h.rateDiff <= -8) iss.push({ sev: "red", head: `ผลผลิต ${h.prodRate.toFixed(0)}% ต่ำกว่ามาตรฐานอายุ (~${h.stdHD.toFixed(0)}%)`, why: ADVICE_KB._prod.causes[0], act: ADVICE_KB._prod.actions.slice(0, 2).join(" · ") });
+    if (h.lightH != null && h.stdLightH != null && Math.abs(h.lightH - h.stdLightH) >= 1) iss.push({ sev: "amber", head: `💡 แสง ${h.lightH} ชม. ต่างจากโปรแกรม Hy-Line (~${h.stdLightH.toFixed(1)} ชม. ที่อายุ ${h.age} สป.)`, why: "ชั่วโมงแสงผิดโปรแกรมกระทบการกินอาหารและ%ไข่ — ช่วงไข่ห้ามลดชั่วโมงแสงเด็ดขาด", act: "ปรับตั้งเวลาเปิด-ปิดไฟให้ตรงโปรแกรม · เช็คหลอดไฟดับ/ไทเมอร์เพี้ยน" });
+    if (h.lightLux != null && h.stdLuxMin != null && h.lightLux < h.stdLuxMin) iss.push({ sev: "amber", head: `💡 ความสว่าง ${h.lightLux} lux ต่ำกว่าขั้นต่ำ (~${h.stdLuxMin} lux ที่อายุ ${h.age} สป.)`, why: "แสงสลัวเกินไปช่วงกระตุ้น/ช่วงไข่ ทำให้กินอาหารน้อยและไข่ช้า", act: "เพิ่มความสว่าง/เปลี่ยนหลอดที่เสื่อม · วัด lux ระดับหัวไก่จุดที่มืดสุด" });
     h.alerts.forEach((a) => { const ad = adviceForTag(a.tag); if (ad) iss.push({ sev: "amber", head: `${a.label} · ${a.detail}`, why: ad.causes[0], act: ad.actions[0] }); });
     // เบอร์ไข่ผิดกลุ่ม (เทียบค่าเฉลี่ยฟาร์ม) — ข้อมูลประกอบ (ขนาดไข่แปรตามอายุ)
     if (h.goodFong >= 300) {
@@ -4170,6 +4185,56 @@ function ManageDashView({ production = {}, rearingByDate = {}, flocks = {} }) {
               </tbody>
             </table>
             <div style={{ fontSize: 11, color: "#9b8e78", marginTop: 8 }}>อาหาร/น้ำ %มฐ = เทียบมาตรฐาน Hy-Line Brown ตามอายุ (แดง = ต่ำกว่า 90% · น้ำแดงเมื่อ &lt;90% หรือ &gt;160%) · ผลผลิต% = ไข่รวม (ดี+ตกเกรด+คละ) ÷ จำนวนไก่ = hen-day มาตรฐาน (ตรงกับ %ไข่รวม หน้าผลผลิตประจำวัน) · น้ำต้องกรอกมิเตอร์ต่อเนื่อง 2 วันจึงคำนวณได้</div>
+          </div>
+
+          {/* 📏 เทียบมาตรฐาน Hy-Line Brown ตามอายุจริง ทุกตัวชี้วัด + โปรแกรมแสง */}
+          <div style={{ ...S.dashCard, marginTop: 14, overflowX: "auto" }}>
+            <div style={S.dashCardTitle}><TrendingUp size={16} /> เทียบมาตรฐาน Hy-Line Brown ตามอายุจริง · รวมโปรแกรมแสง</div>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 880 }}>
+              <thead><tr>
+                <th style={{ ...th, textAlign: "left" }}>หลัง</th>
+                <th style={th}>อายุ(สป.)</th>
+                <th style={th}>ผลผลิต% จริง/มฐ</th>
+                <th style={th}>ตายสะสม% จริง/มฐ</th>
+                <th style={th}>อาหาร ก./ตัว จริง/มฐ</th>
+                <th style={th}>น้ำ มล./ตัว จริง/มฐ</th>
+                <th style={th}>💡 แสง ชม. จริง/มฐ</th>
+                <th style={th}>💡 สว่าง lux จริง/ต่ำสุด</th>
+              </tr></thead>
+              <tbody>
+                {data.houses.map((h) => {
+                  const pair = (a, s, bad, digits = 0, warn = false) => (
+                    <span>
+                      <b style={{ color: bad ? "#B91C1C" : warn ? "#B45309" : "#15803D", background: bad ? "#FEF2F2" : "transparent" }}>{a != null ? a.toFixed(digits) : "—"}</b>
+                      <span style={{ color: "#9b8e78" }}> / {s != null ? "~" + s.toFixed(digits) : "—"}</span>
+                    </span>
+                  );
+                  const stdFeedG = h.age != null ? hylineFeedG(h.age) : null;
+                  const feedG = (h.feedPct != null && stdFeedG != null) ? h.feedPct * stdFeedG / 100 : null;
+                  const prodBad = h.rateDiff != null && h.rateDiff <= -8;
+                  const deadBad = h.cumDeadPct != null && h.stdCumDeadPct != null && h.cumDeadPct > h.stdCumDeadPct + 2;
+                  const deadWarn = !deadBad && h.cumDeadPct != null && h.stdCumDeadPct != null && h.cumDeadPct > h.stdCumDeadPct;
+                  const feedBad = h.feedPct != null && h.feedPct < 90;
+                  const waterBad = h.waterPct != null && (h.waterPct < 90 || h.waterPct > 160);
+                  const lightBad = h.lightH != null && h.stdLightH != null && Math.abs(h.lightH - h.stdLightH) >= 1;
+                  const lightWarn = !lightBad && h.lightH != null && h.stdLightH != null && Math.abs(h.lightH - h.stdLightH) >= 0.5;
+                  const luxBad = h.lightLux != null && h.stdLuxMin != null && h.lightLux < h.stdLuxMin;
+                  return (
+                    <tr key={h.hid}>
+                      <td style={{ ...td, textAlign: "left", fontWeight: 800, color: ACCENT_DK }}>{h.hid}</td>
+                      <td style={td}>{h.age != null ? h.age : "—"}</td>
+                      <td style={td}>{pair(h.prodRate, h.stdHD, prodBad)}</td>
+                      <td style={td}>{pair(h.cumDeadPct, h.stdCumDeadPct, deadBad, 2, deadWarn)}</td>
+                      <td style={td}>{pair(feedG, stdFeedG, feedBad)}</td>
+                      <td style={td}>{pair(h.waterMl, h.stdWaterMl, waterBad)}</td>
+                      <td style={td}>{pair(h.lightH, h.stdLightH, lightBad, 1, lightWarn)}</td>
+                      <td style={td}>{pair(h.lightLux, h.stdLuxMin, luxBad)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <div style={{ fontSize: 11, color: "#9b8e78", marginTop: 8 }}>เขียว = ตามเกณฑ์ · ส้ม = คลาดเล็กน้อย · แดง = ต่างจากมาตรฐานชัด (ผลผลิตต่ำกว่ามฐ ≥8 จุด · ตายสะสมเกินมฐ &gt;2 จุด · อาหาร&lt;90% · น้ำ&lt;90%/&gt;160% · แสงต่างจากโปรแกรม ≥1 ชม. · lux ต่ำกว่าขั้นต่ำ) · ตายสะสม%มฐ: อายุ ≤17 สป. เทียบช่วงรุ่น (เลี้ยงรอด ~98%) · 18 สป.+ เทียบช่วงไข่นับจากเข้าเล้า (เลี้ยงรอด 97.17% ที่ 60 สป. · 91.4% ที่ 100 สป.) · โปรแกรมแสง Hy-Line: กก 22 ชม. → ลดถึง 12 ชม. (10-16 สป.) → กระตุ้น +30 นาที/สป. ตั้งแต่ 17 สป. → คงที่ 16 ชม. ตลอดช่วงไข่ (ห้ามลด) · lux ขั้นต่ำ: กก ~30 · รุ่น ~10 · กระตุ้น/ไข่ ≥30 · แสงจริง = ค่าที่กรอกล่าสุดภายใน 7 วัน</div>
           </div>
 
           {/* 📈 กราฟผลผลิตรายเดือน แยกรายหลัง */}
@@ -5148,6 +5213,28 @@ function hylineFeedG(wk) {
   const last = HYLINE_FEED_G[HYLINE_FEED_G.length - 1]; if (wk >= last[0]) return last[1];
   for (let i = 0; i < HYLINE_FEED_G.length - 1; i++) { const [w0, v0] = HYLINE_FEED_G[i], [w1, v1] = HYLINE_FEED_G[i + 1]; if (wk >= w0 && wk <= w1) return v0 + (v1 - v0) * (wk - w0) / (w1 - w0); }
   return null;
+}
+
+// 💡 โปรแกรมแสง Hy-Line Brown (ชั่วโมงแสง/วัน ตามอายุสัปดาห์) — คู่มือสายพันธุ์:
+// ช่วงกกเริ่ม 22 ชม. ค่อยๆ ลดจนคงที่ 12 ชม. (10-16 สป.) → กระตุ้นแสงที่ 17 สป. เพิ่ม ~30 นาที/สัปดาห์
+// จนถึง 16 ชม. (~23 สป.) แล้วคงที่ตลอดช่วงไข่ — กฎเหล็ก: ช่วงไข่ห้ามลดชั่วโมงแสงเด็ดขาด
+const HYLINE_LIGHT_H = [[1, 22], [2, 20], [3, 18], [4, 16.5], [5, 15.5], [6, 14.5], [7, 13.5], [8, 13], [9, 12.5], [10, 12], [16, 12], [17, 13], [18, 13.5], [19, 14], [20, 14.5], [21, 15], [22, 15.5], [23, 16], [100, 16]];
+function hylineLightH(wk) {
+  if (wk == null) return null;
+  if (wk <= HYLINE_LIGHT_H[0][0]) return HYLINE_LIGHT_H[0][1];
+  const last = HYLINE_LIGHT_H[HYLINE_LIGHT_H.length - 1]; if (wk >= last[0]) return last[1];
+  for (let i = 0; i < HYLINE_LIGHT_H.length - 1; i++) { const [w0, v0] = HYLINE_LIGHT_H[i], [w1, v1] = HYLINE_LIGHT_H[i + 1]; if (wk >= w0 && wk <= w1) return v0 + (v1 - v0) * (wk - w0) / (w1 - w0); }
+  return null;
+}
+// ความสว่างขั้นต่ำ (lux): ช่วงกก 1-2 สป. ~30 · ช่วงรุ่น 3-16 สป. ~10 (สลัวกันจิกกัน) · ตั้งแต่กระตุ้นแสง 17 สป.+ ต้อง ≥30
+function hylineLuxMin(wk) { if (wk == null) return null; if (wk <= 2) return 30; if (wk <= 16) return 10; return 30; }
+// 💀 %ตายสะสมมาตรฐาน Hy-Line ตามอายุ — อายุ ≤17 สป. เทียบช่วงรุ่น (เลี้ยงรอด ~98%)
+// อายุ 18+ เทียบช่วงไข่นับจากเข้าเล้า (เลี้ยงรอด 97.17% ที่ 60 สป. · 91.4% ที่ 100 สป. — ตรงกับที่ฟาร์มนับตายสะสมจากวันรับเข้า)
+function hylineCumDeadPct(wk) {
+  if (wk == null) return null;
+  if (wk <= 17) return 2.0 * wk / 17;
+  if (wk <= 60) return ((wk - 18) / 42) * 2.83;
+  return 2.83 + ((Math.min(wk, 100) - 60) / 40) * 5.77;
 }
 
 // คำแนะนำต่อความผิดปกติ (key = ชื่อตกเกรด หรือ _prod/_off) — สาเหตุที่พบบ่อย + สิ่งที่ควรทำ
@@ -6329,6 +6416,18 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = n
             {fw("lh", "ไฟ (ชั่วโมง)", <input {...numProps(0, "pfLight")} value={light.hours} onChange={(e) => setLight((p) => ({ ...p, hours: dec(e.target.value) }))} autoFocus />, "#86198F")}
             {fw("lx", "แสง (ค่า Lux)", <input {...numProps(1, "pfLight")} value={light.lux} onChange={(e) => setLight((p) => ({ ...p, lux: dec(e.target.value) }))} />, "#86198F")}
           </div>
+          {/* ⚠️ เทียบโปรแกรมแสง Hy-Line ตามอายุรุ่นทันทีที่กรอก — เตือนถ้าไม่ตรงมาตรฐาน (ไม่บล็อกการบันทึก) */}
+          {(() => {
+            const wk = flockAgeWk(flock, dateISO);
+            if (wk == null) return null;
+            const stdH = hylineLightH(wk), minLx = hylineLuxMin(wk);
+            const hVal = parseFloat(light.hours), lxVal = parseFloat(light.lux);
+            const msgs = [];
+            if (!isNaN(hVal) && stdH != null && Math.abs(hVal - stdH) >= 0.5) msgs.push(`ไฟ ${hVal} ชม. — โปรแกรม Hy-Line อายุ ${wk} สป. คือ ~${stdH.toFixed(1)} ชม.${wk >= 18 && hVal < stdH ? " ⛔ ช่วงไข่ห้ามลดชั่วโมงแสง" : ""}`);
+            if (!isNaN(lxVal) && minLx != null && lxVal < minLx) msgs.push(`ความสว่าง ${lxVal} lux ต่ำกว่าขั้นต่ำ ~${minLx} lux ของอายุนี้`);
+            if (!msgs.length) return null;
+            return <div style={{ marginTop: 8, background: "#FFF7EC", border: "1.5px solid #F5C77E", color: "#B45309", borderRadius: 9, padding: "7px 11px", fontSize: 12.5, fontWeight: 700, lineHeight: 1.5 }}>⚠️ {msgs.join(" · ")}</div>;
+          })()}
         </div>
 
         <div style={section("#FEF2F2", "#FECACA", "#DC2626")}>
@@ -10311,12 +10410,14 @@ function Root() {
       if (ev === "SIGNED_OUT") { try { localStorage.removeItem("sjfAuthOk"); } catch (e) {} setStage("login"); }
     });
     // เครื่องที่เปิดแอปค้างข้ามวัน → เช็คทุก 5 นาที พอวันเปลี่ยนก็เด้งไปหน้าเข้าสู่ระบบเอง
+    // สำคัญ: รีโหลดหน้าเว็บจริงด้วย (ถ้าออนไลน์) — จะได้โหลดโค้ดเวอร์ชันล่าสุดทุกวัน ไม่ค้างเวอร์ชันเก่าเป็นสัปดาห์
     const dayTimer = setInterval(() => {
       try {
         if (localStorage.getItem("sjfAuthOk") === "1" && localStorage.getItem("sjfAuthDay") !== new Date().toDateString()) {
           try { supabase.auth.signOut({ scope: "local" }); } catch (e) {}
           localStorage.removeItem("sjfAuthOk");
           setStage("login");
+          if (typeof navigator === "undefined" || navigator.onLine !== false) { try { window.location.reload(); } catch (e) {} }
         }
       } catch (e) {}
     }, 300000);
