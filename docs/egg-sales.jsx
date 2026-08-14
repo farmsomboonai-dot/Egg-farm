@@ -644,8 +644,9 @@ function normalizeCustCode(raw) {
 }
 
 /* ฟอร์มเพิ่ม/แก้ไขลูกค้า — รหัส / ชื่อ / บริษัท / เลขผู้เสียภาษี / เบอร์ / ที่อยู่ / กลุ่ม (ส่ง initial มา = โหมดแก้ไข) */
-function NewCustomerModal({ groups, onClose, onAdd, initial }) {
+function NewCustomerModal({ groups, onClose, onAdd, initial, isOwner = false, onSetInactive = null }) {
   const editing = !!initial;
+  const [confirmDel, setConfirmDel] = useState(false);   // 🚫 เลิกใช้งานลูกค้า: ยืนยันด้วยการแตะปุ่มซ้ำ (เฉพาะเจ้าของ)
   const [code, setCode] = useState(() => editing ? (initial.code || "") : nextCustomerCode());
   const [name, setName] = useState(initial?.name || "");
   const [company, setCompany] = useState(initial?.company || "");
@@ -728,6 +729,22 @@ function NewCustomerModal({ groups, onClose, onAdd, initial }) {
         >
           {editing ? "บันทึกการแก้ไข" : "บันทึกลูกค้า"}
         </button>
+        {/* 🚫 เลิกใช้งาน/กู้คืนลูกค้า — สิทธิ์เจ้าของคนเดียว (ไม่ลบจริง กันระบบซิงก์ดันชื่อกลับ + ประวัติบิลเก่ายังอ้างอิงได้) */}
+        {editing && isOwner && onSetInactive && (initial.inactive ? (
+          <button type="button" onClick={() => onSetInactive(initial.id, false)}
+            style={{ width: "100%", marginTop: 10, border: "1.5px solid #A7F3D0", background: "#F0FDF4", color: "#15803D", borderRadius: 11, padding: "12px 14px", fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
+            ↩️ กู้คืนลูกค้า (กลับมาใช้งาน)
+          </button>
+        ) : (
+          <button type="button"
+            onClick={() => { if (!confirmDel) { setConfirmDel(true); setTimeout(() => setConfirmDel(false), 7000); return; } onSetInactive(initial.id, true); }}
+            style={{ width: "100%", marginTop: 10, border: "1.5px solid #FCA5A5", background: confirmDel ? "#B91C1C" : "#FEF2F2", color: confirmDel ? "#fff" : "#B91C1C", borderRadius: 11, padding: "12px 14px", fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
+            {confirmDel ? "❗ แตะอีกครั้ง ยืนยันเลิกใช้งานลูกค้ารายนี้" : "🚫 เลิกใช้งานลูกค้า (ซ่อนจากหน้าออกบิล · กู้คืนได้)"}
+          </button>
+        ))}
+        {editing && isOwner && !initial.inactive && (
+          <div style={{ fontSize: 11.5, color: "#9b8e78", marginTop: 7, textAlign: "center" }}>ประวัติบิลและยอดค้างเดิมของลูกค้าไม่หาย — แค่ชื่อหายจากหน้าเลือกลูกค้าตอนออกบิล</div>
+        )}
       </div>
     </div>
   );
@@ -740,10 +757,10 @@ function CustomerCodesModal({ onClose, onPick, onEdit, mode = "select" }) {
   const editMode = mode === "edit";
   const groupName = (gid) => CUSTOMER_GROUPS.find((g) => g.id === gid)?.name || gid;
   const s = q.trim().toLowerCase();
-  const rows = CUSTOMERS
+  const rows = CUSTOMERS   // โชว์ทุกราย รวมที่เลิกใช้งาน (จางๆ ท้ายลิสต์) — เจ้าของจะได้เข้าไปกู้คืนได้ · เลือกออกบิลไม่ได้อยู่แล้ว
     .filter((c) => !s || (c.name || "").toLowerCase().includes(s) || (c.code || "").toLowerCase().includes(s) || (c.phone || "").includes(s))
     .slice()
-    .sort((a, b) => (a.code || "zzzz").localeCompare(b.code || "zzzz", "en", { numeric: true }));
+    .sort((a, b) => (a.inactive ? 1 : 0) - (b.inactive ? 1 : 0) || (a.code || "zzzz").localeCompare(b.code || "zzzz", "en", { numeric: true }));
   const rowClick = (c) => editMode ? (onEdit && onEdit(c)) : setDetail(c);
   const detailRows = (c) => [
     ["รหัสลูกค้า", c.code],
@@ -780,7 +797,8 @@ function CustomerCodesModal({ onClose, onPick, onEdit, mode = "select" }) {
                 </div>
               ))}
               <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
-                {onPick && <button style={{ ...S.primarySmBtn, flex: 1, justifyContent: "center" }} onClick={() => onPick(detail.id)}><ShoppingCart size={15} /> เลือกออกบิล</button>}
+                {onPick && !detail.inactive && <button style={{ ...S.primarySmBtn, flex: 1, justifyContent: "center" }} onClick={() => onPick(detail.id)}><ShoppingCart size={15} /> เลือกออกบิล</button>}
+                {detail.inactive && <div style={{ flex: 1, textAlign: "center", padding: "9px 12px", background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 9, color: "#B91C1C", fontSize: 12.5, fontWeight: 800 }}>🚫 เลิกใช้งานอยู่ — ออกบิลไม่ได้ (กู้คืนได้ที่ปุ่มแก้ไข)</div>}
                 {onEdit && <button style={{ ...S.ghostBtn, flex: 1, justifyContent: "center" }} onClick={() => onEdit(detail)}><Pencil size={15} /> แก้ไขข้อมูล</button>}
               </div>
             </div>
@@ -803,7 +821,7 @@ function CustomerCodesModal({ onClose, onPick, onEdit, mode = "select" }) {
                   <div onClick={() => rowClick(c)} style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}>
                     <span style={{ fontWeight: 800, color: ACCENT_DK, fontFamily: "monospace", minWidth: 62, fontSize: 13.5 }}>{c.code || "—"}</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 600, color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div>
+                      <div style={{ fontWeight: 600, color: c.inactive ? "#9ca3af" : INK, textDecoration: c.inactive ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}{c.inactive ? <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 800, color: "#B91C1C", background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 999, padding: "1px 7px", textDecoration: "none", display: "inline-block" }}>เลิกใช้งาน</span> : null}</div>
                       <div style={{ fontSize: 12, color: "#9b8e78" }}>{custGroups(c).map(groupName).join(" · ")}{c.phone && c.phone !== "-" ? " · " + c.phone : ""}</div>
                     </div>
                   </div>
@@ -2467,13 +2485,14 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
   if (!customer) {
     const q = custSearch.trim().toLowerCase();
     // ค้นหาได้ทั้งชื่อ / รหัส (KK-) / เบอร์โทร
-    const matched = CUSTOMERS.filter((c) => !q ||
+    const activeCust = CUSTOMERS.filter((c) => !c.inactive);   // 🚫 ลูกค้าที่เจ้าของกดเลิกใช้งาน ไม่โชว์หน้าออกบิล (กู้คืนได้จากหน้ารหัสลูกค้า)
+    const matched = activeCust.filter((c) => !q ||
       c.name.toLowerCase().includes(q) ||
       (c.code || "").toLowerCase().includes(q) ||
       (c.phone || "").toLowerCase().includes(q));
     // ตอนพิมพ์ค้นหา ให้ข้ามตัวกรองกลุ่ม (หาข้ามทุกกลุ่ม) ; ไม่พิมพ์ค่อยใช้ชิปกรอง
     const activeGroupFilter = q ? "all" : custGroupFilter;
-    const groupCount = (gid) => CUSTOMERS.filter((c) => custGroups(c).includes(gid)).length;
+    const groupCount = (gid) => activeCust.filter((c) => custGroups(c).includes(gid)).length;
     const shownGroups = CUSTOMER_GROUPS.filter((g) => groupCount(g.id) > 0);
     return (
       <div style={S.stage}>
@@ -2517,7 +2536,7 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
         {!q && (
           <div style={S.custChips}>
             <button style={{ ...S.custChip, ...(custGroupFilter === "all" ? S.custChipActive : {}) }} onClick={() => setCustGroupFilter("all")}>
-              ทั้งหมด <span style={S.custChipCount}>{CUSTOMERS.length}</span>
+              ทั้งหมด <span style={S.custChipCount}>{activeCust.length}</span>
             </button>
             {shownGroups.map((g) => (
               <button key={g.id} style={{ ...S.custChip, ...(custGroupFilter === g.id ? S.custChipActive : {}) }} onClick={() => setCustGroupFilter(g.id)}>
@@ -2563,6 +2582,8 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
           <NewCustomerModal
             groups={CUSTOMER_GROUPS}
             initial={editingCust}
+            isOwner={isOwner}
+            onSetInactive={(id, flag) => { updateCustomerRecord(id, { inactive: flag }); setEditingCust(null); setCustVersion((v) => v + 1); }}
             onClose={() => setEditingCust(null)}
             onAdd={(c) => { updateCustomerRecord(c.id, c); setEditingCust(null); setCustVersion((v) => v + 1); }}
           />
