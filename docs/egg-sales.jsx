@@ -911,6 +911,9 @@ const LAST_PRICES = {
 
 // ราคาอ้างอิงต่อแผง (fallback) — ใช้ตีมูลค่า "ส่วนต่าง" ตอนปิดยอด ถ้าไม่มีราคาจากบิลจริง
 const REF_PRICE_FALLBACK = { n0: 130, n1: 120, n2: 110, n3: 100, n4: 90, n5: 85, s_white: 75, g_nuan: 60, g_sand: 55, g_pueanmak: 45, g_pueannoi: 50, g_bub: 70, g_jiw: 65, g_tok: 20, g_toklew: 20, g_tokdaeng: 25, s_jumbo: 140 };
+// หน่วยขายต่อสินค้า — ปกติขายเป็น "แผง" · ไข่ตอกแก้ว ขายเป็น "แก้ว" (เจ้าของสั่ง 16 ส.ค. 69)
+const PRODUCT_UNIT = { g_tok: "แก้ว" };
+const productUnit = (pid) => PRODUCT_UNIT[pid] || "แผง";
 // สาเหตุส่วนต่างตอนปิดยอด (แท็กต่อรายการ)
 const DIFF_REASONS = ["แตก", "หาย", "แถม", "นับพลาด", "อื่นๆ"];
 // หมวดต้นทุน 6 หมวด (บัญชีต้นทุน — ตาม roadmap ต้นทุนต่อหลังต่อรุ่น)
@@ -2139,12 +2142,16 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
 
   const eggTotal = cartItems.reduce((s, i) => s + i.subtotal, 0);
   const totalPrang = cartItems.reduce((s, i) => s + (i.product?.noTray ? 0 : i.qty), 0);   // นับเฉพาะแผงไข่จริง (ไม่รวมบรรจุภัณฑ์ เช่น แผงไข่กระดาษ)
-  // ยอดแผงรับ = ยอดไข่ × 1.1 (จำนวนแผงจริงที่ลูกค้ารับ)
-  const trayReceivedTotal = Math.round(totalPrang * 1.1);
+  // 🥛 สินค้าหน่วยพิเศษ (ตอกแก้ว): 1 แก้ว ≈ 8-9 ฟอง (ไข่บุบร้าวหนักต้องตอกใส่แก้วทันที) — แยกออกจากยอดแผง และคิดฟองที่ ~8.5/แก้ว ไม่ใช่ 30
+  const glassQty = cartItems.filter((i) => !i.product?.noTray && PRODUCT_UNIT[i.productId]).reduce((s, i) => s + (i.qty || 0), 0);
+  const prangQty = totalPrang - glassQty;
+  const fongEst = Math.round(prangQty * PER_PRADANG + glassQty * 8.5);
+  // ยอดแผงรับ = ยอดไข่ × 1.1 (จำนวนแผงจริงที่ลูกค้ารับ) — ตอกแก้วไม่ใช้แผง จึงไม่นับ (ใช้ prangQty ไม่ใช่ totalPrang)
+  const trayReceivedTotal = Math.round(prangQty * 1.1);
 
-  // แยกแผงไข่ตามชนิดแผง: ไข่คละ → แผงส้ม (เว้นแต่ลูกค้าขอแผงดำ) ; อื่นๆ → แผงดำ
+  // แยกแผงไข่ตามชนิดแผง: ไข่คละ → แผงส้ม (เว้นแต่ลูกค้าขอแผงดำ) ; อื่นๆ → แผงดำ (ตอกแก้วไม่นับ)
   const klaTrays = cartItems.filter((i) => i.product.group === "คละ").reduce((s, i) => s + i.qty, 0);
-  const otherTrays = totalPrang - klaTrays;
+  const otherTrays = prangQty - klaTrays;
   const blackEggTrays = otherTrays + (klaUseBlack ? klaTrays : 0);
   const orangeEggTrays = klaUseBlack ? 0 : klaTrays;
   // แผงที่ลูกค้ารับ = แผงไข่ × 1.1 (ไข่ทุก 10 แผง มีแผง 11 ใบ)
@@ -2152,7 +2159,7 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
   const orangePanels = Math.round(orangeEggTrays * 1.1);
   // แยกขนาดแผงดำอัตโนมัติจากเบอร์ไข่: เฉพาะเบอร์ 2-5 = แผงเล็ก ; ที่เหลือ (เบอร์ 0,1 + จัมโบ้ + ตกเกรด + คละ) = แผงใหญ่
   const bigBlackEggTrays = cartItems.reduce((s, i) => {
-    if (i.product?.noTray) return s;                            // บรรจุภัณฑ์ (แผงไข่กระดาษ) ไม่นับเป็นแผงดำ
+    if (i.product?.noTray || PRODUCT_UNIT[i.productId]) return s;   // บรรจุภัณฑ์ + สินค้าหน่วยพิเศษ (ตอกแก้ว) ไม่นับเป็นแผงดำ
     const onBlack = i.product.group !== "คละ" || klaUseBlack;   // คละปกติอยู่แผงส้ม
     if (!onBlack) return s;
     const isBig = !SMALL_TRAY_IDS.has(i.productId);
@@ -2377,7 +2384,7 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
                 <tr key={i.productId} style={{ background: idx % 2 ? "#FCFAF5" : "#fff" }}>
                   <td style={S.noteTd}>{idx + 1}</td>
                   <td style={{ ...S.noteTd, textAlign: "left", fontWeight: 600 }}>{i.name.startsWith("ไข่") ? i.name : "ไข่ไก่ " + i.name}{billWtLabel(i)}</td>
-                  <td style={S.noteTd}>{fmt(i.qty)} แผง</td>
+                  <td style={S.noteTd}>{fmt(i.qty)} {productUnit(i.productId)}</td>
                   <td style={S.noteTd}>{fmt2(i.price)}</td>
                   <td style={{ ...S.noteTd, textAlign: "right", fontWeight: 600 }}>{fmt2(i.subtotal)}</td>
                 </tr>
@@ -2728,16 +2735,16 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
                       </div>
                     ) : (
                       <div style={S.ciControls}>
-                        <div style={S.ciField}><label style={S.ciLabel}>แผง</label>
+                        <div style={S.ciField}><label style={S.ciLabel}>{productUnit(i.productId)}</label>
                           <input type="number" style={S.ciInput} value={i.qty} onChange={(e) => setQty(i.productId, parseInt(e.target.value) || 0)} /></div>
                         <span style={S.ciX}>×</span>
-                        <div style={S.ciField}><label style={S.ciLabel}>บาท/แผง</label>
+                        <div style={S.ciField}><label style={S.ciLabel}>บาท/{productUnit(i.productId)}</label>
                           <input type="number" inputMode="decimal" placeholder="ใส่ราคา" style={S.ciInput} value={i.price} onChange={(e) => setPrice(i.productId, e.target.value)} /></div>
                         <div style={S.ciSubWrap}><label style={S.ciLabel}>รวม</label><div style={S.ciSub}>{fmt(i.subtotal)}</div></div>
                       </div>
                     )}
                     {over && <div style={{ ...S.overWarn, color: "#B45309" }}><AlertCircle size={12} /> เกินสต็อคระบบ (เหลือ {fmt(stock[i.productId])} → จะติดลบ {fmt(stock[i.productId] - i.qty)}) — ขายได้ รอเสมียนคีย์ยอดเข้า</div>}
-                    {!i.priced && <div style={S.overWarn}><AlertCircle size={12} /> ยังไม่ใส่ราคา/แผง{i.wt && i.chunks.length > 1 ? " (ทุกก้อน)" : ""}</div>}
+                    {!i.priced && <div style={S.overWarn}><AlertCircle size={12} /> ยังไม่ใส่ราคา/{productUnit(i.productId)}{i.wt && i.chunks.length > 1 ? " (ทุกก้อน)" : ""}</div>}
                   </div>
                 );
               })}
@@ -2748,7 +2755,7 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
             <div style={{ marginTop: 4, background: "#FBF6EC", borderRadius: 10, padding: "8px 12px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontWeight: 700, color: INK }}>
                 <span>ยอดรับไข่</span>
-                <span>{fmt(totalPrang)} แผง <span style={{ color: "#9b8e78", fontWeight: 400, fontSize: 12.5 }}>({fmt(totalPrang * PER_PRADANG)} ฟอง)</span></span>
+                <span>{fmt(prangQty)} แผง{glassQty > 0 ? ` + ${fmt(glassQty)} แก้ว` : ""} <span style={{ color: "#9b8e78", fontWeight: 400, fontSize: 12.5 }}>(≈{fmt(fongEst)} ฟอง)</span></span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12.5, color: "#6b6358", marginTop: 5, paddingTop: 5, borderTop: "1px dashed #ece0c8" }}>
                 <span>ยอดแผงรับวันนี้ <span style={{ color: "#9b8e78", fontSize: 11 }}>(ไข่ × 1.1)</span></span>
@@ -2922,7 +2929,7 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
       {cartItems.length > 0 && (
         <div className="salesStickyBar" style={S.salesSticky}>
           <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.25 }}>
-            <span style={{ fontSize: 12.5, color: "#6b6358" }}>🛒 {fmt(cartItems.length)} รายการ · {fmt(totalPrang)} แผง</span>
+            <span style={{ fontSize: 12.5, color: "#6b6358" }}>🛒 {fmt(cartItems.length)} รายการ · {fmt(prangQty)} แผง{glassQty > 0 ? ` +${fmt(glassQty)} แก้ว` : ""}</span>
             <span style={{ fontSize: 18, fontWeight: 800, color: INK }}>{fmt(grandTotal)} บาท</span>
           </div>
           {canConfirm
