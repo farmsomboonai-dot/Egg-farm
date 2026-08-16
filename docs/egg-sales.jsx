@@ -1936,6 +1936,26 @@ function PromptPayQR({ id, amount }) {
   return <canvas ref={ref} style={S.qrCanvas} />;
 }
 
+// 🖊️ กล่องลายเซ็นท้ายใบเสร็จ — ใช้ร่วมกันทั้งใบสดหน้าขาย และใบพิมพ์ซ้ำจากประวัติบิล (เดิมหน้าประวัติบิลไม่มี → พิมพ์ออกมาไร้ช่องเซ็น)
+function NoteSignBox({ staffName = "" }) {
+  return (
+    <div style={S.noteSignBox}>
+      <div style={S.noteSignText}>ได้รับสินค้าตามรายการข้างบนนี้ไว้ถูกต้อง และอยู่ในสภาพเรียบร้อยทุกประการ</div>
+      <div style={S.noteSignRow}>
+        <div style={S.noteSignCol}>
+          <div style={S.noteSignLine} />
+          <div style={S.noteSignLabel}>ผู้รับสินค้า</div>
+        </div>
+        <div style={S.noteSignCol}>
+          <div style={S.noteSignLine} />
+          <div style={S.noteSignLabel}>พนักงานผู้ส่งของ / ผู้รับเงิน</div>
+          {staffName ? <div style={{ ...S.noteSignInName, fontWeight: 700, color: "#6b6358" }}>({staffName})</div> : null}
+          <div style={S.noteSignInName}>ในนาม {COMPANY.name}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
 // พิมพ์ใบเสร็จ: จับภาพ #delivery-note ด้วย html2canvas (QR/สไตล์ติดครบ) แล้วสั่งพิมพ์ผ่าน iframe ซ่อน (ไม่โดน popup block)
 // พิมพ์ 2 แผ่นเสมอ: แผ่น 1 "(สำหรับลูกค้า)" · แผ่น 2 "(แผนกบัญชี)" — สลับป้ายมุมขวาบนก่อนจับภาพแต่ละแผ่น
 async function printReceiptImage(elId = "delivery-note") {
@@ -2196,6 +2216,7 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
     const bill = {
       no: billNo,
       book: "086",
+      by: (() => { try { const u = localStorage.getItem("sjfAuthUsername") || ""; return ACCOUNT_LABELS[u] || u; } catch (e) { return ""; } })(),   // 🖊️ ชื่อพนักงานที่ออกบิล — พิมพ์ใต้ช่องเซ็นในใบเสร็จ
       customer, customerId,
       // เก็บรายการแบบเบา (ไม่พ่วง object product ทั้งก้อน เผื่อใช้ในหน้าอื่น)
       // สินค้าชั่ง (หลายก้อน ราคาต่างกัน) → แตกเป็นบรรทัดละก้อน เพื่อให้สต็อก/รายงาน/บิลคิดถูกทุกก้อน
@@ -2446,20 +2467,7 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
             </div>
           </div>
 
-          <div style={S.noteSignBox}>
-            <div style={S.noteSignText}>ได้รับสินค้าตามรายการข้างบนนี้ไว้ถูกต้อง และอยู่ในสภาพเรียบร้อยทุกประการ</div>
-            <div style={S.noteSignRow}>
-              <div style={S.noteSignCol}>
-                <div style={S.noteSignLine} />
-                <div style={S.noteSignLabel}>ผู้รับสินค้า</div>
-              </div>
-              <div style={S.noteSignCol}>
-                <div style={S.noteSignLine} />
-                <div style={S.noteSignLabel}>ผู้รับมอบอำนาจ</div>
-                <div style={S.noteSignInName}>ในนาม {COMPANY.name}</div>
-              </div>
-            </div>
-          </div>
+          <NoteSignBox staffName={b.by || ""} />
 
           <div style={S.noteFooter}>
             <div style={S.noteThanks}>ขอบคุณที่อุดหนุนค่ะ 🐔💛</div>
@@ -3256,6 +3264,7 @@ function BillDetail({ bill, payment, onBack, onCancel, onPay }) {
             </div>
           </div>
         )}
+        {!b.cancelled && <NoteSignBox staffName={b.by || ""} />}
         <div style={S.noteFooter}>
           {b.cancelled
             ? <div style={{ color: "#6B7280", fontWeight: 700 }}>— ใบเสร็จนี้ถูกยกเลิกแล้ว —</div>
