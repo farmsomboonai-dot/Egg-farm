@@ -1973,19 +1973,30 @@ async function printReceiptImage(elId = "delivery-note") {
   });
   const label = el.querySelector(".note-copy-label");
   const orig = label ? { text: label.textContent, cssText: label.style.cssText } : null;
+  // 📐 กางใบให้กว้างขึ้นตอนจับภาพ จนสัดส่วน สูง/กว้าง ≲ A4 (281/194 ≈ 1.42) — ใบยาว (รายการเยอะ)
+  // จะกางออกด้านข้างแทนที่จะถูกย่อจนเหลือขอบขาวข้างเยอะ → พิมพ์แล้วเต็มแผ่นทั้งกว้างและสูง
+  const origWidthStyle = el.style.width;
   const pages = [];
-  for (const copyName of ["(สำหรับลูกค้า)", "(แผนกบัญชี)"]) {
-    if (label) {
-      label.textContent = copyName;
-      label.style.fontSize = "16px";       // ตัวใหญ่กว่าปกติ อ่านชัดว่าแผ่นของใคร
-      label.style.fontWeight = "800";
-      label.style.color = "#1f2937";
+  try {
+    for (const tryW of [el.offsetWidth, 850, 980, 1120, 1280]) {
+      el.style.width = tryW + "px";
+      if (el.offsetHeight / tryW <= 1.42) break;   // อ่าน offsetHeight = บังคับ reflow ทันที
     }
-    const canvas = await h2c(el, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
-    pages.push(canvas.toDataURL("image/png"));
-    if (!label) break;   // หาป้ายไม่เจอ → พิมพ์แผ่นเดียวแบบเดิม
+    for (const copyName of ["(สำหรับลูกค้า)", "(แผนกบัญชี)"]) {
+      if (label) {
+        label.textContent = copyName;
+        label.style.fontSize = "16px";       // ตัวใหญ่กว่าปกติ อ่านชัดว่าแผ่นของใคร
+        label.style.fontWeight = "800";
+        label.style.color = "#1f2937";
+      }
+      const canvas = await h2c(el, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
+      pages.push(canvas.toDataURL("image/png"));
+      if (!label) break;   // หาป้ายไม่เจอ → พิมพ์แผ่นเดียวแบบเดิม
+    }
+  } finally {
+    el.style.width = origWidthStyle;   // คืนความกว้างหน้าจอเสมอ แม้จับภาพพลาด
+    if (label && orig) { label.textContent = orig.text; label.style.cssText = orig.cssText; }
   }
-  if (label && orig) { label.textContent = orig.text; label.style.cssText = orig.cssText; }
   const iframe = document.createElement("iframe");
   Object.assign(iframe.style, { position: "fixed", right: "0", bottom: "0", width: "0", height: "0", border: "0" });
   document.body.appendChild(iframe);
@@ -3273,6 +3284,20 @@ function BillDetail({ bill, payment, onBack, onCancel, onPay }) {
             </div>
           </div>
         )}
+        {/* 🥚 สรุปแผง (มัดจำ) — เดิมมีแค่ใบสดหน้าขาย ใบพิมพ์ซ้ำจากประวัติบิลไม่มี (เจ้าของทวง 17 ส.ค. 69) */}
+        {!b.cancelled && b.traySummary && (b.traySummary.blackSent > 0 || b.traySummary.orangeSent > 0 || b.traySummary.blackReturned > 0 || b.traySummary.orangeReturned > 0) && (
+          <div style={S.noteTrayBox}>
+            <div style={S.noteTrayTitle}>🥚 สรุปแผง (มัดจำ)</div>
+            <div style={S.noteTrayGrid}>
+              {(b.traySummary.blackSent > 0 || b.traySummary.blackReturned > 0) && (
+                <div style={S.noteTrayCell}><div style={S.noteTrayLabel}>แผงดำ{(b.traySummary.blackSmall || 0) > 0 ? ` (ใหญ่ ${fmt(b.traySummary.blackBig)} · เล็ก ${fmt(b.traySummary.blackSmall)})` : ""}</div><div style={S.noteTrayVal}>รับ {fmt(b.traySummary.blackSent)} · คืน {fmt(b.traySummary.blackReturned)} · ถือไว้ {fmt(b.traySummary.blackNet)}</div></div>
+              )}
+              {(b.traySummary.orangeSent > 0 || b.traySummary.orangeReturned > 0) && (
+                <div style={S.noteTrayCell}><div style={S.noteTrayLabel}>แผงส้ม</div><div style={S.noteTrayVal}>รับ {fmt(b.traySummary.orangeSent)} · คืน {fmt(b.traySummary.orangeReturned)} · ถือไว้ {fmt(b.traySummary.orangeNet)}</div></div>
+              )}
+            </div>
+          </div>
+        )}
         {!b.cancelled && <NoteSignBox staffName={b.by || ""} />}
         <div style={S.noteFooter}>
           {b.cancelled
@@ -3289,6 +3314,7 @@ function BillDetail({ bill, payment, onBack, onCancel, onPay }) {
                 )}
               </div>
             : <div style={{ color: "#B91C1C", fontWeight: 600 }}>ยังค้างชำระ {fmt(b.total - (payment?.paid || 0))} บาท</div>}
+          {!b.cancelled && <div style={S.noteWarn}>* แผงไข่ ถ้าไม่ครบหรือสูญหาย ลูกค้ารับผิดชอบแผงละ {TRAY_DEPOSIT} บาท</div>}
         </div>
         <div style={S.noteBottomStripe} />
       </div>
