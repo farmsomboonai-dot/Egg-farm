@@ -1991,7 +1991,9 @@ async function printReceiptImage(elId = "delivery-note") {
   document.body.appendChild(iframe);
   const doc = iframe.contentWindow.document;
   doc.open();
-  doc.write('<html><head><title>ใบเสร็จ</title><style>@page{margin:8mm}body{margin:0}img{width:100%;display:block}.pb{page-break-after:always}</style></head><body>'
+  // 📄 บีบใบเสร็จให้พอดี A4 หน้าเดียวเสมอ: จำกัดสูงสุดทั้งกว้าง (เต็มหน้า) และสูง (280mm = A4 หักขอบ 8mm)
+  // ใบยาว (รายการเยอะ + ช่องเซ็น) จะย่อทั้งใบลงตามสัดส่วน ไม่ล้นไปหน้า 2 · ใบสั้นยังเต็มความกว้างเหมือนเดิม
+  doc.write('<html><head><title>ใบเสร็จ</title><style>@page{margin:8mm}body{margin:0}img{max-width:100%;max-height:280mm;width:auto;height:auto;display:block;margin:0 auto}.pb{page-break-after:always}</style></head><body>'
     + pages.map((p, i) => '<img src="' + p + '"' + (i < pages.length - 1 ? ' class="pb"' : "") + ">").join("")
     + "</body></html>");
   doc.close();
@@ -10076,13 +10078,13 @@ const S = {
   noteTotal: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8, padding: "12px 16px", background: `linear-gradient(135deg, #FBEFDD, #FCF6EA)`, borderRadius: 12, fontWeight: 700, fontSize: 15 },
   noteTotalBaht: { fontSize: 24, color: ACCENT_DK, fontWeight: 800 },
   noteSignBox: { margin: "18px 24px 0", padding: "16px 20px 22px", border: "1px solid #f0e6d6", borderRadius: 12, background: "#FEFCF7" },
-  qrBox: { margin: "16px 24px 0", padding: "16px", border: "1.5px solid #E6C99A", borderRadius: 12, background: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" },
+  qrBox: { margin: "10px 24px 0", padding: "9px 14px", border: "1.5px solid #E6C99A", borderRadius: 10, background: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" },   // 📄 บีบเตี้ยลง — ใบเสร็จสั้นลง พิมพ์ A4 หน้าเดียวง่ายขึ้น (เจ้าของสั่ง 16 ส.ค. 69)
   qrLeft: { flex: "1 1 160px" },
-  qrTitle: { fontSize: 14, fontWeight: 700, color: INK, marginBottom: 4 },
+  qrTitle: { fontSize: 12.5, fontWeight: 700, color: INK, marginBottom: 2 },
   qrPpLogo: { fontSize: 10.5, fontWeight: 700, color: "#1A4F8B", letterSpacing: 0.5, marginBottom: 10 },
-  qrName: { fontSize: 12.5, color: "#6b6358" },
-  qrAmount: { fontSize: 22, fontWeight: 800, color: ACCENT_DK, margin: "4px 0" },
-  qrId: { fontSize: 11.5, color: "#9b9384" },
+  qrName: { fontSize: 11.5, color: "#6b6358" },
+  qrAmount: { fontSize: 17, fontWeight: 800, color: ACCENT_DK, margin: "2px 0 0" },
+  qrId: { fontSize: 10.5, color: "#9b9384" },
   qrCanvas: { width: 150, height: 150, flexShrink: 0 },
   qrError: { width: 150, height: 150, display: "grid", placeItems: "center", fontSize: 12, color: "#b5ad9e", border: "1px dashed #d6d0c4", borderRadius: 8, flexShrink: 0, textAlign: "center", padding: 8 },
   noteSignText: { fontSize: 12, color: "#8a8275", textAlign: "center", marginBottom: 8 },
