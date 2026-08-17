@@ -1434,20 +1434,35 @@ export default function App() {
     } catch { return DEFAULT_ROLES; }
   });
   useEffect(() => { try { localStorage.setItem("eggRoles", JSON.stringify(roles)); } catch {} }, [roles]);
-  const [currentRole, setCurrentRole] = useState(() => { try { return localStorage.getItem("eggCurrentRole") || "owner"; } catch { return "owner"; } });
+  const [currentRole, setCurrentRole] = useState(() => {
+    // 🔒 รู้ชื่อบัญชีอยู่แล้ว → เริ่มด้วยบทบาทที่ผูกกับบัญชีทันที ไม่มีวินาทีไหนเป็น "เจ้าของ" ก่อนเช็คเซิร์ฟเวอร์เสร็จ
+    try {
+      const locked = AUTH_ROLE_BY_USER[localStorage.getItem("sjfAuthUsername") || ""];
+      if (locked) return locked;
+      return localStorage.getItem("eggCurrentRole") || "owner";
+    } catch { return "owner"; }
+  });
   useEffect(() => { try { localStorage.setItem("eggCurrentRole", currentRole); } catch {} }, [currentRole]);
-  // 🔒 บทบาทผูกกับบัญชีล็อกอิน (ชั้นเดียว): ถ้ามี session ให้บังคับบทบาทตามบัญชีเสมอ (กันค่าเก่าค้างจากยุคสลับด้วย PIN)
+  // 🔒 บทบาทผูกกับบัญชีล็อกอิน: บังคับบทบาทตามบัญชีเสมอ — เช็คซ้ำทุก 2 นาที + ทุกครั้งที่สลับกลับมาที่แอป
+  // (กันค่าเก่าค้างจากยุคสลับด้วย PIN และกันหน้าเว็บเก่าค้างแคชที่เคยสลับบทบาทได้อิสระ)
   useEffect(() => {
     if (!supabase) return;
-    supabase.auth.getSession().then((r) => {
-      const em = (r && r.data && r.data.session && r.data.session.user && r.data.session.user.email) || "";
-      const uname = em.replace(/@sjffarm\.app$/, "");
-      const locked = AUTH_ROLE_BY_USER[uname];
-      if (locked) {
-        setCurrentRole((c) => (c === locked ? c : locked));
-        try { localStorage.setItem("sjfAuthUsername", uname); } catch (e) {}   // เครื่องที่ล็อกอินค้างอยู่ก่อนฟีเจอร์นี้ ก็ให้รู้ชื่อบัญชี
-      }
-    }).catch(() => {});
+    const enforceRole = () => {
+      supabase.auth.getSession().then((r) => {
+        const em = (r && r.data && r.data.session && r.data.session.user && r.data.session.user.email) || "";
+        const uname = em.replace(/@sjffarm\.app$/, "");
+        const locked = AUTH_ROLE_BY_USER[uname];
+        if (locked) {
+          setCurrentRole((c) => (c === locked ? c : locked));
+          try { localStorage.setItem("sjfAuthUsername", uname); } catch (e) {}   // เครื่องที่ล็อกอินค้างอยู่ก่อนฟีเจอร์นี้ ก็ให้รู้ชื่อบัญชี
+        }
+      }).catch(() => {});
+    };
+    enforceRole();
+    const t = setInterval(enforceRole, 120000);
+    const onFocus = () => enforceRole();
+    try { window.addEventListener("focus", onFocus); } catch (e) {}
+    return () => { clearInterval(t); try { window.removeEventListener("focus", onFocus); } catch (e) {} };
   }, []);
   const [accessLog, setAccessLog] = useState(() => { try { return JSON.parse(localStorage.getItem("eggAccessLog") || "[]"); } catch { return []; } });
   useEffect(() => { try { localStorage.setItem("eggAccessLog", JSON.stringify(accessLog)); } catch {} }, [accessLog]);
@@ -1851,8 +1866,8 @@ export default function App() {
               roles: { icon: <Settings size={15} />, label: "ตั้งค่าสิทธิ์", c: "#6D28D9", ownerOnly: true, action: true },
             };
             const GROUPS = [
-              { id: "g_sales", emoji: "🛒", label: "งานขาย", c: "#EA580C", items: ["sales", "booking", "plan", "stock", "bills", "tray"] },
-              { id: "g_farm", emoji: "🐔", label: "งานสัตวบาล", c: "#B45309", items: ["production", "rear", "feed", "med", "health", "trial"] },
+              { id: "g_sales", emoji: "🛒", label: "งานเสมียน", c: "#EA580C", items: ["sales", "production", "booking", "plan", "stock", "bills", "tray"] },
+              { id: "g_farm", emoji: "🐔", label: "งานสัตวบาล", c: "#B45309", items: ["rear", "feed", "med", "health", "trial"] },
               { id: "g_acct", emoji: "💰", label: "งานบัญชี", c: "#A16207", items: ["account", "cost"] },
               { id: "g_mgr", emoji: "📊", label: "ผู้บริหาร", c: "#7C3AED", items: ["dash", "manage", "houseecon", "activity", "roles"] },
             ];
@@ -1895,7 +1910,7 @@ export default function App() {
       {view === "dash" && <DashboardView bills={activeBills} payments={payments} production={productionByDate} rearingByDate={rearingByDate} flocks={flocks} />}
       {view === "manage" && <ManageDashView production={productionByDate} rearingByDate={rearingByDate} flocks={flocks} />}
       {view === "stock" && <StockView salesByDay={salesByDay} productionByDate={productionByDate} defaultDay={isoFromTs(Date.now())} stockCounts={stockCounts} closeMeta={closeMeta} refPrices={refPrices} onCloseDay={closeDay} onReopenDay={reopenDay} />}
-      {view === "production" && <ProductionView houses={houses} setHouses={setHouses} prodDate={prodDate} setProdDate={setProdDate} production={productionByDate} flocks={flocks} />}
+      {view === "production" && <ProductionView houses={houses} setHouses={setHouses} prodDate={prodDate} setProdDate={setProdDate} production={productionByDate} flocks={flocks} readOnly={roleObj.id === "farm"} />}
       {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={saveRearing} flocks={flocks} saveFlock={saveFlock} production={productionByDate} medTrials={medTrials} medStock={medStock} medInfo={medInfo} vaccines={vaccines} addVaccine={addVaccine} deleteVaccine={deleteVaccine} labTests={labTests} addLabTest={addLabTest} deleteLabTest={deleteLabTest} />}
       {view === "feed" && <FeedView rearingByDate={rearingByDate} flocks={flocks} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} feedPrice={feedPrice} setFeedPrice={setFeedPrice} feedUseByMonth={feedUseByMonth} feedCostByMonth={feedCostByMonth} />}
       {view === "med" && <MedView production={productionByDate} medStock={medStock} medInfo={medInfo} medReceipts={medReceipts} addMedItem={addMedItem} updateMedItem={updateMedItem} addMedReceipt={addMedReceipt} medCostByMonth={medCostByMonth} canManage={currentRole === "owner" || currentRole === "medclerk"} />}
@@ -5456,7 +5471,7 @@ function AlertSettingsModal({ cfg, onSave, onClose }) {
   );
 }
 
-function ProductionView({ houses = [], setHouses, prodDate, setProdDate, production = {}, flocks = {} }) {
+function ProductionView({ houses = [], setHouses, prodDate, setProdDate, production = {}, flocks = {}, readOnly = false }) {
   const [editHouse, setEditHouse] = useState(null);
   const [showAdvice, setShowAdvice] = useState(false);   // โมดัลคำแนะนำการดูแล
   const [undoStack, setUndoStack] = useState([]);  // ประวัติค่าก่อนแก้ (undo ได้หลายชั้น)
@@ -5482,6 +5497,7 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
   const hasNextDay = (curIdx >= 0 && curIdx < sortedDates.length - 1) || (curIdx < 0 && sortedDates.some((d) => d > prodDate));
   const prodRecorded = (d) => (production[d] || []).some((h) => (h.chickens || 0) > 0 || Object.values(h.grade?.เบอร์ || {}).some((v) => v > 0) || Object.values(h.grade?.ตกเกรด || {}).some((v) => v > 0));
   const startNewDay = () => {   // สร้างวันใหม่จากโครงวันล่าสุด (คงจำนวนไก่+ชนิด, เคลียร์จำนวนไข่/สุ่มตรวจ)
+    if (readOnly) return;   // 👁 สัตวบาล = ดูอย่างเดียว
     const latest = sortedDates.filter((d) => d < prodDate).pop() || sortedDates[sortedDates.length - 1];
     const base = production[latest] || [];
     const zero = (o) => Object.fromEntries(Object.keys(o).map((k) => [k, 0]));
@@ -5492,6 +5508,7 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
   // โชว์ครบทุกหลังตาม HOUSE_IDS แม้วันนั้นยังไม่มีข้อมูล (เช่น H7 เพิ่งเข้าไก่) — แถวศูนย์ ยังไม่ถูกบันทึกจนกว่าจะกดแก้จริง
   const housesAll = useMemo(() => [...houses, ...HOUSE_IDS.filter((id) => !houses.some((h) => h.id === id)).map((id) => emptyHouseDay(id, prodDate))], [houses, prodDate]);
   const saveHouse = (id, grade, chickens, date, inspect) => {
+    if (readOnly) return;   // 👁 สัตวบาล = ดูอย่างเดียว — กันไว้อีกชั้นแม้ปุ่มแก้ถูกซ่อนแล้ว
     const cur = houses.find((h) => h.id === id);
     if (cur) setUndoStack((s) => [...s, { id, house: cur }]);   // จำค่าก่อนแก้ไว้ย้อนกลับ (house object เดิม ไม่ถูก mutate)
     if (setHouses) setHouses((prev) => prev.some((h) => h.id === id)
@@ -5542,11 +5559,16 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
       <div style={S.subBar}>
         <span style={S.subBarTitle}>รายงานผลผลิตไข่ · {prodDateTH}{sortedDates.length > 1 ? <span style={{ fontSize: 12.5, fontWeight: 600, color: "#9b8e78" }}> · ย้อนดูได้ {sortedDates.length} วัน</span> : null}</span>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <button onClick={() => setShowAlertCfg(true)} title="ตั้งค่าเกณฑ์แจ้งเตือนคุณภาพผลผลิต"
+          {readOnly && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", border: "1.5px solid #93C5FD", background: "#EFF6FF", color: "#1D4ED8", borderRadius: 999, fontSize: 12.5, fontWeight: 800 }}>
+              👁 ดูอย่างเดียว — สัตวบาลไม่สามารถแก้ไขข้อมูลผลผลิตได้
+            </span>
+          )}
+          {!readOnly && <button onClick={() => setShowAlertCfg(true)} title="ตั้งค่าเกณฑ์แจ้งเตือนคุณภาพผลผลิต"
             style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", border: `1px solid ${totalAlerts > 0 ? "#DC2626" : ACCENT}`, background: totalAlerts > 0 ? "#FEF2F2" : "#fff", color: totalAlerts > 0 ? "#B91C1C" : ACCENT_DK, borderRadius: 8, fontSize: 13, fontFamily: "inherit", fontWeight: 700, cursor: "pointer" }}>
             <Bell size={14} /> เกณฑ์เตือน{totalAlerts > 0 ? ` · ${totalAlerts}` : ""}
-          </button>
-          {undoStack.length > 0 && (
+          </button>}
+          {!readOnly && undoStack.length > 0 && (
             <button onClick={undoEdit} title="ย้อนค่าที่แก้ครั้งล่าสุดกลับคืน"
               style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", border: `1px solid ${ACCENT}`, background: "#FFF7EC", color: ACCENT_DK, borderRadius: 8, fontSize: 13, fontFamily: "inherit", fontWeight: 700, cursor: "pointer" }}>
               <RotateCcw size={14} /> ย้อนการแก้ ({undoStack.length})
@@ -5572,13 +5594,14 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
             </span>
             <span style={{ display: "inline-flex", gap: 7 }}>
               <button onClick={() => setShowAdvice(true)} style={{ ...S.alertCfgBtn, borderColor: "#15803D", color: "#15803D", background: "#F0FDF4" }}>🩺 คำแนะนำการดูแล</button>
-              <button onClick={() => setShowAlertCfg(true)} style={S.alertCfgBtn}><Settings size={13} /> ปรับเกณฑ์</button>
+              {!readOnly && <button onClick={() => setShowAlertCfg(true)} style={S.alertCfgBtn}><Settings size={13} /> ปรับเกณฑ์</button>}
             </span>
           </div>
           <div style={S.alertList}>
             {housesAll.filter((h) => alertMap[h.id] && alertMap[h.id].length).map((h) => (
               <div key={h.id} style={S.alertRow}>
-                <button onClick={() => setEditHouse(h)} style={S.alertHouseBtn} title="กรอก/แก้ไขข้อมูลหลังนี้">{h.id} <Pencil size={10} /></button>
+                {readOnly ? <span style={{ ...S.alertHouseBtn, cursor: "default" }}>{h.id}</span>
+                  : <button onClick={() => setEditHouse(h)} style={S.alertHouseBtn} title="กรอก/แก้ไขข้อมูลหลังนี้">{h.id} <Pencil size={10} /></button>}
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                   {alertMap[h.id].map((a, i) => <span key={i} style={S.alertChip}><b>{a.label}</b> · {a.detail}</span>)}
                 </div>
@@ -5589,15 +5612,15 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
       ) : (
         <div style={S.alertOk}>
           <CheckCircle2 size={16} color="#15803D" /> ผลผลิตทุกหลังผ่านเกณฑ์ที่ตั้งไว้
-          <button onClick={() => setShowAlertCfg(true)} style={{ ...S.alertCfgBtn, marginLeft: "auto", borderColor: "#BBF7D0", color: "#15803D" }}><Settings size={13} /> ปรับเกณฑ์</button>
+          {!readOnly && <button onClick={() => setShowAlertCfg(true)} style={{ ...S.alertCfgBtn, marginLeft: "auto", borderColor: "#BBF7D0", color: "#15803D" }}><Settings size={13} /> ปรับเกณฑ์</button>}
         </div>
       ))}
       {houses.length === 0 ? (
         <div style={{ textAlign: "center", padding: "48px 20px", color: "#8a8172" }}>
           <div style={{ fontSize: 40, marginBottom: 10 }}>🗓️</div>
           <div style={{ fontSize: 15, fontWeight: 700, color: INK, marginBottom: 6 }}>ยังไม่มีข้อมูลผลผลิตของ {prodDateTH}</div>
-          <div style={{ fontSize: 13, marginBottom: 16 }}>เลือกวันที่มีข้อมูลจากปุ่ม ‹ › ด้านบน หรือเริ่มบันทึกวันนี้</div>
-          <button onClick={startNewDay} style={{ ...S.primaryBtn, maxWidth: 340, margin: "0 auto" }}>＋ เริ่มบันทึกผลผลิตวันนี้ (คัดลอกโครงจากวันล่าสุด)</button>
+          <div style={{ fontSize: 13, marginBottom: 16 }}>{readOnly ? "เลือกวันที่มีข้อมูลจากปุ่ม ‹ › ด้านบน" : "เลือกวันที่มีข้อมูลจากปุ่ม ‹ › ด้านบน หรือเริ่มบันทึกวันนี้"}</div>
+          {!readOnly && <button onClick={startNewDay} style={{ ...S.primaryBtn, maxWidth: 340, margin: "0 auto" }}>＋ เริ่มบันทึกผลผลิตวันนี้ (คัดลอกโครงจากวันล่าสุด)</button>}
         </div>
       ) : (
       <div style={S.tableScroll}>
@@ -5638,7 +5661,7 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
                 <tr key={h.id} style={zebra ? { background: zebra } : undefined}>
                   <td style={{ ...S.td, ...S.tdSticky, fontWeight: 700, textAlign: "left", ...(zebra ? { background: zebra } : {}) }}>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>{h.id}
-                      <button onClick={() => setEditHouse(h)} title="กรอก/แก้ไขจำนวนไข่" style={{ display: "inline-flex", padding: 4, borderRadius: 6, border: "1px solid #e3ddd0", background: "#fff", color: ACCENT_DK, cursor: "pointer" }}><Pencil size={12} /></button>
+                      {!readOnly && <button onClick={() => setEditHouse(h)} title="กรอก/แก้ไขจำนวนไข่" style={{ display: "inline-flex", padding: 4, borderRadius: 6, border: "1px solid #e3ddd0", background: "#fff", color: ACCENT_DK, cursor: "pointer" }}><Pencil size={12} /></button>}
                       {h.inspect && h.inspect.result ? <span title={"สุ่มตรวจ (ตอก " + (h.inspect.count || 0) + " ฟอง): " + h.inspect.result} style={{ cursor: "help", fontSize: 12 }}>🔍</span> : null}
                       {alertMap[h.id] && alertMap[h.id].length ? <span title={alertMap[h.id].map((a) => a.label + " " + a.detail).join("\n")} style={{ cursor: "help", fontSize: 12 }}>⚠️</span> : null}
                     </span>
@@ -5680,8 +5703,8 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
       </div>
       )}
       <div style={S.hint}>กด ✎ ที่ชื่อหลังเพื่อ "กรอก/แก้ไข" จำนวนไข่วันนี้ (เบอร์ 0-5 + ตกเกรด) · <b style={{ color: "#15803D" }}>ผลผลิตเข้าสต็อกคลังของวันนั้นอัตโนมัติ</b> (ไม่ต้องกดรับเข้า) · <b>แก้ผิด?</b> กด "↩ ย้อนการแก้" (มุมขวาบน) เพื่อคืนค่าเดิม · <b style={{ color: "#B91C1C" }}>ช่องแดง</b> = เกินเกณฑ์ที่ตั้งไว้ (กด <b>🔔 เกณฑ์เตือน</b> เพื่อปรับตัวเลข) · %ไข่ตกเกรด = ตกเกรด(ฟอง) ÷ ไข่รวม · %ไข่รวม = ไข่รวม ÷ ยอดไก่</div>
-      {editHouse && <HouseEditModal key={editHouse.id} house={editHouse} defaultDate={prodDate} onClose={() => setEditHouse(null)} onSave={saveHouse} />}
-      {showAlertCfg && <AlertSettingsModal cfg={alertCfgRaw} onSave={setAlertCfgRaw} onClose={() => setShowAlertCfg(false)} />}
+      {!readOnly && editHouse && <HouseEditModal key={editHouse.id} house={editHouse} defaultDate={prodDate} onClose={() => setEditHouse(null)} onSave={saveHouse} />}
+      {!readOnly && showAlertCfg && <AlertSettingsModal cfg={alertCfgRaw} onSave={setAlertCfgRaw} onClose={() => setShowAlertCfg(false)} />}
       {showAdvice && <HealthAdviceModal houses={housesAll} alertMap={alertMap} flocks={flocks} prodDate={prodDate} onClose={() => setShowAdvice(false)} />}
     </div>
   );
