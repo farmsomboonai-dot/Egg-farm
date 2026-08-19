@@ -1204,9 +1204,9 @@ const DEFAULT_ROLES = [
 
 // บทบาทผูกกับบัญชีล็อกอิน (ชั้นเดียว) — อยากได้มุมไหนต้องล็อกอินบัญชีนั้น ไม่มี PIN ชั้นสอง
 // ต้องตรงกับ ACCOUNTS ใน LoginScreen · farm/office = บัญชีรวมยุคเก่า (เครื่องที่ล็อกอินค้างยังใช้ได้ แต่หน้าล็อกอินไม่มีการ์ดแล้ว)
-const AUTH_ROLE_BY_USER = { owner: "owner", office: "sales", farm: "farm", acct: "acct", medclerk: "medclerk", retail: "retail_shop", branch: "branch_shop", mai: "farm", beam: "farm", meaw: "sales", fai: "sales", orn: "sales", lek: "sales" };
+const AUTH_ROLE_BY_USER = { owner: "owner", office: "sales", farm: "farm", acct: "acct", medclerk: "medclerk", retail: "retail_shop", branch: "branch_shop", mai: "farm", beam: "farm", nes: "farm", meaw: "sales", fai: "sales", orn: "sales", lek: "sales" };
 // ชื่อจริงของแต่ละบัญชี — โชว์ในบันทึกกิจกรรม "ใครแก้อะไร" ให้รู้ตัวคน
-const ACCOUNT_LABELS = { mai: "หมอใหม่", beam: "หมอบีม", meaw: "ส.เหมียว", fai: "ส.ฝ้าย", orn: "ส.อร", lek: "ส.เล็ก", farm: "บัญชีรวม(เก่า)", office: "บัญชีรวม(เก่า)" };
+const ACCOUNT_LABELS = { mai: "หมอใหม่", beam: "หมอบีม", nes: "หมอเนส", meaw: "ส.เหมียว", fai: "ส.ฝ้าย", orn: "ส.อร", lek: "ส.เล็ก", farm: "บัญชีรวม(เก่า)", office: "บัญชีรวม(เก่า)" };
 function RolePickerModal({ roles, current, onPick, onClose }) {
   const [sel, setSel] = useState(null);
   const [pin, setPin] = useState("");
@@ -1910,7 +1910,7 @@ export default function App() {
       {view === "dash" && <DashboardView bills={activeBills} payments={payments} production={productionByDate} rearingByDate={rearingByDate} flocks={flocks} />}
       {view === "manage" && <ManageDashView production={productionByDate} rearingByDate={rearingByDate} flocks={flocks} />}
       {view === "stock" && <StockView salesByDay={salesByDay} productionByDate={productionByDate} defaultDay={isoFromTs(Date.now())} stockCounts={stockCounts} closeMeta={closeMeta} refPrices={refPrices} onCloseDay={closeDay} onReopenDay={reopenDay} />}
-      {view === "production" && <ProductionView houses={houses} setHouses={setHouses} prodDate={prodDate} setProdDate={setProdDate} production={productionByDate} flocks={flocks} readOnly={roleObj.id === "farm"} />}
+      {view === "production" && <ProductionView houses={houses} setHouses={setHouses} prodDate={prodDate} setProdDate={setProdDate} production={productionByDate} flocks={flocks} readOnly={roleObj.id === "farm"} dayClosed={stockCounts[prodDate] != null} />}
       {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={saveRearing} flocks={flocks} saveFlock={saveFlock} production={productionByDate} medTrials={medTrials} medStock={medStock} medInfo={medInfo} vaccines={vaccines} addVaccine={addVaccine} deleteVaccine={deleteVaccine} labTests={labTests} addLabTest={addLabTest} deleteLabTest={deleteLabTest} />}
       {view === "feed" && <FeedView rearingByDate={rearingByDate} flocks={flocks} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} feedPrice={feedPrice} setFeedPrice={setFeedPrice} feedUseByMonth={feedUseByMonth} feedCostByMonth={feedCostByMonth} />}
       {view === "med" && <MedView production={productionByDate} medStock={medStock} medInfo={medInfo} medReceipts={medReceipts} addMedItem={addMedItem} updateMedItem={updateMedItem} addMedReceipt={addMedReceipt} medCostByMonth={medCostByMonth} canManage={currentRole === "owner" || currentRole === "medclerk"} />}
@@ -5471,8 +5471,158 @@ function AlertSettingsModal({ cfg, onSave, onClose }) {
   );
 }
 
-function ProductionView({ houses = [], setHouses, prodDate, setProdDate, production = {}, flocks = {}, readOnly = false }) {
+// 🧮 คีย์ยอดไข่ดีจากจอเครื่องคัด — เหมือนตาราง "รายการดึงไข่ประจำวัน": เสมียนเลือกหลังเองทุกรอบ (ลำดับดึงเปลี่ยนทุกวัน)
+// กรอกเป็น "ฟอง" ตามจอเครื่อง (เฉพาะเบอร์ 0-5 · ตกเกรดไม่ผ่านเครื่อง คีย์แยกที่ ✎ รายหลังเหมือนเดิม)
+const MACHINE_BER_ORDER = [4, 3, 2, 1, 5, 0];   // ลำดับคอลัมน์ตามจอเครื่อง (Level 1→6) และใบ Excel
+function MachinePullModal({ prodDate, existing = [], onClose, onApply }) {
+  // โหมดกรอก: "cum" = พิมพ์เลขสะสมตามหน้าจอเครื่อง (นับต่อกันทั้งวัน) แล้วระบบลบเลขให้เอง · "delta" = พิมพ์ยอดของหลังนั้นตรงๆ
+  const [mode, setMode] = useState("cum");
+  const mkRow = () => ({ key: Math.random().toString(36).slice(2), hid: "", machine: "1", ber: { 0: "", 1: "", 2: "", 3: "", 4: "", 5: "" } });
+  const [rows, setRows] = useState(() => [mkRow()]);
+  const num = (v) => parseInt(String(v).replace(/\D/g, ""), 10) || 0;
+  // ผลต่างต่อแถว: ลบกับแถวก่อนหน้าของ "เครื่องเดียวกัน" — แถว "ค่าเริ่มวันบนจอ" (hid="__start") ใช้ตั้งต้นถ้าเช้านั้นไม่ได้กด Reset
+  const rowDiffs = useMemo(() => {
+    const prevByM = { "1": null, "2": null, "3": null };
+    return rows.map((r) => {
+      const cur = {}; BER_KEYS.forEach((b) => { cur[b] = num(r.ber[b]); });
+      const curTotal = BER_KEYS.reduce((s2, b) => s2 + cur[b], 0);
+      if (mode !== "cum") return { diff: cur, total: curTotal, neg: false, isStart: false };
+      if (r.hid === "__start") { prevByM[r.machine] = cur; return { diff: null, total: curTotal, neg: false, isStart: true }; }
+      const base = prevByM[r.machine] || { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+      const diff = {}; let neg = false;
+      BER_KEYS.forEach((b) => { diff[b] = cur[b] - base[b]; if (diff[b] < 0) neg = true; });
+      if (curTotal > 0) prevByM[r.machine] = cur;
+      return { diff, total: BER_KEYS.reduce((s2, b) => s2 + diff[b], 0), neg, isStart: false };
+    });
+  }, [rows, mode]);
+  const byHouse = useMemo(() => {
+    const m = {};
+    rows.forEach((r, i) => {
+      const d = rowDiffs[i];
+      if (!r.hid || r.hid === "__start" || !d || d.isStart || d.neg || !d.diff || d.total <= 0) return;
+      m[r.hid] = m[r.hid] || { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+      BER_KEYS.forEach((b) => { m[r.hid][b] += d.diff[b]; });
+    });
+    return m;
+  }, [rows, rowDiffs]);
+  const houseList = Object.keys(byHouse).sort();
+  const grand = houseList.reduce((s2, h) => s2 + BER_KEYS.reduce((x, b) => x + byHouse[h][b], 0), 0);
+  const anyNeg = rowDiffs.some((d) => d && d.neg);
+  const setCell = (key, b, v) => setRows((prev) => prev.map((r) => r.key === key ? { ...r, ber: { ...r.ber, [b]: v.replace(/\D/g, "") } } : r));
+  // หลัง 2-5 ต่อกับเครื่อง 1+2 (วิ่งพร้อมกัน) · หลัง 6-7 ต่อกับเครื่อง 3 ถาวร — เลือกหลังแล้วช่วยตั้งเครื่องให้เอง
+  // กดเลือกหลัง 2-5 → สร้างแถวคู่ (เครื่อง 1 + เครื่อง 2) ของหลังนั้นรอไว้ทันที
+  const setField = (key, f, v) => setRows((prev) => {
+    const idx = prev.findIndex((r) => r.key === key);
+    if (idx < 0) return prev;
+    const r = { ...prev[idx], [f]: v };
+    const next = [...prev];
+    if (f === "hid") {
+      if (v === "H6" || v === "H7") r.machine = "3";
+      else if (v && v !== "__start") {
+        if (r.machine === "3") r.machine = "1";
+        if (r.machine === "1" && !prev.some((x, i2) => i2 !== idx && x.hid === v && x.machine === "2")) {
+          next[idx] = r;
+          next.splice(idx + 1, 0, { ...mkRow(), hid: v, machine: "2" });
+          return next;
+        }
+      }
+    }
+    next[idx] = r;
+    return next;
+  });
+  const overwritten = houseList.filter((h) => { const ex = existing.find((x) => x.id === h); return ex && Object.values(ex.grade?.เบอร์ || {}).some((v) => (v || 0) > 0); });
+  const th = { padding: "7px 8px", fontSize: 12, fontWeight: 800, color: "#7a6f5c", borderBottom: "2px solid #eadfcb", whiteSpace: "nowrap", textAlign: "center" };
+  const inp = { width: 82, padding: "8px 8px", border: "1.5px solid #e3ddd0", borderRadius: 8, fontSize: 14, fontFamily: "inherit", textAlign: "right" };
+  const sel = { padding: "8px 8px", border: "1.5px solid #e3ddd0", borderRadius: 8, fontSize: 13.5, fontFamily: "inherit", fontWeight: 700, background: "#fff" };
+  const modeBtn = (on) => ({ padding: "7px 13px", borderRadius: 999, border: `1.5px solid ${on ? ACCENT : "#e3ddd0"}`, background: on ? "#FFF7EC" : "#fff", color: on ? ACCENT_DK : "#8a8172", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" });
+  return (
+    <div style={S.modalOverlay} onClick={onClose}>
+      <div style={{ ...S.modal, maxWidth: 900 }} onClick={(e) => e.stopPropagation()}>
+        <div style={S.modalHead}>
+          <div>
+            <div style={S.modalTitle}>🧮 คีย์จากเครื่องคัดไข่ · {toThaiDate(prodDate)}</div>
+            <div style={S.modalSub}>จอเครื่องมีเฉพาะไข่ดีเบอร์ 0-5 · ตกเกรดคีย์แยกที่ ✎ รายหลัง · หลัง 2-5 = เครื่อง 1+2 คู่กัน (คีย์ 2 แถว/หลัง) · หลัง 6-7 = เครื่อง 3 (แถวเดียว) · ลำดับดึงเปลี่ยนทุกวัน เลือกหลังเอง</div>
+          </div>
+          <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
+        </div>
+        <div style={{ display: "flex", gap: 7, marginBottom: 10, flexWrap: "wrap" }}>
+          <button style={modeBtn(mode === "cum")} onClick={() => setMode("cum")}>พิมพ์เลขสะสมตามหน้าจอ — ระบบลบเลขให้</button>
+          <button style={modeBtn(mode === "delta")} onClick={() => setMode("delta")}>พิมพ์ยอดของหลังนั้นตรงๆ</button>
+        </div>
+        {mode === "cum" && (
+          <div style={{ fontSize: 12.5, color: "#7a6f5c", background: "#FFFDF6", border: "1px solid #f0e6d6", borderRadius: 9, padding: "8px 12px", marginBottom: 10, lineHeight: 1.7 }}>
+            พิมพ์ตัวเลขบนจอ <b>ตอนจบของแต่ละหลัง เรียงตามลำดับที่ดึงจริง</b> — ระบบเอาแถวล่างลบแถวบน (แยกเครื่องใครเครื่องมัน) เป็นยอดของหลังนั้นให้เอง
+            · เช้าไหน<b>ไม่ได้กด Reset</b> ให้เพิ่มแถวแรกเป็น "ค่าเริ่มวันบนจอ" ของเครื่องนั้นก่อน
+          </div>
+        )}
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ borderCollapse: "collapse", width: "100%" }}>
+            <thead><tr>
+              <th style={th}>หลัง</th><th style={th}>เครื่อง</th>
+              {MACHINE_BER_ORDER.map((b) => <th key={b} style={th}>เบอร์ {b}</th>)}
+              <th style={th}>{mode === "cum" ? "ยอดหลังนี้ (ฟอง)" : "รวม (ฟอง)"}</th><th style={th} />
+            </tr></thead>
+            <tbody>
+              {rows.map((r, i) => { const d = rowDiffs[i]; return (
+                <tr key={r.key} style={d && d.neg ? { background: "#FFF5F3" } : undefined}>
+                  <td style={{ padding: 4 }}>
+                    <select style={sel} value={r.hid} onChange={(e) => setField(r.key, "hid", e.target.value)}>
+                      <option value="">— เลือก —</option>
+                      {mode === "cum" && <option value="__start">ค่าเริ่มวันบนจอ</option>}
+                      {HOUSE_IDS.map((h) => <option key={h} value={h}>{h}</option>)}
+                    </select>
+                  </td>
+                  <td style={{ padding: 4 }}>
+                    <select style={sel} value={r.machine} onChange={(e) => setField(r.key, "machine", e.target.value)}>
+                      <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+                    </select>
+                  </td>
+                  {MACHINE_BER_ORDER.map((b) => (
+                    <td key={b} style={{ padding: 4 }}>
+                      <input inputMode="numeric" placeholder="0" style={inp} value={r.ber[b] ? Number(r.ber[b]).toLocaleString("en-US") : ""}
+                        onChange={(e) => setCell(r.key, b, e.target.value)} onFocus={(e) => e.target.select()} />
+                    </td>
+                  ))}
+                  <td style={{ padding: 4, textAlign: "right", fontWeight: 800, fontSize: 14, whiteSpace: "nowrap", color: d && d.neg ? "#B3261E" : INK }}>
+                    {d && d.isStart ? <span style={{ fontSize: 11.5, color: "#9b8e78" }}>ตั้งต้น</span>
+                      : d && d.neg ? "เลขลด?" : (d && d.total ? fmt(d.total) : "·")}
+                  </td>
+                  <td style={{ padding: 4 }}>{rows.length > 1 && <button onClick={() => setRows((p) => p.filter((x) => x.key !== r.key))} style={{ border: "1px solid #f3d3ce", background: "#FFF5F3", color: "#B3261E", borderRadius: 7, padding: "5px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>✕</button>}</td>
+                </tr>
+              ); })}
+            </tbody>
+          </table>
+        </div>
+        <button onClick={() => setRows((p) => {
+          // หลัง 2-5 ใช้เครื่อง 1+2 คู่กัน — ถ้าแถวล่าสุดเป็นเครื่อง 1 ของหลัง 2-5 ให้แถวใหม่เป็นเครื่อง 2 หลังเดียวกันรอไว้เลย
+          const last = p[p.length - 1];
+          const nr = mkRow();
+          if (last && last.machine === "1" && last.hid && last.hid !== "__start" && last.hid !== "H6" && last.hid !== "H7") { nr.hid = last.hid; nr.machine = "2"; }
+          return [...p, nr];
+        })} style={{ marginTop: 8, border: "1.5px dashed #d8ceba", background: "#FFFDF8", color: "#7a6f5c", borderRadius: 9, padding: "8px 14px", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>＋ เพิ่มแถว (จบหลังถัดไป)</button>
+        {anyNeg && <div style={{ marginTop: 9, fontSize: 12.5, color: "#B3261E", fontWeight: 700 }}>⚠️ มีแถวที่ตัวเลขน้อยกว่าแถวก่อนหน้าของเครื่องเดียวกัน (เลขสะสมต้องเพิ่มขึ้นเสมอ) — เช็คลำดับแถว/เครื่อง หรือเลขที่พิมพ์ · แถวนั้นยังไม่ถูกนับ</div>}
+        {houseList.length > 0 && (
+          <div style={{ marginTop: 12, background: "#F6FBF4", border: "1.5px solid #CDE8C9", borderRadius: 11, padding: "10px 13px" }}>
+            <div style={{ fontSize: 12.5, fontWeight: 800, color: "#15803D", marginBottom: 6 }}>สรุปยอดไข่ดีที่จะบันทึก · รวม {fmt(grand)} ฟอง (≈{fmt1(grand / PER_PRADANG)} แผง)</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {houseList.map((h) => { const t = BER_KEYS.reduce((s2, b) => s2 + byHouse[h][b], 0); return (
+                <span key={h} style={{ fontSize: 12.5, background: "#fff", border: "1px solid #DFEFDB", borderRadius: 999, padding: "4px 11px", fontWeight: 700 }}>{h} · {fmt(t)} ฟอง (≈{fmt1(t / PER_PRADANG)} แผง)</span>
+              ); })}
+            </div>
+            {overwritten.length > 0 && <div style={{ marginTop: 8, fontSize: 12, color: "#B45309", fontWeight: 700 }}>⚠️ {overwritten.join(", ")} มียอดไข่ดีอยู่แล้ว — บันทึกจะ "แทนที่" ยอดเบอร์เดิมของหลังนั้น (ตกเกรด/ไข่คละ/จำนวนไก่ ไม่ถูกแตะ)</div>}
+          </div>
+        )}
+        <button disabled={!houseList.length} onClick={() => { onApply(byHouse); onClose(); }}
+          style={{ ...S.primaryBtn, marginTop: 12, ...(houseList.length ? {} : S.confirmBtnDisabled) }}>
+          บันทึกยอดไข่ดี {houseList.length} หลัง เข้าผลผลิตวันนี้
+        </button>
+      </div>
+    </div>
+  );
+}
+function ProductionView({ houses = [], setHouses, prodDate, setProdDate, production = {}, flocks = {}, readOnly = false, dayClosed = false }) {
   const [editHouse, setEditHouse] = useState(null);
+  const [showMachine, setShowMachine] = useState(false);  // 🧮 โมดัลคีย์จากเครื่องคัด
   const [showAdvice, setShowAdvice] = useState(false);   // โมดัลคำแนะนำการดูแล
   const [undoStack, setUndoStack] = useState([]);  // ประวัติค่าก่อนแก้ (undo ได้หลายชั้น)
   useEffect(() => { setUndoStack([]); }, [prodDate]);   // เปลี่ยนวัน → ล้างประวัติย้อนกลับ
@@ -5497,7 +5647,7 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
   const hasNextDay = (curIdx >= 0 && curIdx < sortedDates.length - 1) || (curIdx < 0 && sortedDates.some((d) => d > prodDate));
   const prodRecorded = (d) => (production[d] || []).some((h) => (h.chickens || 0) > 0 || Object.values(h.grade?.เบอร์ || {}).some((v) => v > 0) || Object.values(h.grade?.ตกเกรด || {}).some((v) => v > 0));
   const startNewDay = () => {   // สร้างวันใหม่จากโครงวันล่าสุด (คงจำนวนไก่+ชนิด, เคลียร์จำนวนไข่/สุ่มตรวจ)
-    if (readOnly) return;   // 👁 สัตวบาล = ดูอย่างเดียว
+    if (readOnly || dayClosed) return;   // 👁 ดูอย่างเดียว / 🔒 วันปิดยอดแล้วห้ามแก้
     const latest = sortedDates.filter((d) => d < prodDate).pop() || sortedDates[sortedDates.length - 1];
     const base = production[latest] || [];
     const zero = (o) => Object.fromEntries(Object.keys(o).map((k) => [k, 0]));
@@ -5508,7 +5658,7 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
   // โชว์ครบทุกหลังตาม HOUSE_IDS แม้วันนั้นยังไม่มีข้อมูล (เช่น H7 เพิ่งเข้าไก่) — แถวศูนย์ ยังไม่ถูกบันทึกจนกว่าจะกดแก้จริง
   const housesAll = useMemo(() => [...houses, ...HOUSE_IDS.filter((id) => !houses.some((h) => h.id === id)).map((id) => emptyHouseDay(id, prodDate))], [houses, prodDate]);
   const saveHouse = (id, grade, chickens, date, inspect) => {
-    if (readOnly) return;   // 👁 สัตวบาล = ดูอย่างเดียว — กันไว้อีกชั้นแม้ปุ่มแก้ถูกซ่อนแล้ว
+    if (readOnly || dayClosed) return;   // 👁 ดูอย่างเดียว / 🔒 วันปิดยอดแล้ว — กันไว้อีกชั้นแม้ปุ่มแก้ถูกซ่อน
     const cur = houses.find((h) => h.id === id);
     if (cur) setUndoStack((s) => [...s, { id, house: cur }]);   // จำค่าก่อนแก้ไว้ย้อนกลับ (house object เดิม ไม่ถูก mutate)
     if (setHouses) setHouses((prev) => prev.some((h) => h.id === id)
@@ -5564,11 +5714,20 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
               👁 ดูอย่างเดียว — สัตวบาลไม่สามารถแก้ไขข้อมูลผลผลิตได้
             </span>
           )}
+          {!readOnly && dayClosed && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", border: "1.5px solid #FCA5A5", background: "#FEF2F2", color: "#B91C1C", borderRadius: 999, fontSize: 12.5, fontWeight: 800 }}>
+              🔒 วันที่นี้ปิดยอดแล้ว — แก้ผลผลิตไม่ได้ · จำเป็นต้องแก้จริงๆ ให้ "เปิดยอดวันนี้ใหม่" ที่หน้า สต๊อคไข่ประจำวัน ก่อน
+            </span>
+          )}
+          {!readOnly && !dayClosed && <button onClick={() => setShowMachine(true)} title="คีย์ยอดไข่ดีจากจอเครื่องคัด ทีละรอบ เลือกหลังเอง"
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", border: "1px solid #7C3AED", background: "#F7F3FF", color: "#6D28D9", borderRadius: 8, fontSize: 13, fontFamily: "inherit", fontWeight: 700, cursor: "pointer" }}>
+            🧮 คีย์จากเครื่องคัด
+          </button>}
           {!readOnly && <button onClick={() => setShowAlertCfg(true)} title="ตั้งค่าเกณฑ์แจ้งเตือนคุณภาพผลผลิต"
             style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", border: `1px solid ${totalAlerts > 0 ? "#DC2626" : ACCENT}`, background: totalAlerts > 0 ? "#FEF2F2" : "#fff", color: totalAlerts > 0 ? "#B91C1C" : ACCENT_DK, borderRadius: 8, fontSize: 13, fontFamily: "inherit", fontWeight: 700, cursor: "pointer" }}>
             <Bell size={14} /> เกณฑ์เตือน{totalAlerts > 0 ? ` · ${totalAlerts}` : ""}
           </button>}
-          {!readOnly && undoStack.length > 0 && (
+          {!readOnly && !dayClosed && undoStack.length > 0 && (
             <button onClick={undoEdit} title="ย้อนค่าที่แก้ครั้งล่าสุดกลับคืน"
               style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", border: `1px solid ${ACCENT}`, background: "#FFF7EC", color: ACCENT_DK, borderRadius: 8, fontSize: 13, fontFamily: "inherit", fontWeight: 700, cursor: "pointer" }}>
               <RotateCcw size={14} /> ย้อนการแก้ ({undoStack.length})
@@ -5600,7 +5759,7 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
           <div style={S.alertList}>
             {housesAll.filter((h) => alertMap[h.id] && alertMap[h.id].length).map((h) => (
               <div key={h.id} style={S.alertRow}>
-                {readOnly ? <span style={{ ...S.alertHouseBtn, cursor: "default" }}>{h.id}</span>
+                {(readOnly || dayClosed) ? <span style={{ ...S.alertHouseBtn, cursor: "default" }}>{h.id}</span>
                   : <button onClick={() => setEditHouse(h)} style={S.alertHouseBtn} title="กรอก/แก้ไขข้อมูลหลังนี้">{h.id} <Pencil size={10} /></button>}
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                   {alertMap[h.id].map((a, i) => <span key={i} style={S.alertChip}><b>{a.label}</b> · {a.detail}</span>)}
@@ -5620,7 +5779,7 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
           <div style={{ fontSize: 40, marginBottom: 10 }}>🗓️</div>
           <div style={{ fontSize: 15, fontWeight: 700, color: INK, marginBottom: 6 }}>ยังไม่มีข้อมูลผลผลิตของ {prodDateTH}</div>
           <div style={{ fontSize: 13, marginBottom: 16 }}>{readOnly ? "เลือกวันที่มีข้อมูลจากปุ่ม ‹ › ด้านบน" : "เลือกวันที่มีข้อมูลจากปุ่ม ‹ › ด้านบน หรือเริ่มบันทึกวันนี้"}</div>
-          {!readOnly && <button onClick={startNewDay} style={{ ...S.primaryBtn, maxWidth: 340, margin: "0 auto" }}>＋ เริ่มบันทึกผลผลิตวันนี้ (คัดลอกโครงจากวันล่าสุด)</button>}
+          {!readOnly && !dayClosed && <button onClick={startNewDay} style={{ ...S.primaryBtn, maxWidth: 340, margin: "0 auto" }}>＋ เริ่มบันทึกผลผลิตวันนี้ (คัดลอกโครงจากวันล่าสุด)</button>}
         </div>
       ) : (
       <div style={S.tableScroll}>
@@ -5661,7 +5820,7 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
                 <tr key={h.id} style={zebra ? { background: zebra } : undefined}>
                   <td style={{ ...S.td, ...S.tdSticky, fontWeight: 700, textAlign: "left", ...(zebra ? { background: zebra } : {}) }}>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>{h.id}
-                      {!readOnly && <button onClick={() => setEditHouse(h)} title="กรอก/แก้ไขจำนวนไข่" style={{ display: "inline-flex", padding: 4, borderRadius: 6, border: "1px solid #e3ddd0", background: "#fff", color: ACCENT_DK, cursor: "pointer" }}><Pencil size={12} /></button>}
+                      {!readOnly && !dayClosed && <button onClick={() => setEditHouse(h)} title="กรอก/แก้ไขจำนวนไข่" style={{ display: "inline-flex", padding: 4, borderRadius: 6, border: "1px solid #e3ddd0", background: "#fff", color: ACCENT_DK, cursor: "pointer" }}><Pencil size={12} /></button>}
                       {h.inspect && h.inspect.result ? <span title={"สุ่มตรวจ (ตอก " + (h.inspect.count || 0) + " ฟอง): " + h.inspect.result} style={{ cursor: "help", fontSize: 12 }}>🔍</span> : null}
                       {alertMap[h.id] && alertMap[h.id].length ? <span title={alertMap[h.id].map((a) => a.label + " " + a.detail).join("\n")} style={{ cursor: "help", fontSize: 12 }}>⚠️</span> : null}
                     </span>
@@ -5703,7 +5862,21 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
       </div>
       )}
       <div style={S.hint}>กด ✎ ที่ชื่อหลังเพื่อ "กรอก/แก้ไข" จำนวนไข่วันนี้ (เบอร์ 0-5 + ตกเกรด) · <b style={{ color: "#15803D" }}>ผลผลิตเข้าสต็อกคลังของวันนั้นอัตโนมัติ</b> (ไม่ต้องกดรับเข้า) · <b>แก้ผิด?</b> กด "↩ ย้อนการแก้" (มุมขวาบน) เพื่อคืนค่าเดิม · <b style={{ color: "#B91C1C" }}>ช่องแดง</b> = เกินเกณฑ์ที่ตั้งไว้ (กด <b>🔔 เกณฑ์เตือน</b> เพื่อปรับตัวเลข) · %ไข่ตกเกรด = ตกเกรด(ฟอง) ÷ ไข่รวม · %ไข่รวม = ไข่รวม ÷ ยอดไก่</div>
-      {!readOnly && editHouse && <HouseEditModal key={editHouse.id} house={editHouse} defaultDate={prodDate} onClose={() => setEditHouse(null)} onSave={saveHouse} />}
+      {!readOnly && !dayClosed && showMachine && <MachinePullModal prodDate={prodDate} existing={housesAll}
+        onClose={() => setShowMachine(false)}
+        onApply={(byHouse) => {
+          if (readOnly || !setHouses) return;
+          setHouses((prev) => {
+            const next = [...prev];
+            Object.entries(byHouse).forEach(([hid, ber]) => {
+              const i = next.findIndex((h) => h.id === hid);
+              if (i >= 0) { setUndoStack((st) => [...st, { id: hid, house: next[i] }]); next[i] = { ...next[i], date: prodDate, grade: { ...next[i].grade, เบอร์: ber } }; }
+              else { const e = emptyHouseDay(hid, prodDate); next.push({ ...e, grade: { ...e.grade, เบอร์: ber } }); }
+            });
+            return next;
+          });
+        }} />}
+      {!readOnly && !dayClosed && editHouse && <HouseEditModal key={editHouse.id} house={editHouse} defaultDate={prodDate} onClose={() => setEditHouse(null)} onSave={saveHouse} />}
       {!readOnly && showAlertCfg && <AlertSettingsModal cfg={alertCfgRaw} onSave={setAlertCfgRaw} onClose={() => setShowAlertCfg(false)} />}
       {showAdvice && <HealthAdviceModal houses={housesAll} alertMap={alertMap} flocks={flocks} prodDate={prodDate} onClose={() => setShowAdvice(false)} />}
     </div>
@@ -7902,6 +8075,17 @@ function AddMedModal({ onSave, onClose }) {
 /* ============================================================
    หน้าจอ: บัญชีต้นทุน — ค่าใช้จ่าย 6 หมวด ระบุหลังได้ + สรุปรายเดือนต่อหมวด
 ============================================================ */
+// ช่องกรอกอัตราทศนิยม — เก็บข้อความที่พิมพ์แยกจากตัวเลขจริง (เดิม parse ทุกตัวอักษร → พิมพ์จุดทศนิยม/ลบค่าไม่ได้)
+function RateInput({ val, onCommit, style }) {
+  const [txt, setTxt] = useState(String(val));
+  const [focus, setFocus] = useState(false);
+  useEffect(() => { if (!focus) setTxt(String(val)); }, [val, focus]);
+  return <input inputMode="decimal" value={txt}
+    onFocus={() => setFocus(true)}
+    onChange={(e) => { const t = e.target.value.replace(/[^0-9.]/g, ""); setTxt(t); const n = parseFloat(t); if (!isNaN(n)) onCommit(n); }}
+    onBlur={() => { setFocus(false); const n = parseFloat(txt); const v = isNaN(n) ? 0 : n; onCommit(v); setTxt(String(v)); }}
+    style={style} />;
+}
 function CostView({ expenses = [], addExpense, deleteExpense, production = {}, medCostByMonth = {}, feedCostByMonth = {}, feedPrice = 0, bills = [] }) {
   const prodDates = Object.keys(production).sort();
   const houseIds = [...new Set([...(production[prodDates[prodDates.length - 1]] || []).map((h) => h.id), ...HOUSE_IDS])];   // รวมหลังใหม่ที่ยังไม่มีผลผลิต (เช่น H7)
@@ -7920,7 +8104,8 @@ function CostView({ expenses = [], addExpense, deleteExpense, production = {}, m
   const monthKey = (d) => (d || "").slice(0, 7);                       // "2026-07"
   const monthTH = (mk) => { const [y, m] = mk.split("-").map(Number); return toThaiDate(`${mk}-01`).split(" ").slice(1).join(" "); };
   const thisMonth = monthKey(isoFromTs(Date.now()));
-  // สรุปรายเดือน × หมวด — รวมอัตโนมัติ: ค่ายา (บันทึกให้ยา × ราคาสต๊อก) + ค่าอาหาร (กก.ที่กิน × ราคา/กก.)
+  // สรุปรายเดือน × หมวด — รวมอัตโนมัติเฉพาะค่ายา (บันทึกให้ยา × ราคาสต๊อก)
+  // ⛔ ค่าอาหาร "ไม่" คิดอัตโนมัติแล้ว (เจ้าของสั่ง 18 ส.ค. 69: 2 ซัพพลายเออร์ราคาไม่เท่ากัน → กรอกเองในหมวดค่าอาหารเท่านั้น · หน้าอาหารไก่มีไว้เช็คไซโล)
   const byMonth = useMemo(() => {
     const m = {};
     const ensure = (mk) => (m[mk] = m[mk] || { total: 0, cats: {}, autoMed: 0, autoFeed: 0, autoFeedKg: 0 });
@@ -7937,15 +8122,8 @@ function CostView({ expenses = [], addExpense, deleteExpense, production = {}, m
       b.cats["ค่ายา+วัสดุสิ้นเปลือง"] = (b.cats["ค่ายา+วัสดุสิ้นเปลือง"] || 0) + v.total;
       b.autoMed = v.total;
     });
-    Object.entries(feedCostByMonth).forEach(([mk, v]) => {
-      if (!v.total) return;
-      const b = ensure(mk);
-      b.total += v.total;
-      b.cats["ค่าอาหาร"] = (b.cats["ค่าอาหาร"] || 0) + v.total;
-      b.autoFeed = v.total; b.autoFeedKg = v.kg || 0;
-    });
     return m;
-  }, [expenses, medCostByMonth, feedCostByMonth]);
+  }, [expenses, medCostByMonth]);
 
   // ---------- รายงานต้นทุนไข่รายเดือน (ตามวิธีบัญชีปัจจุบัน: ต้นทุน/ฟอง = รวมค่าใช้จ่าย ÷ ฟองรับเข้า) ----------
   // อัตราคิดต่อฟอง (แก้ได้): ค่าสายพันธุ์ 0.5 บ./ฟอง · ค่าเสื่อมโรงเรือน 0.30 บ./ฟอง — คิดจากฟองรับเข้าอัตโนมัติ
@@ -8043,10 +8221,10 @@ function CostView({ expenses = [], addExpense, deleteExpense, production = {}, m
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 10, fontSize: 12, color: "#7a6f5c" }}>
               <span style={{ fontWeight: 700 }}>อัตราคิดต่อฟอง:</span>
               <span>สายพันธุ์</span>
-              <input inputMode="decimal" value={rates.breed} onChange={(e) => setRates((p) => ({ ...p, breed: parseFloat(e.target.value.replace(/[^0-9.]/g, "")) || 0 }))}
+              <RateInput val={rates.breed} onCommit={(n) => setRates((p) => ({ ...p, breed: n }))}
                 style={{ width: 52, padding: "3px 6px", border: "1px solid #e0d7c3", borderRadius: 6, textAlign: "right", fontSize: 12, fontFamily: "inherit", fontWeight: 700 }} />
               <span>บ./ฟอง · ค่าเสื่อมโรงเรือน</span>
-              <input inputMode="decimal" value={rates.depre} onChange={(e) => setRates((p) => ({ ...p, depre: parseFloat(e.target.value.replace(/[^0-9.]/g, "")) || 0 }))}
+              <RateInput val={rates.depre} onCommit={(n) => setRates((p) => ({ ...p, depre: n }))}
                 style={{ width: 52, padding: "3px 6px", border: "1px solid #e0d7c3", borderRadius: 6, textAlign: "right", fontSize: 12, fontFamily: "inherit", fontWeight: 700 }} />
               <span>บ./ฟอง</span>
             </div>
@@ -10371,6 +10549,7 @@ function LoginScreen({ onDone }) {
     { u: "lek",      label: "ส.เล็ก · เสมียนโรงคัด",               desc: "ขายไข่ · บิล · สต็อค",       emoji: "🛒", role: "sales" },
     { u: "mai",      label: "หมอใหม่ · สัตวบาล",                   desc: "ผลผลิต · การเลี้ยง · ยา",    emoji: "🐔", role: "farm" },
     { u: "beam",     label: "หมอบีม · สัตวบาล",                    desc: "ผลผลิต · การเลี้ยง · ยา",    emoji: "🐔", role: "farm" },
+    { u: "nes",      label: "หมอเนส · สัตวบาล",                    desc: "ผลผลิต · การเลี้ยง · ยา",    emoji: "🐔", role: "farm" },
     { u: "acct",     label: "บัญชี",                                desc: "บิล · ลูกหนี้ · ต้นทุน",     emoji: "💰", role: "acct" },
     { u: "medclerk", label: "เสมียนห้องสต๊อคยา",                    desc: "สต็อคยาและวิตามิน",          emoji: "💊", role: "medclerk" },
     { u: "retail",   label: "ร้านค้าขายปลีก (ฉันจะกินไข่สดทุกวัน)", desc: "จองออเดอร์ร้านขายปลีก",      emoji: "🛍️", role: "retail_shop" },
