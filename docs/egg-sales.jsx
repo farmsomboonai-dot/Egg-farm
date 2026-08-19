@@ -1207,6 +1207,32 @@ const DEFAULT_ROLES = [
 const AUTH_ROLE_BY_USER = { owner: "owner", office: "sales", farm: "farm", acct: "acct", medclerk: "medclerk", retail: "retail_shop", branch: "branch_shop", mai: "farm", beam: "farm", nes: "farm", meaw: "sales", fai: "sales", orn: "sales", lek: "sales" };
 // ชื่อจริงของแต่ละบัญชี — โชว์ในบันทึกกิจกรรม "ใครแก้อะไร" ให้รู้ตัวคน
 const ACCOUNT_LABELS = { mai: "หมอใหม่", beam: "หมอบีม", nes: "หมอเนส", meaw: "ส.เหมียว", fai: "ส.ฝ้าย", orn: "ส.อร", lek: "ส.เล็ก", farm: "บัญชีรวม(เก่า)", office: "บัญชีรวม(เก่า)" };
+
+/* ============================================================
+   👥 บัญชีผู้ใช้ฟาร์ม (ตาราง app_accounts บนคลาวด์)
+   เจ้าของเพิ่ม/แก้/ตั้งรหัสได้เองที่หน้า "บัญชีผู้ใช้" — ไม่ต้องแก้โค้ดอีกต่อไป
+   โหลดจากคลาวด์ตอนเปิดแอปแล้วเก็บสำเนาไว้ในเครื่อง (เผื่อเปิดตอนเน็ตไม่มา)
+   รายชื่อในโค้ด (ACCOUNT_LABELS / AUTH_ROLE_BY_USER) ยังอยู่เป็นค่าสำรองของบัญชียุคแรก
+============================================================ */
+let __ACCOUNTS = [];
+try { const s = JSON.parse(localStorage.getItem("sjfAccounts") || "[]"); if (Array.isArray(s)) __ACCOUNTS = s; } catch (e) {}
+function accountsCache() { return __ACCOUNTS; }
+function accountBy(u) { return __ACCOUNTS.find((a) => a.username === u) || null; }
+// บทบาทของบัญชี — ในคลาวด์ก่อน แล้วค่อยตกมาที่รายชื่อในโค้ด
+function roleOfAccount(u) { const a = accountBy(u); return (a && a.role) || AUTH_ROLE_BY_USER[u] || ""; }
+// ชื่อสั้นไว้โชว์ในบันทึกกิจกรรม/ใบเสร็จ
+function labelOfAccount(u) { const a = accountBy(u); return (a && a.short_label) || ACCOUNT_LABELS[u] || (a && a.label) || u || ""; }
+async function loadAccounts() {
+  if (!supabase) return __ACCOUNTS;
+  try {
+    const { data, error } = await supabase.from("app_accounts").select("username,label,short_label,descr,emoji,role,active,sort").order("sort").order("username");
+    if (error || !Array.isArray(data) || !data.length) return __ACCOUNTS;   // โหลดไม่ได้ → คงสำเนาเดิมไว้ ไม่ล้างทิ้ง
+    __ACCOUNTS = data;
+    try { localStorage.setItem("sjfAccounts", JSON.stringify(data)); } catch (e) {}
+    return data;
+  } catch (e) { return __ACCOUNTS; }
+}
+
 function RolePickerModal({ roles, current, onPick, onClose }) {
   const [sel, setSel] = useState(null);
   const [pin, setPin] = useState("");
@@ -1243,7 +1269,7 @@ function RolePickerModal({ roles, current, onPick, onClose }) {
         </div>
         {!sel ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {AUTH_ROLE_BY_USER[authUser] ? (() => {
+            {roleOfAccount(authUser) ? (() => {
               // 🔒 ล็อกอินอยู่ → บทบาทผูกกับบัญชี สลับไม่ได้ (ชั้นเดียวจบ) — เปลี่ยนบทบาท = ออกจากระบบแล้วเข้าบัญชีอื่น
               const cur = roles.find((r) => r.id === current) || roles[0];
               return (
@@ -1355,7 +1381,7 @@ function ActivityLogView({ roles = [] }) {
               {filtered.map((r, i) => { const ri = roleInfo(r.role); const ch = Array.isArray(r.changes) ? r.changes : []; return (
                 <tr key={r.id != null ? r.id : i} style={{ background: i % 2 ? "#FDFAF3" : "#fff" }}>
                   <td style={{ ...cTd, whiteSpace: "nowrap", color: "#5b5347" }}>{fmtTime(r.at)}</td>
-                  <td style={{ ...cTd, whiteSpace: "nowrap", fontWeight: 700, color: INK }}>{ri ? `${ri.emoji} ${ri.name}` : (r.role || "—")}{r.account && ACCOUNT_LABELS[r.account] && <span style={{ marginLeft: 5, color: "#B45309", fontWeight: 800 }}>· {ACCOUNT_LABELS[r.account]}</span>}{r.auto === true && <span title="เซฟอัตโนมัติตอนเปิดแอป ไม่ใช่คนกดแก้" style={{ marginLeft: 5, fontSize: 11 }}>🤖</span>}</td>
+                  <td style={{ ...cTd, whiteSpace: "nowrap", fontWeight: 700, color: INK }}>{ri ? `${ri.emoji} ${ri.name}` : (r.role || "—")}{r.account && labelOfAccount(r.account) && <span style={{ marginLeft: 5, color: "#B45309", fontWeight: 800 }}>· {labelOfAccount(r.account)}</span>}{r.auto === true && <span title="เซฟอัตโนมัติตอนเปิดแอป ไม่ใช่คนกดแก้" style={{ marginLeft: 5, fontSize: 11 }}>🤖</span>}</td>
                   <td style={cTd}>{ch.length ? ch.map((c, j) => <span key={j} style={{ display: "inline-block", background: "#EFF6FF", color: "#0369A1", border: "1px solid #BFDBFE", borderRadius: 999, padding: "1px 9px", fontSize: 11.5, fontWeight: 700, margin: "0 5px 4px 0" }}>{c}</span>) : <span style={{ color: "#c9c0ad" }}>—</span>}</td>
                   <td style={{ ...cTd, textAlign: "right", color: "#b8ab90", fontSize: 11, whiteSpace: "nowrap" }}>{r.device || "—"}</td>
                 </tr>
@@ -1437,7 +1463,7 @@ export default function App() {
   const [currentRole, setCurrentRole] = useState(() => {
     // 🔒 รู้ชื่อบัญชีอยู่แล้ว → เริ่มด้วยบทบาทที่ผูกกับบัญชีทันที ไม่มีวินาทีไหนเป็น "เจ้าของ" ก่อนเช็คเซิร์ฟเวอร์เสร็จ
     try {
-      const locked = AUTH_ROLE_BY_USER[localStorage.getItem("sjfAuthUsername") || ""];
+      const locked = roleOfAccount(localStorage.getItem("sjfAuthUsername") || "");
       if (locked) return locked;
       return localStorage.getItem("eggCurrentRole") || "owner";
     } catch { return "owner"; }
@@ -1451,7 +1477,7 @@ export default function App() {
       supabase.auth.getSession().then((r) => {
         const em = (r && r.data && r.data.session && r.data.session.user && r.data.session.user.email) || "";
         const uname = em.replace(/@sjffarm\.app$/, "");
-        const locked = AUTH_ROLE_BY_USER[uname];
+        const locked = roleOfAccount(uname);
         if (locked) {
           setCurrentRole((c) => (c === locked ? c : locked));
           try { localStorage.setItem("sjfAuthUsername", uname); } catch (e) {}   // เครื่องที่ล็อกอินค้างอยู่ก่อนฟีเจอร์นี้ ก็ให้รู้ชื่อบัญชี
@@ -1812,7 +1838,7 @@ export default function App() {
       const prevSlips = prev[billNo]?.slips || (prev[billNo]?.slip ? [prev[billNo].slip] : []);
       const allSlips = [...prevSlips, ...newSlips];
       // จดชื่อคนรับชำระ (คนปิดบิล) จากบัญชีที่ล็อกอิน — งวดล่าสุดชนะ
-      let by = ""; try { const u = localStorage.getItem("sjfAuthUsername") || ""; by = ACCOUNT_LABELS[u] || u; } catch (e) {}
+      let by = ""; try { const u = localStorage.getItem("sjfAuthUsername") || ""; by = labelOfAccount(u); } catch (e) {}
       return { ...prev, [billNo]: { paid: prevPaid + amount, date: new Date().toLocaleDateString("th-TH"), ts: Date.now(), method, by: by || prev[billNo]?.by || undefined, slip: allSlips[0] || null, slips: allSlips.length ? allSlips : undefined, note: mergedNote || undefined } };
     });
   // ยกเลิกใบเสร็จ (soft void + audit): เก็บเหตุผล/เวลา/ผู้ยกเลิก ; บิลยังอยู่ในประวัติแต่ถูกตัดออกจากทุกยอดคำนวณ (activeBills)
@@ -1863,13 +1889,14 @@ export default function App() {
               manage: { icon: <Activity size={15} />, label: "แดชบอร์ดผู้บริหาร", c: "#9333EA" },
               houseecon: { icon: <CircleDollarSign size={15} />, label: "ประสิทธิภาพไก่", c: "#047857" },
               activity: { icon: <FileText size={15} />, label: "ใครแก้อะไร", c: "#0369A1", ownerOnly: true },
+              accounts: { icon: <User size={15} />, label: "บัญชีผู้ใช้", c: "#0D9488", ownerOnly: true },
               roles: { icon: <Settings size={15} />, label: "ตั้งค่าสิทธิ์", c: "#6D28D9", ownerOnly: true, action: true },
             };
             const GROUPS = [
               { id: "g_sales", emoji: "🛒", label: "งานเสมียน", c: "#EA580C", items: ["sales", "production", "booking", "plan", "stock", "bills", "tray"] },
               { id: "g_farm", emoji: "🐔", label: "งานสัตวบาล", c: "#B45309", items: ["rear", "feed", "med", "health", "trial"] },
               { id: "g_acct", emoji: "💰", label: "งานบัญชี", c: "#A16207", items: ["account", "cost"] },
-              { id: "g_mgr", emoji: "📊", label: "ผู้บริหาร", c: "#7C3AED", items: ["dash", "manage", "houseecon", "activity", "roles"] },
+              { id: "g_mgr", emoji: "📊", label: "ผู้บริหาร", c: "#7C3AED", items: ["dash", "manage", "houseecon", "activity", "accounts", "roles"] },
             ];
             const canSee = (id) => TOPIC_META[id].ownerOnly ? roleObj.id === "owner" : allowedTopics.includes(id);
             return (<>
@@ -1919,6 +1946,7 @@ export default function App() {
       {view === "cost" && <CostView expenses={expenses} addExpense={addExpense} deleteExpense={deleteExpense} production={productionByDate} medCostByMonth={medCostByMonth} feedCostByMonth={feedCostByMonth} feedPrice={feedPrice} bills={activeBills} />}
       {view === "houseecon" && <HouseEconView production={productionByDate} flocks={flocks} expenses={expenses} medCostByMonth={medCostByMonth} feedCostByMonth={feedCostByMonth} feedUseByMonth={feedUseByMonth} feedPrice={feedPrice} refPrices={refPrices} bills={activeBills} />}
       {view === "activity" && <ActivityLogView roles={roles} />}
+      {view === "accounts" && roleObj.id === "owner" && <AccountsView />}
       {view === "tray" && <PanelTrayView trayStock={trayStock} setTrayStock={setTrayStock} bills={activeBills} trayRecords={trayRecords} setTrayRecords={setTrayRecords} trayEvents={trayEvents} addTrayEvent={addTrayEvent} deleteTrayEvent={deleteTrayEvent} />}
       {view === "booking" && <BookingEntry bookings={bookings} addBooking={addBooking} updateBooking={updateBooking} deleteBooking={deleteBooking} production={productionByDate} planEstimates={planEstimates} custGroup={roleCustGroup} />}
       {view === "plan" && <PlanBoard bookings={bookings} production={productionByDate} planEstimates={planEstimates} setPlanEstimate={setPlanEstimate} />}
@@ -2251,7 +2279,7 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
     const bill = {
       no: billNo,
       book: "086",
-      by: (() => { try { const u = localStorage.getItem("sjfAuthUsername") || ""; return ACCOUNT_LABELS[u] || u; } catch (e) { return ""; } })(),   // 🖊️ ชื่อพนักงานที่ออกบิล — พิมพ์ใต้ช่องเซ็นในใบเสร็จ
+      by: (() => { try { return labelOfAccount(localStorage.getItem("sjfAuthUsername") || ""); } catch (e) { return ""; } })(),   // 🖊️ ชื่อพนักงานที่ออกบิล — พิมพ์ใต้ช่องเซ็นในใบเสร็จ
       customer, customerId,
       // เก็บรายการแบบเบา (ไม่พ่วง object product ทั้งก้อน เผื่อใช้ในหน้าอื่น)
       // สินค้าชั่ง (หลายก้อน ราคาต่างกัน) → แตกเป็นบรรทัดละก้อน เพื่อให้สต็อก/รายงาน/บิลคิดถูกทุกก้อน
@@ -10537,24 +10565,247 @@ async function __hydrate() {
   } catch (e) {}
   // 🔄 ดึงข้อมูลใหม่จากคลาวด์เองทุก 2.5 นาที (เฉพาะคีย์ที่เปลี่ยน) — ทุกเครื่องเห็นข้อมูลกันเองโดยไม่ต้องรีเฟรช
   try { setInterval(() => { pullChangedFromCloud().catch(() => {}); }, 150000); } catch (e) {}
+  // 👥 รายชื่อบัญชีผู้ใช้ (ชื่อ/บทบาทที่เจ้าของตั้งไว้) — ดึงมาเก็บไว้ในเครื่องด้วย
+  try { loadAccounts().catch(() => {}); } catch (e) {}
 }
+/* ============================================================
+   👥 หน้า "บัญชีผู้ใช้" (เจ้าของเท่านั้น)
+   - ดูรายชื่อผู้ใช้ทั้งหมด + รหัสที่ตั้งไว้ล่าสุด (กด 👁 เพื่อดู)
+   - ตั้งรหัสใหม่ให้ใครก็ได้ · เพิ่มผู้ใช้ใหม่ · ปิด/เปิดใช้งาน · ลบ
+   ทุกคำสั่งวิ่งผ่านฟังก์ชันเซิร์ฟเวอร์ admin-user ที่ตรวจว่าเป็นบัญชีเจ้าของจริงก่อนเสมอ
+   (คีย์ผู้ดูแลอยู่ฝั่งเซิร์ฟเวอร์ ไม่ได้ฝังในเว็บ)
+============================================================ */
+function AccountsView() {
+  const [rows, setRows] = useState(null);        // null = กำลังโหลด
+  const [err, setErr] = useState("");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState("");
+  const [showPw, setShowPw] = useState({});      // โชว์รหัสเป็นรายคน
+  const [pwFor, setPwFor] = useState("");        // กำลังตั้งรหัสใหม่ให้ใคร
+  const [pwVal, setPwVal] = useState("");
+  const [edit, setEdit] = useState(null);        // กำลังแก้ข้อมูลใคร
+  const [adding, setAdding] = useState(false);
+  const [confirmDel, setConfirmDel] = useState("");
+  const blank = { username: "", label: "", short_label: "", descr: "", emoji: "👤", role: "sales", password: "" };
+  const [form, setForm] = useState(blank);
+
+  const genPw = (u) => "sjf" + (u || "user").replace(/[^a-z0-9]/g, "") + String(Math.floor(1000 + Math.random() * 9000));
+  const call = async (body) => {
+    const { data, error } = await supabase.functions.invoke("admin-user", { body });
+    if (error) {
+      let m = error.message || "เรียกเซิร์ฟเวอร์ไม่สำเร็จ";
+      try { const j = await error.context.json(); if (j && j.error) m = j.error; } catch (e) {}
+      throw new Error(m);
+    }
+    if (data && data.error) throw new Error(data.error);
+    return data;
+  };
+  const load = async () => {
+    if (!supabase) { setErr("no-sb"); setRows([]); return; }
+    setErr("");
+    try { const d = await call({ action: "list" }); setRows(d.rows || []); }
+    catch (e) { setErr(String(e.message || e)); setRows([]); }
+  };
+  useEffect(() => { load(); }, []);
+  const run = async (tag, body, okMsg) => {
+    setBusy(tag); setErr(""); setMsg("");
+    try {
+      await call(body);
+      await load();
+      await loadAccounts();          // รายชื่อในหน้าเข้าสู่ระบบ/บันทึกกิจกรรมอัปเดตตามทันที
+      setMsg(okMsg);
+      setTimeout(() => setMsg(""), 6000);
+      return true;
+    } catch (e) { setErr(String(e.message || e)); return false; }
+    finally { setBusy(""); }
+  };
+  const copy = async (txt) => {
+    try { await navigator.clipboard.writeText(txt); setMsg("คัดลอกรหัสแล้ว"); setTimeout(() => setMsg(""), 3000); }
+    catch (e) { window.prompt("คัดลอกรหัสนี้ไปใช้ได้เลย", txt); }
+  };
+  const roleName = (rid) => { const r = DEFAULT_ROLES.find((x) => x.id === rid); return r ? `${r.emoji} ${r.name}` : rid; };
+  const fmt = (iso) => { if (!iso) return "—"; try { return new Date(iso).toLocaleString("th-TH", { day: "2-digit", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit" }); } catch (e) { return iso; } };
+
+  const box = { background: "#fff", border: "1px dashed #d8cdb6", borderRadius: 14, padding: "30px 20px", textAlign: "center", color: "#9b8e78", fontWeight: 600 };
+  const cTh = { padding: "7px 10px", fontSize: 12, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", textAlign: "left", whiteSpace: "nowrap" };
+  const cTd = { padding: "8px 10px", fontSize: 12.5, borderBottom: "1px solid #f3eee2", verticalAlign: "middle" };
+  const inp = { padding: "8px 10px", border: "1.5px solid #e3ddd0", borderRadius: 9, fontSize: 13.5, fontFamily: "inherit", outline: "none", boxSizing: "border-box", width: "100%", background: "#fff" };
+  const lbl = { fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", marginBottom: 4, display: "block" };
+  const miniBtn = (c, bg, bd) => ({ padding: "5px 10px", border: `1.5px solid ${bd}`, background: bg, color: c, borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" });
+
+  const fieldSet = (f, setF, withUser) => (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 10 }}>
+      {withUser && (
+        <div>
+          <label style={lbl}>ชื่อผู้ใช้ (ภาษาอังกฤษ · ใช้ตอนเข้าระบบ)</label>
+          <input value={f.username} onChange={(e) => setF({ ...f, username: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") })} placeholder="เช่น somchai" style={inp} />
+        </div>
+      )}
+      <div><label style={lbl}>ชื่อที่แสดงบนการ์ดเข้าระบบ</label><input value={f.label} onChange={(e) => setF({ ...f, label: e.target.value })} placeholder="เช่น ส.สมชาย · เสมียนโรงคัด" style={inp} /></div>
+      <div><label style={lbl}>ชื่อสั้น (โชว์ในใบเสร็จ/ใครแก้อะไร)</label><input value={f.short_label} onChange={(e) => setF({ ...f, short_label: e.target.value })} placeholder="เช่น ส.สมชาย" style={inp} /></div>
+      <div><label style={lbl}>คำอธิบายใต้ชื่อ</label><input value={f.descr} onChange={(e) => setF({ ...f, descr: e.target.value })} placeholder="เช่น ขายไข่ · บิล · สต็อค" style={inp} /></div>
+      <div><label style={lbl}>อีโมจิ</label><input value={f.emoji} onChange={(e) => setF({ ...f, emoji: e.target.value.slice(0, 4) })} style={{ ...inp, width: 80, textAlign: "center", fontSize: 20 }} /></div>
+      <div>
+        <label style={lbl}>บทบาท (กำหนดว่าเห็นหัวข้อไหนได้บ้าง)</label>
+        <select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })} style={inp}>
+          {DEFAULT_ROLES.map((r) => <option key={r.id} value={r.id}>{r.emoji} {r.name}</option>)}
+        </select>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ maxWidth: 1040, margin: "0 auto" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+        <span style={{ fontSize: 18, fontWeight: 800, color: INK }}>👥 บัญชีผู้ใช้ · ชื่อผู้ใช้และรหัสผ่าน</span>
+        <span style={{ fontSize: 12.5, color: "#9b8e78" }}>{rows ? `${rows.length} บัญชี` : ""}</span>
+        <button onClick={() => { setAdding((v) => !v); setForm(blank); setErr(""); }} style={{ marginLeft: "auto", ...miniBtn("#fff", ACCENT, ACCENT), padding: "8px 14px", fontSize: 13 }}>{adding ? "✕ ปิดฟอร์ม" : "+ เพิ่มผู้ใช้ใหม่"}</button>
+        <button onClick={load} style={miniBtn("#7a6f5c", "#fff", "#d8cdb6")}>↻ รีเฟรช</button>
+      </div>
+
+      {msg && <div style={{ background: "#F0FDF4", border: "1px solid #A7F3D0", color: "#15803D", borderRadius: 10, padding: "9px 12px", fontSize: 13, fontWeight: 700, marginBottom: 10 }}>✅ {msg}</div>}
+      {err && err !== "no-sb" && <div style={{ background: "#FEF2F2", border: "1px solid #FECACA", color: "#B91C1C", borderRadius: 10, padding: "9px 12px", fontSize: 13, fontWeight: 700, marginBottom: 10 }}>⚠️ {err}</div>}
+
+      {adding && (
+        <div style={{ background: "#fff", border: `1.5px solid ${ACCENT}`, borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
+          <div style={{ fontWeight: 800, color: INK, fontSize: 15, marginBottom: 10 }}>➕ เพิ่มผู้ใช้ใหม่</div>
+          {fieldSet(form, setForm, true)}
+          <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+            <div style={{ flex: "1 1 220px" }}>
+              <label style={lbl}>รหัสผ่าน (อย่างน้อย 6 ตัว)</label>
+              <input value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="ตั้งรหัสให้คนนี้" style={inp} />
+            </div>
+            <button onClick={() => setForm((f) => ({ ...f, password: genPw(f.username) }))} style={miniBtn("#7a6f5c", "#fff", "#d8cdb6")}>🎲 สุ่มรหัสให้</button>
+            <button disabled={!form.username || !form.label || form.password.length < 6 || busy === "add"}
+              onClick={async () => { const ok = await run("add", { action: "create", ...form }, `เพิ่มผู้ใช้ ${form.username} แล้ว · รหัส ${form.password}`); if (ok) { setAdding(false); setForm(blank); } }}
+              style={{ ...miniBtn("#fff", (!form.username || !form.label || form.password.length < 6) ? "#e5ddcc" : "#16A34A", (!form.username || !form.label || form.password.length < 6) ? "#e5ddcc" : "#16A34A"), padding: "9px 16px", fontSize: 13 }}>
+              {busy === "add" ? "กำลังสร้าง…" : "💾 สร้างบัญชี"}
+            </button>
+          </div>
+          <div style={{ fontSize: 11.5, color: "#9b8e78", marginTop: 8 }}>สร้างเสร็จแล้วการ์ดของคนนี้จะขึ้นในหน้าเข้าสู่ระบบของทุกเครื่องอัตโนมัติ (อาจต้องรีเฟรชหน้าเว็บ)</div>
+        </div>
+      )}
+
+      {err === "no-sb" ? (
+        <div style={box}>ยังไม่ได้เชื่อมฐานข้อมูล (หน้านี้ใช้ได้เฉพาะตอนต่อคลาวด์)</div>
+      ) : rows === null ? (
+        <div style={box}>กำลังโหลด…</div>
+      ) : rows.length === 0 && err ? null : (
+        <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflow: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 820 }}>
+            <thead><tr>
+              <th style={cTh}>ชื่อผู้ใช้</th>
+              <th style={cTh}>ชื่อที่แสดง</th>
+              <th style={cTh}>บทบาท</th>
+              <th style={cTh}>รหัสผ่าน</th>
+              <th style={cTh}>เข้าระบบล่าสุด</th>
+              <th style={{ ...cTh, textAlign: "right" }}>จัดการ</th>
+            </tr></thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <React.Fragment key={r.username}>
+                  <tr style={{ background: i % 2 ? "#FDFAF3" : "#fff", opacity: r.active === false ? 0.55 : 1 }}>
+                    <td style={{ ...cTd, fontWeight: 800, color: INK, whiteSpace: "nowrap" }}>{r.emoji} {r.username}{r.active === false && <span style={{ marginLeft: 5, fontSize: 11, color: "#B91C1C", fontWeight: 800 }}>ปิดใช้งาน</span>}</td>
+                    <td style={cTd}>{r.label}<div style={{ fontSize: 11, color: "#9b8e78" }}>{r.descr}</div></td>
+                    <td style={{ ...cTd, whiteSpace: "nowrap" }}>{roleName(r.role)}</td>
+                    <td style={{ ...cTd, whiteSpace: "nowrap" }}>
+                      {r.password ? (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                          <code style={{ fontSize: 13, fontWeight: 800, color: "#7A4F16", background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 7, padding: "3px 9px", letterSpacing: 0.5 }}>{showPw[r.username] ? r.password : "••••••••"}</code>
+                          <button onClick={() => setShowPw((p) => ({ ...p, [r.username]: !p[r.username] }))} title={showPw[r.username] ? "ซ่อน" : "ดูรหัส"} style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 15, padding: 2 }}>{showPw[r.username] ? "🙈" : "👁️"}</button>
+                          {showPw[r.username] && <button onClick={() => copy(r.password)} style={miniBtn("#7a6f5c", "#fff", "#d8cdb6")}>คัดลอก</button>}
+                        </span>
+                      ) : <span style={{ color: "#c9c0ad", fontSize: 12 }}>— ยังไม่ได้บันทึกไว้ (กดตั้งรหัสใหม่)</span>}
+                    </td>
+                    <td style={{ ...cTd, color: "#8a7d68", whiteSpace: "nowrap" }}>{fmt(r.last_sign_in_at)}</td>
+                    <td style={{ ...cTd, textAlign: "right", whiteSpace: "nowrap" }}>
+                      <span style={{ display: "inline-flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                        <button onClick={() => { setPwFor(pwFor === r.username ? "" : r.username); setPwVal(genPw(r.username)); setEdit(null); }} style={miniBtn("#7A4F16", "#FFF7EC", "#F5DEB9")}>🔑 ตั้งรหัสใหม่</button>
+                        <button onClick={() => { setEdit(edit && edit.username === r.username ? null : { username: r.username, label: r.label, short_label: r.short_label || "", descr: r.descr || "", emoji: r.emoji, role: r.role }); setPwFor(""); }} style={miniBtn("#7a6f5c", "#fff", "#d8cdb6")}>✏️ แก้ไข</button>
+                        {r.username !== "owner" && (
+                          <button onClick={() => run("act" + r.username, { action: "update", username: r.username, active: r.active === false }, r.active === false ? `เปิดใช้งาน ${r.username} แล้ว` : `ปิดใช้งาน ${r.username} แล้ว (เข้าระบบไม่ได้)`)}
+                            style={miniBtn(r.active === false ? "#15803D" : "#B45309", r.active === false ? "#F0FDF4" : "#FFFBEB", r.active === false ? "#A7F3D0" : "#FDE68A")}>
+                            {busy === "act" + r.username ? "…" : (r.active === false ? "✔ เปิดใช้งาน" : "⛔ ปิดใช้งาน")}
+                          </button>
+                        )}
+                        {r.username !== "owner" && (
+                          <button onClick={() => { if (confirmDel !== r.username) { setConfirmDel(r.username); setTimeout(() => setConfirmDel(""), 6000); return; } setConfirmDel(""); run("del" + r.username, { action: "delete", username: r.username }, `ลบบัญชี ${r.username} แล้ว`); }}
+                            style={miniBtn(confirmDel === r.username ? "#fff" : "#B91C1C", confirmDel === r.username ? "#B91C1C" : "#FEF2F2", "#FCA5A5")}>
+                            {confirmDel === r.username ? "❗ แตะอีกครั้งเพื่อลบถาวร" : "🗑 ลบ"}
+                          </button>
+                        )}
+                      </span>
+                    </td>
+                  </tr>
+                  {pwFor === r.username && (
+                    <tr style={{ background: "#FFFBF2" }}>
+                      <td style={{ ...cTd, borderBottom: "2px solid #F5DEB9" }} colSpan={6}>
+                        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 13, fontWeight: 800, color: INK }}>🔑 ตั้งรหัสใหม่ให้ <b>{r.label}</b> :</span>
+                          <input value={pwVal} onChange={(e) => setPwVal(e.target.value)} style={{ ...inp, width: 220 }} />
+                          <button onClick={() => setPwVal(genPw(r.username))} style={miniBtn("#7a6f5c", "#fff", "#d8cdb6")}>🎲 สุ่มใหม่</button>
+                          <button disabled={pwVal.length < 6 || busy === "pw" + r.username}
+                            onClick={async () => { const ok = await run("pw" + r.username, { action: "set_password", username: r.username, password: pwVal }, `ตั้งรหัสใหม่ให้ ${r.username} แล้ว · รหัส ${pwVal}`); if (ok) { setPwFor(""); setShowPw((p) => ({ ...p, [r.username]: true })); } }}
+                            style={{ ...miniBtn("#fff", pwVal.length < 6 ? "#e5ddcc" : "#16A34A", pwVal.length < 6 ? "#e5ddcc" : "#16A34A"), padding: "7px 14px" }}>
+                            {busy === "pw" + r.username ? "กำลังบันทึก…" : "💾 บันทึกรหัสใหม่"}
+                          </button>
+                          <button onClick={() => setPwFor("")} style={miniBtn("#7a6f5c", "#fff", "#d8cdb6")}>ยกเลิก</button>
+                          <span style={{ fontSize: 11.5, color: "#9b8e78" }}>คนนั้นต้องใช้รหัสใหม่ในการเข้าครั้งถัดไป</span>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  {edit && edit.username === r.username && (
+                    <tr style={{ background: "#FBFAF6" }}>
+                      <td style={{ ...cTd, borderBottom: "2px solid #e6ddca" }} colSpan={6}>
+                        <div style={{ fontWeight: 800, color: INK, fontSize: 13.5, marginBottom: 9 }}>✏️ แก้ข้อมูลบัญชี {r.username}</div>
+                        {fieldSet(edit, setEdit, false)}
+                        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                          <button disabled={busy === "ed" + r.username}
+                            onClick={async () => { const ok = await run("ed" + r.username, { action: "update", ...edit }, `แก้ข้อมูล ${r.username} แล้ว`); if (ok) setEdit(null); }}
+                            style={{ ...miniBtn("#fff", "#16A34A", "#16A34A"), padding: "7px 14px" }}>{busy === "ed" + r.username ? "กำลังบันทึก…" : "💾 บันทึก"}</button>
+                          <button onClick={() => setEdit(null)} style={miniBtn("#7a6f5c", "#fff", "#d8cdb6")}>ยกเลิก</button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div style={{ fontSize: 11.5, color: "#9b8e78", marginTop: 12, lineHeight: 1.8 }}>
+        🔒 หน้านี้เห็นได้เฉพาะบัญชี <b>เจ้าของฟาร์ม</b> เท่านั้น (เซิร์ฟเวอร์ตรวจซ้ำอีกชั้น — บัญชีอื่นเรียกไม่ผ่าน) ·
+        รหัสที่โชว์คือรหัสที่ <b>ตั้งผ่านหน้านี้</b> เท่านั้น · บัญชีเก่าที่เคยตั้งรหัสไว้ก่อนมีหน้านี้จะขึ้นว่า “ยังไม่ได้บันทึกไว้” — กด 🔑 ตั้งรหัสใหม่หนึ่งครั้ง แล้วจะจำไว้ให้ตลอด ·
+        ⛔ ปิดใช้งาน = คนนั้นเข้าระบบไม่ได้ทันที แต่ข้อมูลเดิมยังอยู่ · 🗑 ลบ = หายถาวร กู้ไม่ได้
+      </div>
+    </div>
+  );
+}
+
 function LoginScreen({ onDone }) {
   // บัญชีฟาร์ม — กดเลือกว่าเป็นใคร แล้วใส่รหัสของคนนั้น · ล็อกอินสำเร็จ = ตั้งบทบาทในแอปให้อัตโนมัติ ไม่ต้องใส่ PIN ซ้ำ
-  // role ต้องตรงกับ id ใน DEFAULT_ROLES
-  const ACCOUNTS = [
-    { u: "owner",    label: "เจ้าของฟาร์ม",                        desc: "ดูได้ทุกหัวข้อ",             emoji: "👑", role: "owner" },
-    { u: "meaw",     label: "ส.เหมียว · เสมียนโรงคัด",             desc: "ขายไข่ · บิล · สต็อค",       emoji: "🛒", role: "sales" },
-    { u: "fai",      label: "ส.ฝ้าย · เสมียนโรงคัด",               desc: "ขายไข่ · บิล · สต็อค",       emoji: "🛒", role: "sales" },
-    { u: "orn",      label: "ส.อร · เสมียนโรงคัด",                 desc: "ขายไข่ · บิล · สต็อค",       emoji: "🛒", role: "sales" },
-    { u: "lek",      label: "ส.เล็ก · เสมียนโรงคัด",               desc: "ขายไข่ · บิล · สต็อค",       emoji: "🛒", role: "sales" },
-    { u: "mai",      label: "หมอใหม่ · สัตวบาล",                   desc: "ผลผลิต · การเลี้ยง · ยา",    emoji: "🐔", role: "farm" },
-    { u: "beam",     label: "หมอบีม · สัตวบาล",                    desc: "ผลผลิต · การเลี้ยง · ยา",    emoji: "🐔", role: "farm" },
-    { u: "nes",      label: "หมอเนส · สัตวบาล",                    desc: "ผลผลิต · การเลี้ยง · ยา",    emoji: "🐔", role: "farm" },
-    { u: "acct",     label: "บัญชี",                                desc: "บิล · ลูกหนี้ · ต้นทุน",     emoji: "💰", role: "acct" },
-    { u: "medclerk", label: "เสมียนห้องสต๊อคยา",                    desc: "สต็อคยาและวิตามิน",          emoji: "💊", role: "medclerk" },
-    { u: "retail",   label: "ร้านค้าขายปลีก (ฉันจะกินไข่สดทุกวัน)", desc: "จองออเดอร์ร้านขายปลีก",      emoji: "🛍️", role: "retail_shop" },
-    { u: "branch",   label: "ร้านฟาร์มสมบูรณ์",                     desc: "จองออเดอร์ร้านสาขา",         emoji: "🏪", role: "branch_shop" },
+  // รายชื่อดึงจากคลาวด์ (ตาราง app_accounts) — เจ้าของเพิ่มคนใหม่ที่หน้า "บัญชีผู้ใช้" แล้วขึ้นที่นี่เองทุกเครื่อง
+  // ลิสต์ข้างล่างเป็นค่าสำรอง ใช้เฉพาะตอนโหลดจากคลาวด์ไม่ได้ (เน็ตไม่มา/เปิดครั้งแรก) · role ต้องตรงกับ id ใน DEFAULT_ROLES
+  const FALLBACK_ACCOUNTS = [
+    { username: "owner",    label: "เจ้าของฟาร์ม",                        descr: "ดูได้ทุกหัวข้อ",             emoji: "👑", role: "owner" },
+    { username: "meaw",     label: "ส.เหมียว · เสมียนโรงคัด",             descr: "ขายไข่ · บิล · สต็อค",       emoji: "🛒", role: "sales" },
+    { username: "fai",      label: "ส.ฝ้าย · เสมียนโรงคัด",               descr: "ขายไข่ · บิล · สต็อค",       emoji: "🛒", role: "sales" },
+    { username: "orn",      label: "ส.อร · เสมียนโรงคัด",                 descr: "ขายไข่ · บิล · สต็อค",       emoji: "🛒", role: "sales" },
+    { username: "lek",      label: "ส.เล็ก · เสมียนโรงคัด",               descr: "ขายไข่ · บิล · สต็อค",       emoji: "🛒", role: "sales" },
+    { username: "mai",      label: "หมอใหม่ · สัตวบาล",                   descr: "ผลผลิต · การเลี้ยง · ยา",    emoji: "🐔", role: "farm" },
+    { username: "beam",     label: "หมอบีม · สัตวบาล",                    descr: "ผลผลิต · การเลี้ยง · ยา",    emoji: "🐔", role: "farm" },
+    { username: "nes",      label: "หมอเนส · สัตวบาล",                    descr: "ผลผลิต · การเลี้ยง · ยา",    emoji: "🐔", role: "farm" },
+    { username: "acct",     label: "บัญชี",                                descr: "บิล · ลูกหนี้ · ต้นทุน",     emoji: "💰", role: "acct" },
+    { username: "medclerk", label: "เสมียนห้องสต๊อคยา",                    descr: "สต็อคยาและวิตามิน",          emoji: "💊", role: "medclerk" },
+    { username: "retail",   label: "ร้านค้าขายปลีก (ฉันจะกินไข่สดทุกวัน)", descr: "จองออเดอร์ร้านขายปลีก",      emoji: "🛍️", role: "retail_shop" },
+    { username: "branch",   label: "ร้านฟาร์มสมบูรณ์",                     descr: "จองออเดอร์ร้านสาขา",         emoji: "🏪", role: "branch_shop" },
   ];
+  const onlyActive = (list) => list.filter((a) => a.active !== false);
+  const [ACCOUNTS, setACCOUNTS] = useState(() => { const c = accountsCache(); return c.length ? onlyActive(c) : FALLBACK_ACCOUNTS; });
+  useEffect(() => { loadAccounts().then((rows) => { if (rows && rows.length) setACCOUNTS(onlyActive(rows)); }).catch(() => {}); }, []);
   const [acct, setAcct] = useState(null);
   const [pw, setPw] = useState("");
   const [showPw, setShowPw] = useState(false);   // 👁 กดเพื่อโชว์รหัสที่กรอก (กันพิมพ์ผิดโดยไม่รู้ตัว)
@@ -10564,15 +10815,18 @@ function LoginScreen({ onDone }) {
     if (!acct || !pw || busy) return;
     setBusy(true); setErr("");
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email: acct.u + "@sjffarm.app", password: pw });
+      const { error } = await supabase.auth.signInWithPassword({ email: acct.username + "@sjffarm.app", password: pw });
       if (error) {
-        setErr(/invalid login credentials/i.test(error.message || "") ? "รหัสไม่ถูกต้อง" : "เข้าสู่ระบบไม่สำเร็จ: " + (error.message || ""));
+        const em = error.message || "";
+        setErr(/invalid login credentials/i.test(em) ? "รหัสไม่ถูกต้อง"
+          : /banned|blocked/i.test(em) ? "บัญชีนี้ถูกปิดใช้งาน — ติดต่อเจ้าของฟาร์ม"
+          : "เข้าสู่ระบบไม่สำเร็จ: " + em);
         setBusy(false); return;
       }
       try { localStorage.setItem("sjfAuthOk", "1"); } catch (e) {}
       try { localStorage.setItem("sjfAuthDay", new Date().toDateString()); } catch (e) {}   // 🔐 ตราวันที่ล็อกอิน — ระบบบังคับเข้าสู่ระบบใหม่ทุกวัน
       try { localStorage.setItem("eggCurrentRole", acct.role); } catch (e) {}
-      try { localStorage.setItem("sjfAuthUsername", acct.u); } catch (e) {}   // ชื่อบัญชี → โชว์ตัวคนในบันทึกกิจกรรม
+      try { localStorage.setItem("sjfAuthUsername", acct.username); } catch (e) {}   // ชื่อบัญชี → โชว์ตัวคนในบันทึกกิจกรรม
       onDone();
     } catch (e) {
       setErr("เชื่อมต่อไม่ได้ — ตรวจอินเทอร์เน็ตแล้วลองใหม่อีกครั้ง");
@@ -10607,12 +10861,12 @@ function LoginScreen({ onDone }) {
           <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
             <div style={{ fontSize: 13, fontWeight: 800, color: "#6d6151", marginBottom: 2 }}>คุณคือใคร? กดเลือกได้เลย</div>
             {ACCOUNTS.map((a) => (
-              <button key={a.u} onClick={() => { setAcct(a); setPw(""); setErr(""); }}
+              <button key={a.username} onClick={() => { setAcct(a); setPw(""); setErr(""); }}
                 style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 15px", border: "1.5px solid #F0D9B8", background: "#FFFBF4", borderRadius: 12, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
                 <span style={{ fontSize: 26 }}>{a.emoji}</span>
                 <span style={{ flex: 1 }}>
                   <div style={{ fontWeight: 900, color: INK, fontSize: 15.5 }}>{a.label}</div>
-                  <div style={{ fontSize: 11.5, color: "#9b8e78" }}>{a.desc}</div>
+                  <div style={{ fontSize: 11.5, color: "#9b8e78" }}>{a.descr}</div>
                 </span>
                 <span style={{ color: "#c9a86f", fontWeight: 900, fontSize: 18 }}>›</span>
               </button>
