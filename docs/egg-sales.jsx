@@ -571,6 +571,7 @@ const custToRow = (c) => ({
   id: c.id, code: c.code || null, name: c.name || "",
   company: c.company || null, tax_id: c.taxId || null,
   phone: c.phone || null, address: c.address || null, group_id: custGroups(c)[0] || null,
+  active: !c.inactive,   // \ud83d\udeab \u0e40\u0e25\u0e34\u0e01\u0e43\u0e0a\u0e49\u0e07\u0e32\u0e19 = active false \u2014 \u0e15\u0e49\u0e2d\u0e07\u0e2a\u0e48\u0e07\u0e02\u0e36\u0e49\u0e19\u0e15\u0e32\u0e23\u0e32\u0e07\u0e01\u0e25\u0e32\u0e07\u0e14\u0e49\u0e27\u0e22 \u0e44\u0e21\u0e48\u0e07\u0e31\u0e49\u0e19\u0e40\u0e04\u0e23\u0e37\u0e48\u0e2d\u0e07\u0e2d\u0e37\u0e48\u0e19\u0e44\u0e21\u0e48\u0e23\u0e39\u0e49
 });
 const custFromRow = (r) => {
   const c = { id: r.id, code: r.code || "", group: r.group_id || "", name: r.name || "" };
@@ -578,6 +579,7 @@ const custFromRow = (r) => {
   if (r.company) c.company = r.company;
   if (r.tax_id) c.taxId = r.tax_id;
   if (r.address) c.address = r.address;
+  if (r.active === false) c.inactive = true;   // \ud83d\udeab \u0e04\u0e25\u0e32\u0e27\u0e14\u0e4c\u0e1a\u0e2d\u0e01\u0e27\u0e48\u0e32\u0e40\u0e25\u0e34\u0e01\u0e43\u0e0a\u0e49\u0e07\u0e32\u0e19
   return c;
 };
 function sbUpsertCustomer(c) {
@@ -623,6 +625,16 @@ async function sbSyncCustomers() {
   const custs = [...cr.data.map(custFromRow), ...upC];
   CUSTOMER_GROUPS.length = 0; groups.forEach((g) => CUSTOMER_GROUPS.push(g));
   CUSTOMERS.length = 0; custs.forEach((c) => CUSTOMERS.push(c));
+  // \ud83d\udd01 \u0e40\u0e2d\u0e32 "\u0e2a\u0e48\u0e27\u0e19\u0e17\u0e35\u0e48\u0e41\u0e01\u0e49\u0e44\u0e02" \u0e21\u0e32\u0e17\u0e31\u0e1a\u0e0b\u0e49\u0e33\u0e2b\u0e25\u0e31\u0e07\u0e42\u0e2b\u0e25\u0e14\u0e08\u0e32\u0e01\u0e04\u0e25\u0e32\u0e27\u0e14\u0e4c (\u0e40\u0e14\u0e34\u0e21\u0e17\u0e31\u0e1a\u0e01\u0e48\u0e2d\u0e19\u0e42\u0e2b\u0e25\u0e14 \u2192 \u0e2a\u0e16\u0e32\u0e19\u0e30\u0e40\u0e25\u0e34\u0e01\u0e43\u0e0a\u0e49\u0e07\u0e32\u0e19/\u0e01\u0e32\u0e23\u0e41\u0e01\u0e49\u0e44\u0e02\u0e2b\u0e32\u0e22)
+  try {
+    const eds = JSON.parse(localStorage.getItem("eggCustomerEdits") || "{}");
+    CUSTOMERS.forEach((c) => { if (eds[c.id]) Object.assign(c, eds[c.id]); });
+  } catch (e) {}
+  // \u0e2a\u0e48\u0e07\u0e2a\u0e16\u0e32\u0e19\u0e30\u0e40\u0e25\u0e34\u0e01\u0e43\u0e0a\u0e49\u0e07\u0e32\u0e19\u0e02\u0e36\u0e49\u0e19\u0e15\u0e32\u0e23\u0e32\u0e07\u0e01\u0e25\u0e32\u0e07 \u0e16\u0e49\u0e32\u0e22\u0e31\u0e07\u0e44\u0e21\u0e48\u0e15\u0e23\u0e07\u0e01\u0e31\u0e19 (\u0e40\u0e04\u0e23\u0e37\u0e48\u0e2d\u0e07\u0e17\u0e35\u0e48\u0e01\u0e14\u0e44\u0e27\u0e49\u0e01\u0e48\u0e2d\u0e19\u0e21\u0e35\u0e1f\u0e35\u0e40\u0e08\u0e2d\u0e23\u0e4c\u0e19\u0e35\u0e49)
+  try {
+    const byId = {}; cr.data.forEach((r) => { byId[r.id] = r; });
+    CUSTOMERS.forEach((c) => { const r = byId[c.id]; if (r && (r.active === false) !== !!c.inactive) sbUpsertCustomer(c); });
+  } catch (e) {}
   console.log("[Supabase] ✓ รายชื่อลูกค้า " + CUSTOMERS.length + " ราย (จากฐานข้อมูล " + cr.data.length + ")");
   return true;
 }
@@ -10701,7 +10713,7 @@ function AccountsView() {
         <div style={box}>กำลังโหลด…</div>
       ) : rows.length === 0 && err ? null : (
         <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflow: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 820 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1080 }}>
             <thead><tr>
               <th style={cTh}>ชื่อผู้ใช้</th>
               <th style={cTh}>ชื่อที่แสดง</th>
@@ -10728,7 +10740,7 @@ function AccountsView() {
                     </td>
                     <td style={{ ...cTd, color: "#8a7d68", whiteSpace: "nowrap" }}>{fmt(r.last_sign_in_at)}</td>
                     <td style={{ ...cTd, textAlign: "right", whiteSpace: "nowrap" }}>
-                      <span style={{ display: "inline-flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                      <span style={{ display: "inline-flex", gap: 6, flexWrap: "nowrap", justifyContent: "flex-end", whiteSpace: "nowrap" }}>
                         <button onClick={() => { setPwFor(pwFor === r.username ? "" : r.username); setPwVal(genPw(r.username)); setEdit(null); }} style={miniBtn("#7A4F16", "#FFF7EC", "#F5DEB9")}>🔑 ตั้งรหัสใหม่</button>
                         <button onClick={() => { setEdit(edit && edit.username === r.username ? null : { username: r.username, label: r.label, short_label: r.short_label || "", descr: r.descr || "", emoji: r.emoji, role: r.role }); setPwFor(""); }} style={miniBtn("#7a6f5c", "#fff", "#d8cdb6")}>✏️ แก้ไข</button>
                         {r.username !== "owner" && (
