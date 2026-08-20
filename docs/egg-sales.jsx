@@ -7627,7 +7627,7 @@ function HealthHubView({ production = {}, flocks = {}, vaccines = {}, addVaccine
   const card = { background: "#fff", border: "1px solid #eee3cd", borderRadius: 16, padding: "15px 18px", marginBottom: 14 };
   const goBtn = (bg) => ({ ...S.primaryBtn, width: "auto", padding: "9px 18px", background: bg, borderColor: bg });
   return (
-    <div style={{ padding: "18px 22px 40px", maxWidth: 900, margin: "0 auto" }}>
+    <div style={{ padding: "18px 22px 40px", maxWidth: "100%", margin: "0 auto" }}>
       <div style={S.subBar}><span style={S.subBarTitle}>สุขภาพไก่ 🩺<span style={{ fontSize: 12.5, fontWeight: 600, color: "#9b8e78" }}> · คำแนะนำ · คลังความรู้ · วัคซีน (รวมไว้ที่เดียว)</span></span></div>
 
       {/* คำแนะนำการดูแล */}
@@ -10215,13 +10215,13 @@ const S = {
   navBtn: { display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 14px", border: "1px solid #ece6da", background: "#fff", borderRadius: 10, fontSize: 13.5, fontWeight: 600, color: "#6b6358", cursor: "pointer", fontFamily: "inherit" },
   navBtnActive: { background: INK, color: "#fff", borderColor: INK },
 
-  subBar: { display: "flex", alignItems: "center", justifyContent: "space-between", maxWidth: 1180, margin: "0 auto", padding: "16px 20px 0", flexWrap: "wrap", gap: 10 },
+  subBar: { display: "flex", alignItems: "center", justifyContent: "space-between", maxWidth: "100%", margin: "0 auto", padding: "16px 20px 0", flexWrap: "wrap", gap: 10 },
   subBarTitle: { fontSize: 15, fontWeight: 700 },
   ghostBtn: { background: "transparent", border: "1px solid #ddd5c7", borderRadius: 9, padding: "8px 14px", fontSize: 13, color: "#6b6358", cursor: "pointer", fontFamily: "inherit" },
   primarySmBtn: { display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: `linear-gradient(135deg, ${ACCENT}, ${ACCENT_DK})`, color: "#fff", border: "none", borderRadius: 9, fontSize: 13.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" },
 
   stage: { maxWidth: 720, margin: "0 auto", padding: "24px 20px" },
-  wide: { maxWidth: 1180, margin: "0 auto", padding: "0 20px" },
+  wide: { maxWidth: "100%", margin: "0 auto", padding: "0 20px" },
   stageLabel: { fontSize: 13, fontWeight: 700, color: "#9b9384", textTransform: "uppercase", letterSpacing: 1, marginBottom: 14 },
   customerGrid: { display: "flex", flexDirection: "column", gap: 10 },
   custChips: { display: "flex", gap: 9, marginBottom: 18, flexWrap: "wrap" },
@@ -10237,7 +10237,7 @@ const S = {
   custName: { fontWeight: 600, fontSize: 15 },
   custPhone: { fontSize: 12.5, color: "#9b9384" },
 
-  workspace: { display: "grid", gridTemplateColumns: "1fr 390px", gap: 16, maxWidth: 1180, margin: "0 auto", padding: "16px 20px", alignItems: "start" },
+  workspace: { display: "grid", gridTemplateColumns: "1fr 390px", gap: 16, maxWidth: "100%", margin: "0 auto", padding: "16px 20px", alignItems: "start" },
   catalog: { background: "#fff", border: "1px solid #ece6da", borderRadius: 16, padding: 16 },
   searchBox: { display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", background: "#f7f4ed", borderRadius: 10, marginBottom: 12 },
   searchInput: { border: "none", background: "transparent", outline: "none", fontSize: 14, flex: 1, fontFamily: "inherit", color: INK },
@@ -10396,7 +10396,7 @@ const S = {
   hint: { fontSize: 12, color: "#9b9384", padding: "4px 4px 16px" },
 
   // ===== แจ้งเตือนคุณภาพผลผลิต =====
-  alertBanner: { maxWidth: 1180, margin: "12px auto 0", padding: "12px 14px", background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 12 },
+  alertBanner: { maxWidth: "100%", margin: "12px auto 0", padding: "12px 14px", background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 12 },
   alertBannerHead: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 9 },
   alertCount: { fontSize: 12, fontWeight: 800, color: "#fff", background: "#DC2626", borderRadius: 999, padding: "2px 10px" },
   alertCfgBtn: { display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 11px", border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" },
@@ -10404,13 +10404,13 @@ const S = {
   alertRow: { display: "flex", alignItems: "flex-start", gap: 8, flexWrap: "wrap" },
   alertHouseBtn: { display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", border: "1px solid #DC2626", background: "#fff", color: "#B91C1C", borderRadius: 7, fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 },
   alertChip: { fontSize: 12, color: "#7F1D1D", background: "#FEE2E2", border: "1px solid #FCA5A5", borderRadius: 7, padding: "3px 9px", fontWeight: 500 },
-  alertOk: { maxWidth: 1180, margin: "12px auto 0", padding: "10px 14px", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 12, display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, color: "#15803D", fontWeight: 600 },
+  alertOk: { maxWidth: "100%", margin: "12px auto 0", padding: "10px 14px", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 12, display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, color: "#15803D", fontWeight: 600 },
   alertCell: { background: "#FEE2E2", boxShadow: "inset 0 0 0 2px #DC2626", color: "#991B1B", fontWeight: 800 },
   importBtn: { display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", background: INK, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" },
   importedTag: { display: "inline-flex", alignItems: "center", gap: 4, color: "#15803D", fontWeight: 600, fontSize: 12.5 },
 
   // แผงดำ
-  trayWrap: { maxWidth: 1180, margin: "0 auto", padding: "16px 20px" },
+  trayWrap: { maxWidth: "100%", margin: "0 auto", padding: "16px 20px" },
   summaryGrid: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 18 },
   sumCard: { background: "#fff", border: "1px solid #ece6da", borderRadius: 14, padding: 16 },
   sumIcon: { width: 36, height: 36, borderRadius: 10, display: "grid", placeItems: "center", marginBottom: 10 },
@@ -10713,7 +10713,7 @@ function AccountsView() {
         <div style={box}>กำลังโหลด…</div>
       ) : rows.length === 0 && err ? null : (
         <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflow: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1080 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 980 }}>
             <thead><tr>
               <th style={cTh}>ชื่อผู้ใช้</th>
               <th style={cTh}>ชื่อที่แสดง</th>
