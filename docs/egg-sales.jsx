@@ -384,6 +384,20 @@ const COMPANY = {
   bankAcctType: "ออมทรัพย์",
 };
 
+// \ud83c\udfe6 \u0e1a\u0e31\u0e0d\u0e0a\u0e35\u0e23\u0e31\u0e1a\u0e42\u0e2d\u0e19\u0e40\u0e09\u0e1e\u0e32\u0e30\u0e01\u0e25\u0e38\u0e48\u0e21 \u2014 \u0e01\u0e25\u0e38\u0e48\u0e21\u0e44\u0e2b\u0e19\u0e44\u0e21\u0e48\u0e21\u0e35\u0e43\u0e19\u0e19\u0e35\u0e49 \u0e43\u0e0a\u0e49\u0e1a\u0e31\u0e0d\u0e0a\u0e35\u0e2b\u0e25\u0e31\u0e01\u0e02\u0e2d\u0e07\u0e1a\u0e23\u0e34\u0e29\u0e31\u0e17 (\u0e40\u0e08\u0e49\u0e32\u0e02\u0e2d\u0e07\u0e2a\u0e31\u0e48\u0e07 20 \u0e2a.\u0e04. 69)
+const GROUP_BANK = {
+  retail: { bankName: "\u0e18\u0e19\u0e32\u0e04\u0e32\u0e23\u0e01\u0e23\u0e38\u0e07\u0e40\u0e17\u0e1e (BBL)", bankAcctNo: "364-074765-9", bankAcctName: "\u0e1a\u0e08\u0e01. \u0e40\u0e2d\u0e2a\u0e40\u0e08\u0e40\u0e2d\u0e1f \u0e1f\u0e32\u0e23\u0e4c\u0e21", bankAcctType: "\u0e2d\u0e2d\u0e21\u0e17\u0e23\u0e31\u0e1e\u0e22\u0e4c" },
+};
+// \u0e2b\u0e32\u0e1a\u0e31\u0e0d\u0e0a\u0e35\u0e17\u0e35\u0e48\u0e15\u0e49\u0e2d\u0e07\u0e42\u0e0a\u0e27\u0e4c\u0e43\u0e19\u0e43\u0e1a\u0e40\u0e2a\u0e23\u0e47\u0e08\u0e02\u0e2d\u0e07\u0e1a\u0e34\u0e25\u0e19\u0e35\u0e49 (\u0e14\u0e39\u0e08\u0e32\u0e01\u0e01\u0e25\u0e38\u0e48\u0e21\u0e02\u0e2d\u0e07\u0e25\u0e39\u0e01\u0e04\u0e49\u0e32)
+function bankForBill(bill) {
+  try {
+    const c = CUSTOMERS.find((x) => x.id === bill?.customerId) || null;
+    const gs = custGroups(c);
+    for (const g of gs) { if (GROUP_BANK[g]) return { ...COMPANY, ...GROUP_BANK[g] }; }
+  } catch (e) {}
+  return COMPANY;
+}
+
 /* ---------- PromptPay QR (มาตรฐาน EMVCo ของไทย) ---------- */
 // CRC16-CCITT (XMODEM) สำหรับ checksum ท้าย payload
 function crc16(str) {
@@ -2539,9 +2553,9 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
           <div style={S.qrBox}>
             <div style={S.qrLeft}>
               <div style={S.qrTitle}>ชำระโดยโอนเข้าบัญชี</div>
-              <div style={{ ...S.qrName, fontWeight: 700, color: INK }}>{COMPANY.bankName} · {COMPANY.bankAcctType}</div>
-              <div style={S.qrId}>เลขที่บัญชี {COMPANY.bankAcctNo}</div>
-              <div style={S.qrId}>ชื่อบัญชี {COMPANY.bankAcctName}</div>
+              <div style={{ ...S.qrName, fontWeight: 700, color: INK }}>{bankForBill(b).bankName} · {bankForBill(b).bankAcctType}</div>
+              <div style={S.qrId}>เลขที่บัญชี {bankForBill(b).bankAcctNo}</div>
+              <div style={S.qrId}>ชื่อบัญชี {bankForBill(b).bankAcctName}</div>
               <div style={S.qrId}>วันที่ชำระ {b.date}</div>
               <div style={S.qrAmount}>{fmt2(b.netPay ?? (b.grandTotal ?? b.total))} บาท</div>
             </div>
@@ -2684,7 +2698,12 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
   return (
     <>
       <div style={S.subBar}>
-        <span style={S.subBarTitle}>ออกบิลขาย · <span style={{ fontSize: 30, verticalAlign: "middle", color: ACCENT_DK }}>{customer.name}</span>{editingDraftId ? " · (บิลร่าง)" : ""}</span>
+        {/* \ud83c\udff7\ufe0f \u0e2b\u0e31\u0e27\u0e0a\u0e37\u0e48\u0e2d\u0e25\u0e39\u0e01\u0e04\u0e49\u0e32: \u0e43\u0e2a\u0e48\u0e01\u0e23\u0e2d\u0e1a+\u0e1e\u0e37\u0e49\u0e19\u0e02\u0e32\u0e27 \u0e01\u0e31\u0e19\u0e01\u0e25\u0e37\u0e19\u0e01\u0e31\u0e1a\u0e1e\u0e37\u0e49\u0e19\u0e2b\u0e25\u0e31\u0e07\u0e19\u0e49\u0e33\u0e15\u0e32\u0e25 (\u0e40\u0e08\u0e49\u0e32\u0e02\u0e2d\u0e07\u0e2a\u0e31\u0e48\u0e07 20 \u0e2a.\u0e04. 69) */}
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 12, background: `linear-gradient(135deg, ${ACCENT}, ${ACCENT_DK})`, border: "3px solid #7A4A12", borderRadius: 14, padding: "10px 22px", boxShadow: "0 4px 14px rgba(70,40,10,0.35)" }}>
+          <span style={{ fontSize: 14, fontWeight: 800, color: "#FFE9CE" }}>ออกบิลขาย</span>
+          <span style={{ fontSize: 32, fontWeight: 800, color: "#fff", lineHeight: 1.15, textShadow: "0 1px 2px rgba(0,0,0,0.28)" }}>{customer.name}</span>
+          {editingDraftId ? <span style={{ fontSize: 13, fontWeight: 800, color: "#B45309", background: "#FFFBEB", border: "1.5px solid #FDE68A", borderRadius: 999, padding: "3px 10px" }}>บิลร่าง</span> : null}
+        </span>
         <button style={S.ghostBtn} onClick={() => { resetForm(); setCustomerId(null); }}>เปลี่ยนลูกค้า</button>
       </div>
 
@@ -3337,9 +3356,9 @@ function BillDetail({ bill, payment, onBack, onCancel, onPay }) {
           <div style={S.qrBox}>
             <div style={S.qrLeft}>
               <div style={S.qrTitle}>ชำระโดยโอนเข้าบัญชี</div>
-              <div style={{ ...S.qrName, fontWeight: 700, color: INK }}>{COMPANY.bankName} · {COMPANY.bankAcctType}</div>
-              <div style={S.qrId}>เลขที่บัญชี {COMPANY.bankAcctNo}</div>
-              <div style={S.qrId}>ชื่อบัญชี {COMPANY.bankAcctName}</div>
+              <div style={{ ...S.qrName, fontWeight: 700, color: INK }}>{bankForBill(b).bankName} · {bankForBill(b).bankAcctType}</div>
+              <div style={S.qrId}>เลขที่บัญชี {bankForBill(b).bankAcctNo}</div>
+              <div style={S.qrId}>ชื่อบัญชี {bankForBill(b).bankAcctName}</div>
               <div style={S.qrAmount}>{fmt2(b.total - (payment?.paid || 0))} บาท</div>
             </div>
           </div>
@@ -10207,7 +10226,7 @@ function PlanBoard({ bookings, production, planEstimates, setPlanEstimate }) {
 /* ============================================================
    Styles
 ============================================================ */
-const ACCENT = "#E8943A", ACCENT_DK = "#C9742A", INK = "#2B2620", PAPER = "#FBF8F2";
+const ACCENT = "#E8943A", ACCENT_DK = "#C9742A", INK = "#2B2620", PAPER = "#D8BF9A";   // \ud83c\udfa8 \u0e1e\u0e37\u0e49\u0e19\u0e2b\u0e25\u0e31\u0e07\u0e04\u0e23\u0e35\u0e21\u0e2a\u0e49\u0e21\u0e19\u0e27\u0e25 \u0e25\u0e14\u0e04\u0e27\u0e32\u0e21\u0e2a\u0e27\u0e48\u0e32\u0e07\u0e41\u0e2a\u0e1a\u0e15\u0e32 (\u0e40\u0e08\u0e49\u0e32\u0e02\u0e2d\u0e07\u0e2a\u0e31\u0e48\u0e07 20 \u0e2a.\u0e04. 69) \u2014 \u0e40\u0e14\u0e34\u0e21 #FBF8F2
 
 const S = {
   app: { fontFamily: "'Noto Sans Thai', system-ui, sans-serif", background: PAPER, minHeight: "100vh", color: INK, paddingBottom: 32 },
@@ -10230,16 +10249,16 @@ const S = {
   stageLabel: { fontSize: 13, fontWeight: 700, color: "#9b9384", textTransform: "uppercase", letterSpacing: 1, marginBottom: 14 },
   customerGrid: { display: "flex", flexDirection: "column", gap: 10 },
   custChips: { display: "flex", gap: 9, marginBottom: 18, flexWrap: "wrap" },
-  custChip: { padding: "11px 20px", border: "1px solid #ece6da", background: "#fff", borderRadius: 24, fontSize: 15, fontWeight: 600, color: "#6b6358", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 8 },
+  custChip: { padding: "11px 20px", border: "1.5px solid #C9A97A", background: "#fff", borderRadius: 24, boxShadow: "0 1px 3px rgba(120,80,30,0.10)", fontSize: 15, fontWeight: 600, color: "#6b6358", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 8 },
   custChipActive: { background: INK, color: "#fff", borderColor: INK },
   custChipCount: { fontSize: 13, fontWeight: 700, opacity: 0.65 },
   custGroupBlock: { marginBottom: 22 },
   custGroupHead: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, paddingBottom: 6, borderBottom: "2px solid #f0ece2" },
   custGroupName: { fontSize: 14, fontWeight: 700, color: ACCENT_DK },
   custGroupCount: { fontSize: 12, color: "#9b9384", background: "#f3f0e9", padding: "2px 10px", borderRadius: 12 },
-  customerCard: { display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", background: "#fff", border: "1px solid #ece6da", borderRadius: 14, cursor: "pointer", fontFamily: "inherit" },
-  custIcon: { width: 38, height: 38, borderRadius: 10, background: "#FBEFDD", color: ACCENT_DK, display: "grid", placeItems: "center" },
-  custName: { fontWeight: 600, fontSize: 15 },
+  customerCard: { display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", background: "#FFFBF2", border: `2px solid ${ACCENT_DK}`, borderLeft: `7px solid ${ACCENT}`, borderRadius: 14, cursor: "pointer", fontFamily: "inherit", boxShadow: "0 3px 10px rgba(90,55,15,0.20)" },   // \ud83c\udfa8 \u0e01\u0e23\u0e2d\u0e1a\u0e2a\u0e49\u0e21\u0e2b\u0e19\u0e32+\u0e40\u0e07\u0e32 \u0e01\u0e31\u0e19\u0e01\u0e25\u0e37\u0e19\u0e01\u0e31\u0e1a\u0e1e\u0e37\u0e49\u0e19\u0e2b\u0e25\u0e31\u0e07\u0e19\u0e49\u0e33\u0e15\u0e32\u0e25 (\u0e40\u0e08\u0e49\u0e32\u0e02\u0e2d\u0e07\u0e2a\u0e31\u0e48\u0e07 20 \u0e2a.\u0e04. 69)
+  custIcon: { width: 38, height: 38, borderRadius: 10, background: ACCENT, color: "#fff", display: "grid", placeItems: "center" },
+  custName: { fontWeight: 800, fontSize: 16, color: "#5A3A12" },
   custPhone: { fontSize: 12.5, color: "#9b9384" },
 
   workspace: { display: "grid", gridTemplateColumns: "1fr 390px", gap: 16, maxWidth: "100%", margin: "0 auto", padding: "16px 20px", alignItems: "start" },
