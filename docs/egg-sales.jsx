@@ -384,11 +384,11 @@ const COMPANY = {
   bankAcctType: "ออมทรัพย์",
 };
 
-// \ud83c\udfe6 \u0e1a\u0e31\u0e0d\u0e0a\u0e35\u0e23\u0e31\u0e1a\u0e42\u0e2d\u0e19\u0e40\u0e09\u0e1e\u0e32\u0e30\u0e01\u0e25\u0e38\u0e48\u0e21 \u2014 \u0e01\u0e25\u0e38\u0e48\u0e21\u0e44\u0e2b\u0e19\u0e44\u0e21\u0e48\u0e21\u0e35\u0e43\u0e19\u0e19\u0e35\u0e49 \u0e43\u0e0a\u0e49\u0e1a\u0e31\u0e0d\u0e0a\u0e35\u0e2b\u0e25\u0e31\u0e01\u0e02\u0e2d\u0e07\u0e1a\u0e23\u0e34\u0e29\u0e31\u0e17 (\u0e40\u0e08\u0e49\u0e32\u0e02\u0e2d\u0e07\u0e2a\u0e31\u0e48\u0e07 20 \u0e2a.\u0e04. 69)
+// 🏦 บัญชีรับโอนเฉพาะกลุ่ม — กลุ่มไหนไม่มีในนี้ ใช้บัญชีหลักของบริษัท (เจ้าของสั่ง 20 ส.ค. 69)
 const GROUP_BANK = {
-  retail: { bankName: "\u0e18\u0e19\u0e32\u0e04\u0e32\u0e23\u0e01\u0e23\u0e38\u0e07\u0e40\u0e17\u0e1e (BBL)", bankAcctNo: "364-074765-9", bankAcctName: "\u0e1a\u0e08\u0e01. \u0e40\u0e2d\u0e2a\u0e40\u0e08\u0e40\u0e2d\u0e1f \u0e1f\u0e32\u0e23\u0e4c\u0e21", bankAcctType: "\u0e2d\u0e2d\u0e21\u0e17\u0e23\u0e31\u0e1e\u0e22\u0e4c" },
+  retail: { bankName: "ธนาคารกรุงเทพ (BBL)", bankAcctNo: "364-074765-9", bankAcctName: "บจก. เอสเจเอฟ ฟาร์ม", bankAcctType: "ออมทรัพย์" },
 };
-// \u0e2b\u0e32\u0e1a\u0e31\u0e0d\u0e0a\u0e35\u0e17\u0e35\u0e48\u0e15\u0e49\u0e2d\u0e07\u0e42\u0e0a\u0e27\u0e4c\u0e43\u0e19\u0e43\u0e1a\u0e40\u0e2a\u0e23\u0e47\u0e08\u0e02\u0e2d\u0e07\u0e1a\u0e34\u0e25\u0e19\u0e35\u0e49 (\u0e14\u0e39\u0e08\u0e32\u0e01\u0e01\u0e25\u0e38\u0e48\u0e21\u0e02\u0e2d\u0e07\u0e25\u0e39\u0e01\u0e04\u0e49\u0e32)
+// หาบัญชีที่ต้องโชว์ในใบเสร็จของบิลนี้ (ดูจากกลุ่มของลูกค้า)
 function bankForBill(bill) {
   try {
     const c = CUSTOMERS.find((x) => x.id === bill?.customerId) || null;
@@ -585,7 +585,7 @@ const custToRow = (c) => ({
   id: c.id, code: c.code || null, name: c.name || "",
   company: c.company || null, tax_id: c.taxId || null,
   phone: c.phone || null, address: c.address || null, group_id: custGroups(c)[0] || null,
-  active: !c.inactive,   // \ud83d\udeab \u0e40\u0e25\u0e34\u0e01\u0e43\u0e0a\u0e49\u0e07\u0e32\u0e19 = active false \u2014 \u0e15\u0e49\u0e2d\u0e07\u0e2a\u0e48\u0e07\u0e02\u0e36\u0e49\u0e19\u0e15\u0e32\u0e23\u0e32\u0e07\u0e01\u0e25\u0e32\u0e07\u0e14\u0e49\u0e27\u0e22 \u0e44\u0e21\u0e48\u0e07\u0e31\u0e49\u0e19\u0e40\u0e04\u0e23\u0e37\u0e48\u0e2d\u0e07\u0e2d\u0e37\u0e48\u0e19\u0e44\u0e21\u0e48\u0e23\u0e39\u0e49
+  active: !c.inactive,   // 🚫 เลิกใช้งาน = active false — ต้องส่งขึ้นตารางกลางด้วย ไม่งั้นเครื่องอื่นไม่รู้
 });
 const custFromRow = (r) => {
   const c = { id: r.id, code: r.code || "", group: r.group_id || "", name: r.name || "" };
@@ -593,7 +593,7 @@ const custFromRow = (r) => {
   if (r.company) c.company = r.company;
   if (r.tax_id) c.taxId = r.tax_id;
   if (r.address) c.address = r.address;
-  if (r.active === false) c.inactive = true;   // \ud83d\udeab \u0e04\u0e25\u0e32\u0e27\u0e14\u0e4c\u0e1a\u0e2d\u0e01\u0e27\u0e48\u0e32\u0e40\u0e25\u0e34\u0e01\u0e43\u0e0a\u0e49\u0e07\u0e32\u0e19
+  if (r.active === false) c.inactive = true;   // 🚫 คลาวด์บอกว่าเลิกใช้งาน
   return c;
 };
 function sbUpsertCustomer(c) {
@@ -639,12 +639,12 @@ async function sbSyncCustomers() {
   const custs = [...cr.data.map(custFromRow), ...upC];
   CUSTOMER_GROUPS.length = 0; groups.forEach((g) => CUSTOMER_GROUPS.push(g));
   CUSTOMERS.length = 0; custs.forEach((c) => CUSTOMERS.push(c));
-  // \ud83d\udd01 \u0e40\u0e2d\u0e32 "\u0e2a\u0e48\u0e27\u0e19\u0e17\u0e35\u0e48\u0e41\u0e01\u0e49\u0e44\u0e02" \u0e21\u0e32\u0e17\u0e31\u0e1a\u0e0b\u0e49\u0e33\u0e2b\u0e25\u0e31\u0e07\u0e42\u0e2b\u0e25\u0e14\u0e08\u0e32\u0e01\u0e04\u0e25\u0e32\u0e27\u0e14\u0e4c (\u0e40\u0e14\u0e34\u0e21\u0e17\u0e31\u0e1a\u0e01\u0e48\u0e2d\u0e19\u0e42\u0e2b\u0e25\u0e14 \u2192 \u0e2a\u0e16\u0e32\u0e19\u0e30\u0e40\u0e25\u0e34\u0e01\u0e43\u0e0a\u0e49\u0e07\u0e32\u0e19/\u0e01\u0e32\u0e23\u0e41\u0e01\u0e49\u0e44\u0e02\u0e2b\u0e32\u0e22)
+  // 🔁 เอา "ส่วนที่แก้ไข" มาทับซ้ำหลังโหลดจากคลาวด์ (เดิมทับก่อนโหลด → สถานะเลิกใช้งาน/การแก้ไขหาย)
   try {
     const eds = JSON.parse(localStorage.getItem("eggCustomerEdits") || "{}");
     CUSTOMERS.forEach((c) => { if (eds[c.id]) Object.assign(c, eds[c.id]); });
   } catch (e) {}
-  // \u0e2a\u0e48\u0e07\u0e2a\u0e16\u0e32\u0e19\u0e30\u0e40\u0e25\u0e34\u0e01\u0e43\u0e0a\u0e49\u0e07\u0e32\u0e19\u0e02\u0e36\u0e49\u0e19\u0e15\u0e32\u0e23\u0e32\u0e07\u0e01\u0e25\u0e32\u0e07 \u0e16\u0e49\u0e32\u0e22\u0e31\u0e07\u0e44\u0e21\u0e48\u0e15\u0e23\u0e07\u0e01\u0e31\u0e19 (\u0e40\u0e04\u0e23\u0e37\u0e48\u0e2d\u0e07\u0e17\u0e35\u0e48\u0e01\u0e14\u0e44\u0e27\u0e49\u0e01\u0e48\u0e2d\u0e19\u0e21\u0e35\u0e1f\u0e35\u0e40\u0e08\u0e2d\u0e23\u0e4c\u0e19\u0e35\u0e49)
+  // ส่งสถานะเลิกใช้งานขึ้นตารางกลาง ถ้ายังไม่ตรงกัน (เครื่องที่กดไว้ก่อนมีฟีเจอร์นี้)
   try {
     const byId = {}; cr.data.forEach((r) => { byId[r.id] = r; });
     CUSTOMERS.forEach((c) => { const r = byId[c.id]; if (r && (r.active === false) !== !!c.inactive) sbUpsertCustomer(c); });
@@ -1869,9 +1869,9 @@ export default function App() {
     });
   // ยกเลิกใบเสร็จ (soft void + audit): เก็บเหตุผล/เวลา/ผู้ยกเลิก ; บิลยังอยู่ในประวัติแต่ถูกตัดออกจากทุกยอดคำนวณ (activeBills)
   const cancelBill = (billNo, reason, by) => {
-    // \ud83d\udd12 \u0e01\u0e33\u0e41\u0e1e\u0e07\u0e0a\u0e31\u0e49\u0e19\u0e17\u0e35\u0e48\u0e2a\u0e2d\u0e07: \u0e22\u0e01\u0e40\u0e25\u0e34\u0e01\u0e43\u0e1a\u0e40\u0e2a\u0e23\u0e47\u0e08\u0e44\u0e14\u0e49\u0e40\u0e09\u0e1e\u0e32\u0e30\u0e40\u0e08\u0e49\u0e32\u0e02\u0e2d\u0e07 \u2014 \u0e01\u0e31\u0e19\u0e17\u0e38\u0e01\u0e40\u0e2a\u0e49\u0e19\u0e17\u0e32\u0e07 \u0e44\u0e21\u0e48\u0e43\u0e0a\u0e48\u0e41\u0e04\u0e48\u0e0b\u0e48\u0e2d\u0e19\u0e1b\u0e38\u0e48\u0e21 (\u0e40\u0e08\u0e49\u0e32\u0e02\u0e2d\u0e07\u0e2a\u0e31\u0e48\u0e07 20 \u0e2a.\u0e04. 69: \u0e1a\u0e31\u0e0d\u0e0a\u0e35 acct \u0e2b\u0e49\u0e32\u0e21\u0e22\u0e01\u0e40\u0e25\u0e34\u0e01)
+    // 🔒 กำแพงชั้นที่สอง: ยกเลิกใบเสร็จได้เฉพาะเจ้าของ — กันทุกเส้นทาง ไม่ใช่แค่ซ่อนปุ่ม (เจ้าของสั่ง 20 ส.ค. 69: บัญชี acct ห้ามยกเลิก)
     if (currentRole !== "owner") {
-      window.alert("\u26d4 \u0e40\u0e09\u0e1e\u0e32\u0e30\u0e40\u0e08\u0e49\u0e32\u0e02\u0e2d\u0e07\u0e1f\u0e32\u0e23\u0e4c\u0e21\u0e40\u0e17\u0e48\u0e32\u0e19\u0e31\u0e49\u0e19\u0e17\u0e35\u0e48\u0e22\u0e01\u0e40\u0e25\u0e34\u0e01\u0e43\u0e1a\u0e40\u0e2a\u0e23\u0e47\u0e08\u0e44\u0e14\u0e49\n\n\u0e16\u0e49\u0e32\u0e08\u0e33\u0e40\u0e1b\u0e47\u0e19\u0e15\u0e49\u0e2d\u0e07\u0e22\u0e01\u0e40\u0e25\u0e34\u0e01\u0e1a\u0e34\u0e25\u0e19\u0e35\u0e49 \u0e43\u0e2b\u0e49\u0e41\u0e08\u0e49\u0e07\u0e40\u0e08\u0e49\u0e32\u0e02\u0e2d\u0e07\u0e1f\u0e32\u0e23\u0e4c\u0e21");
+      window.alert("⛔ เฉพาะเจ้าของฟาร์มเท่านั้นที่ยกเลิกใบเสร็จได้\n\nถ้าจำเป็นต้องยกเลิกบิลนี้ ให้แจ้งเจ้าของฟาร์ม");
       return;
     }
     setBills((prev) => prev.map((b) => b.no === billNo
@@ -1948,7 +1948,7 @@ export default function App() {
                       <div style={{ position: "fixed", top: openNav.top + 6, left: Math.max(8, Math.min(openNav.left, (window.innerWidth || 360) - 242)), zIndex: 60, background: "#fff", border: "1px solid #e6ddca", borderRadius: 12, boxShadow: "0 10px 28px rgba(60,45,20,0.16)", padding: 6, minWidth: 218, maxHeight: "62vh", overflowY: "auto" }}>
                         {items.map((id) => { const t = TOPIC_META[id]; const on = view === id; return (
                           <button key={id} onClick={() => { setOpenNav(null); if (t.action) setShowRoleSettings(true); else setView(id); }}
-                            style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", textAlign: "left", padding: "9px 11px", border: "none", borderRadius: 8, background: on ? "#FBF3E7" : "transparent", color: on ? t.c : INK, fontWeight: on ? 800 : 600, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
+                            style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", textAlign: "left", padding: "9px 11px", border: `1px solid ${on ? t.c : t.c + "33"}`, borderRadius: 8, marginBottom: 4, background: on ? "#FBF3E7" : t.c + "0F", color: on ? t.c : INK, fontWeight: on ? 800 : 600, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
                             <span style={{ color: t.c, display: "inline-flex" }}>{t.icon}</span> {t.label}
                           </button>
                         ); })}
@@ -2698,7 +2698,7 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
   return (
     <>
       <div style={S.subBar}>
-        {/* \ud83c\udff7\ufe0f \u0e2b\u0e31\u0e27\u0e0a\u0e37\u0e48\u0e2d\u0e25\u0e39\u0e01\u0e04\u0e49\u0e32: \u0e43\u0e2a\u0e48\u0e01\u0e23\u0e2d\u0e1a+\u0e1e\u0e37\u0e49\u0e19\u0e02\u0e32\u0e27 \u0e01\u0e31\u0e19\u0e01\u0e25\u0e37\u0e19\u0e01\u0e31\u0e1a\u0e1e\u0e37\u0e49\u0e19\u0e2b\u0e25\u0e31\u0e07\u0e19\u0e49\u0e33\u0e15\u0e32\u0e25 (\u0e40\u0e08\u0e49\u0e32\u0e02\u0e2d\u0e07\u0e2a\u0e31\u0e48\u0e07 20 \u0e2a.\u0e04. 69) */}
+        {/* 🏷️ หัวชื่อลูกค้า: ใส่กรอบ+พื้นขาว กันกลืนกับพื้นหลังน้ำตาล (เจ้าของสั่ง 20 ส.ค. 69) */}
         <span style={{ display: "inline-flex", alignItems: "center", gap: 12, background: `linear-gradient(135deg, ${ACCENT}, ${ACCENT_DK})`, border: "3px solid #7A4A12", borderRadius: 14, padding: "10px 22px", boxShadow: "0 4px 14px rgba(70,40,10,0.35)" }}>
           <span style={{ fontSize: 14, fontWeight: 800, color: "#FFE9CE" }}>ออกบิลขาย</span>
           <span style={{ fontSize: 32, fontWeight: 800, color: "#fff", lineHeight: 1.15, textShadow: "0 1px 2px rgba(0,0,0,0.28)" }}>{customer.name}</span>
@@ -5353,6 +5353,17 @@ function hylineHD(wk) {
 }
 // มาตรฐานอาหาร Hy-Line Brown (กรัม/ตัว/วัน) ตามอายุ — ค่าจริงจากคู่มือฉบับ ธ.ค. 2025 (ค่ากลางของช่วง)
 // ช่วงไข่ไต่ขึ้นถึง ~114 ก./วัน แล้วคงที่ (ช่วงจริง 110–118) ตั้งแต่ ~28 wk เป็นต้นไป
+// ⚖️ น้ำหนักตัวมาตรฐาน Hy-Line Brown (กรัม) — คู่มือ 2025 (เจ้าของสั่ง 20 ส.ค. 69: ไก่สาว H7 รับเข้าที่ 16 สป. น้ำหนักเฉลี่ยแค่ 1,150 ก. ต่ำกว่าเกณฑ์ ~200 ก.)
+const HYLINE_BW_G = [[6, 520], [10, 830], [12, 1000], [14, 1180], [16, 1345], [17, 1396], [18, 1450], [20, 1550], [22, 1655], [24, 1760], [26, 1862], [32, 1931], [40, 1960], [50, 1994], [70, 2010], [100, 2022]];
+function hylineBwG(wk) {
+  if (wk == null || isNaN(wk)) return null;
+  if (wk <= HYLINE_BW_G[0][0]) return HYLINE_BW_G[0][1];
+  for (let i = 0; i < HYLINE_BW_G.length - 1; i++) {
+    const [w1, v1] = HYLINE_BW_G[i], [w2, v2] = HYLINE_BW_G[i + 1];
+    if (wk >= w1 && wk <= w2) return v1 + ((v2 - v1) * (wk - w1)) / (w2 - w1);
+  }
+  return HYLINE_BW_G[HYLINE_BW_G.length - 1][1];
+}
 const HYLINE_FEED_G = [[6, 38.5], [12, 65.5], [16, 75.5], [17, 79.5], [18, 83.5], [19, 89], [20, 94.5], [21, 99.5], [22, 104.5], [23, 108], [24, 110.5], [25, 112], [26, 113], [28, 114], [40, 114], [60, 114], [80, 114], [100, 114]];
 function hylineFeedG(wk) {
   if (wk == null) return null;
@@ -6075,7 +6086,7 @@ function HouseEditModal({ house, defaultDate, onClose, onSave }) {
 ============================================================ */
 const nf = (v) => { const n = parseFloat(String(v ?? "").replace(/,/g, "")); return isNaN(n) ? 0 : n; };
 const shiftDayISO = (iso, delta) => { const [y, m, d] = iso.split("-").map(Number); const dt = new Date(y, m - 1, d + delta); return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`; };
-const emptyRearing = () => ({ loss: { cull: "", deadAm: "", deadPm: "", deadWtAm: "", deadWtPm: "", deadWt: "" }, feed: { no: "", medInFeed: "", s1open: "", s1recv: "", s1used: "", s2open: "", s2recv: "", s2used: "" }, water: { m1: "", m2: "", m3: "", m4: "", m5: "", m6: "" }, light: { hours: "", lux: "" }, meds: "", medsList: [], note: "" });   // deadWtAm/Pm = นน.ไก่ตายชั่งแยกเช้า/บ่าย (กก.) · deadWt = ข้อมูลเก่าที่ชั่งรวม (คงไว้ให้อ่านย้อนหลังได้) · sNopen = อาหารยกมาจากวันก่อน · medsList = ยา/สารเสริมหลายรายการ [{name,period,qty,water,time}]
+const emptyRearing = () => ({ loss: { cull: "", deadAm: "", deadPm: "", deadWtAm: "", deadWtPm: "", deadWt: "" }, feed: { no: "", medInFeed: "", s1open: "", s1recv: "", s1used: "", s2open: "", s2recv: "", s2used: "" }, water: { m1: "", m2: "", m3: "", m4: "", m5: "", m6: "" }, light: { hours: "", lux: "" }, bw: { avg: "", uni: "", n: "" }, meds: "", medsList: [], note: "" });   // deadWtAm/Pm = นน.ไก่ตายชั่งแยกเช้า/บ่าย (กก.) · deadWt = ข้อมูลเก่าที่ชั่งรวม (คงไว้ให้อ่านย้อนหลังได้) · sNopen = อาหารยกมาจากวันก่อน · medsList = ยา/สารเสริมหลายรายการ [{name,period,qty,water,time}]
 // นน.ไก่ตายรวมของวัน (กก.) — รวมเช้า+บ่าย และบวกค่าเก่าแบบชั่งรวม (บันทึกก่อนแยกช่อง) ให้รายงานเก่าไม่เพี้ยน
 const deadWtOf = (loss) => nf(loss?.deadWtAm) + nf(loss?.deadWtPm) + nf(loss?.deadWt);
 // สรุปยา/สารเสริมสั้น ๆ สำหรับตาราง เช่น "Enro 13 ขวด · Calcium 2 ขวด" (ข้อมูลเก่าใช้ข้อความ meds เดิม)
@@ -6673,6 +6684,7 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = n
   const [feed, setFeed] = useState({ ...emptyRearing().feed, ...(d0.feed || {}) });
   const [water, setWater] = useState({ ...emptyRearing().water, ...(d0.water || {}) });
   const [light, setLight] = useState({ ...emptyRearing().light, ...(d0.light || {}) });
+  const [bw, setBw] = useState({ ...emptyRearing().bw, ...(d0.bw || {}) });   // ชั่งน้ำหนักตัว — สัปดาห์ละครั้งก็พอ วันอื่นเว้นว่างไว้ได้
   // ยา/สารเสริม หลายรายการต่อวัน — ข้อมูลเก่า (ข้อความ meds) แปลงเป็นรายการแรกให้อัตโนมัติ
   const [medsList, setMedsList] = useState(() => {
     const l = Array.isArray(d0.medsList) ? d0.medsList.map((x) => ({ period: "เช้า", route: "water", ...x })) : [];   // route: water=ผสมน้ำ · feed=มากับอาหาร (ข้อมูลเก่าไม่มี route = ผสมน้ำ)
@@ -6734,7 +6746,7 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = n
   const waterMlPerBird = waterUnitUsed != null && birdsLive ? (waterUnitUsed * waterUnitToMl(houseId)) / birdsLive : null;   // H2-H3 มิเตอร์ลิตร · H4-H7 คิว → มล. ÷ ไก่
   const stdWaterMl = stdFeedG != null ? stdFeedG * 2.0 : null;
   const waterLow = waterMlPerBird != null && stdWaterMl != null && waterMlPerBird < stdWaterMl * 0.9;
-  const dataOut = (draft) => ({ loss, feed, water, light, meds: "", medsList: medsList.filter((m) => (m.name || "").trim()), note: note.trim(), draft });
+  const dataOut = (draft) => ({ loss, feed, water, light, bw, meds: "", medsList: medsList.filter((m) => (m.name || "").trim()), note: note.trim(), draft });
   return (
     <div style={S.modalOverlay} onClick={onClose}>
       <div style={{ ...S.modal, maxWidth: 500, maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
@@ -6764,6 +6776,38 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = n
             if (!isNaN(lxVal) && minLx != null && lxVal < minLx) msgs.push(`ความสว่าง ${lxVal} lux ต่ำกว่าขั้นต่ำ ~${minLx} lux ของอายุนี้`);
             if (!msgs.length) return null;
             return <div style={{ marginTop: 8, background: "#FFF7EC", border: "1.5px solid #F5C77E", color: "#B45309", borderRadius: 9, padding: "7px 11px", fontSize: 12.5, fontWeight: 700, lineHeight: 1.5 }}>⚠️ {msgs.join(" · ")}</div>;
+          })()}
+        </div>
+
+        {/* ⚖️ ชั่งน้ำหนักตัว — สัปดาห์ละครั้งก็พอ เทียบมาตรฐาน Hy-Line ทันที */}
+        <div style={section("#FAF5FF", "#E3D0F5", "#7E22CE")}>
+          <div style={{ fontWeight: 800, color: "#7E22CE", fontSize: 13, marginBottom: 8 }}>⚖️ ชั่งน้ำหนักตัว <span style={{ fontWeight: 600, color: "#9b8e78", fontSize: 11.5 }}>· สัปดาห์ละครั้งก็พอ วันไหนไม่ได้ชั่งเว้นว่างไว้</span></div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9 }}>
+            {fw("bwavg", "น้ำหนักเฉลี่ย (กรัม)", <input {...numProps(30, "pfBw")} value={bw.avg} onChange={(e) => setBw((p) => ({ ...p, avg: dec(e.target.value) }))} />, "#7E22CE")}
+            {fw("bwuni", "สม่ำเสมอ (%)", <input {...numProps(31, "pfBw")} value={bw.uni} onChange={(e) => setBw((p) => ({ ...p, uni: dec(e.target.value) }))} />, "#7E22CE")}
+            {fw("bwn", "จำนวนที่ชั่ง (ตัว)", <input {...numProps(32, "pfBw")} value={bw.n} onChange={(e) => setBw((p) => ({ ...p, n: dec(e.target.value) }))} />, "#7E22CE")}
+          </div>
+          {/* เทียบมาตรฐาน Hy-Line Brown ทันทีที่กรอก — ต่ำกว่าเกณฑ์กี่กรัม */}
+          {(() => {
+            const wk = flockAgeWk(flock, dateISO);
+            const std = wk != null ? hylineBwG(wk) : null;
+            const v = parseFloat(bw.avg);
+            const u = parseFloat(bw.uni);
+            if (wk == null) return <div style={{ marginTop: 8, fontSize: 12, color: "#9b8e78" }}>ตั้งค่ารุ่นการเลี้ยงก่อน จึงเทียบมาตรฐานตามอายุได้</div>;
+            if (isNaN(v) || v <= 0) return <div style={{ marginTop: 8, fontSize: 12.5, color: "#7a6f5c" }}>มาตรฐาน Hy-Line Brown อายุ {wk} สป. = <b style={{ color: "#7E22CE" }}>{fmt(Math.round(std))} กรัม</b> ({(std / 1000).toFixed(2)} กก.)</div>;
+            const pct = (v / std) * 100;
+            const diff = v - std;
+            const low = pct < 95;
+            const msgs = [];
+            if (low) msgs.push(`ต่ำกว่ามาตรฐาน ${fmt(Math.round(-diff))} กรัม${wk < 22 ? " — เร่งเพิ่มอาหาร/เพิ่มมื้อดึก ก่อนขึ้นโปรแกรมแสง" : ""}`);
+            if (!isNaN(u) && u > 0 && u < 85) msgs.push(`ความสม่ำเสมอ ${u}% ต่ำกว่าเกณฑ์ 85% — ตัวเล็กปนมาก ควรคัดเลี้ยงแยก`);
+            const okCol = low ? { bg: "#FEE2E2", bd: "#FCA5A5", fg: "#B91C1C" } : (pct > 110 ? { bg: "#FEF3C7", bd: "#FCD34D", fg: "#B45309" } : { bg: "#DCFCE7", bd: "#86EFAC", fg: "#15803D" });
+            return (
+              <div style={{ marginTop: 8, background: okCol.bg, border: `1.5px solid ${okCol.bd}`, color: okCol.fg, borderRadius: 9, padding: "7px 11px", fontSize: 12.5, fontWeight: 700, lineHeight: 1.55 }}>
+                {low ? "⚠️" : pct > 110 ? "▲" : "✅"} อายุ {wk} สป. · ชั่งได้ {fmt(Math.round(v))} ก. / มาตรฐาน {fmt(Math.round(std))} ก. = <b>{pct.toFixed(0)}%</b> ({diff >= 0 ? "+" : ""}{fmt(Math.round(diff))} ก.)
+                {msgs.length ? <div style={{ marginTop: 3, fontWeight: 600 }}>{msgs.join(" · ")}</div> : null}
+              </div>
+            );
           })()}
         </div>
 
@@ -8757,63 +8801,106 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
           }
           const stdHD = hylineHD(x.ageWk);
           const eggVsStd = (eggPct != null && stdHD) ? (eggPct / stdHD) * 100 : null;
-          return { hid: x.hid, ageWk: x.ageWk, stdG, stdWMl, gPerBird, wMl, feedPct, waterPct, eggPct, stdHD, eggVsStd };
+          // ⚖️ น้ำหนักตัว — ชั่งสัปดาห์ละครั้ง จึงย้อนหาค่าล่าสุดย้อนหลังได้ถึง 13 วัน
+          const bwRec = (() => {
+            for (let k = 0; k <= 13; k++) {
+              const d0 = shiftDayISO(day, -k);
+              const v = nf(rearingByDate[d0]?.[x.hid]?.bw?.avg);
+              if (v > 0) return { g: v, wk: flockAgeWk(x.fl, d0), uni: nf(rearingByDate[d0]?.[x.hid]?.bw?.uni) };
+            }
+            return null;
+          })();
+          const bwG = bwRec ? bwRec.g : null;
+          const bwAge = bwRec ? bwRec.wk : null;
+          const stdBw = bwRec ? hylineBwG(bwAge != null ? bwAge : x.ageWk) : null;
+          const bwPct = (bwG != null && stdBw) ? (bwG / stdBw) * 100 : null;
+          return { hid: x.hid, ageWk: x.ageWk, stdG, stdWMl, gPerBird, wMl, feedPct, waterPct, eggPct, stdHD, eggVsStd, bwG, bwAge, stdBw, bwPct, bwUni: bwRec ? bwRec.uni : null };
         });
-        const data = flags.filter((f) => f.feedPct != null || f.waterPct != null || f.eggVsStd != null);
+        const data = flags.filter((f) => f.feedPct != null || f.waterPct != null || f.eggVsStd != null || f.bwPct != null);
         if (data.length === 0) return null;
         const fLow = data.filter((f) => f.feedPct != null && f.feedPct < 90).map((f) => f.hid);
         const fHigh = data.filter((f) => f.feedPct != null && f.feedPct > 110).map((f) => f.hid);
         const wLow = data.filter((f) => f.waterPct != null && f.waterPct < 90).map((f) => f.hid);
         const wHigh = data.filter((f) => f.waterPct != null && f.waterPct > 160).map((f) => f.hid);
         const eLow = data.filter((f) => f.eggVsStd != null && f.eggVsStd < 90).map((f) => f.hid);
-        const allOk = !fLow.length && !fHigh.length && !wLow.length && !wHigh.length && !eLow.length;
-        const isHigh = (pct, kind) => kind === "feed" ? pct > 110 : kind === "water" ? pct > 160 : false;   // ไข่เกินมาตรฐาน = ดี ไม่ติดธง
-        const pctStyle = (pct, kind) => {
-          if (pct == null) return { color: "#c9c0ad" };
-          if (pct < 90) return { color: "#B91C1C", fontWeight: 800 };
-          if (isHigh(pct, kind)) return { color: "#B45309", fontWeight: 800 };
-          return { color: "#15803D", fontWeight: 700 };
+        const bLow = data.filter((f) => f.bwPct != null && f.bwPct < 90).map((f) => f.hid);
+        const anyBw = data.some((f) => f.bwG != null);
+        const allOk = !fLow.length && !fHigh.length && !wLow.length && !wHigh.length && !eLow.length && !bLow.length;
+        const isHigh = (pct, kind) => kind === "feed" ? pct > 110 : kind === "water" ? pct > 160 : kind === "bw" ? pct > 110 : false;   // ไข่เกินมาตรฐาน = ดี ไม่ติดธง
+        // ป้าย % เทียบมาตรฐาน — เขียว=ต่ำ · ส้ม=สูง · เขียว=ปกติ
+        const pctStatus = (pct, kind) => {
+          if (pct == null) return null;
+          if (pct < 90) return "ต่ำกว่าเกณฑ์";
+          if (isHigh(pct, kind)) return "สูงกว่าเกณฑ์";
+          return "ปรกติ";
         };
-        const arrow = (pct, kind) => pct == null ? "" : (pct < 90 ? " ▼" : (isHigh(pct, kind) ? " ▲" : ""));
-        const rTh = { ...th, padding: "5px 16px", fontSize: 11.5, whiteSpace: "nowrap", lineHeight: 1.25 };
-        const rTd = { ...td, padding: "5px 16px", fontSize: 12.5, textAlign: "center", whiteSpace: "nowrap" };
-        const gray = { color: "#a89c85", fontWeight: 400 };
+        const pctPill = (pct, kind) => {
+          if (pct == null) return <span style={{ color: "#c9c0ad" }}>—</span>;
+          let bg = "#DCFCE7", fg = "#15803D", ico = "";
+          if (pct < 90) { bg = "#FEE2E2"; fg = "#B91C1C"; ico = " ▼"; }
+          else if (isHigh(pct, kind)) { bg = "#FEF3C7"; fg = "#B45309"; ico = " ▲"; }
+          return (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+              <span style={{ display: "inline-block", minWidth: 54, background: bg, color: fg, fontWeight: 800, fontSize: 13, borderRadius: 999, padding: "3px 9px" }}>{pct.toFixed(0)}%{ico}</span>
+              <span style={{ fontSize: 10.5, fontWeight: 600, color: fg }}>{pctStatus(pct, kind)}</span>
+            </div>
+          );
+        };
+        const GRP = [
+          { key: "egg", label: "🥚 ไข่ (%ผลผลิต)", tint: "#F4FBF3", head: "#15803D", real: (f) => f.eggPct != null ? f.eggPct.toFixed(1) : null, std: (f) => f.stdHD != null ? f.stdHD.toFixed(1) : null, pct: (f) => f.eggVsStd },
+          { key: "feed", label: "🌾 อาหาร (ก./ตัว)", tint: "#FFF9F0", head: "#B45309", real: (f) => f.gPerBird != null ? fmt1(f.gPerBird) : null, std: (f) => f.stdG != null ? fmt1(f.stdG) : null, pct: (f) => f.feedPct },
+          { key: "water", label: "💧 น้ำ (มล./ตัว)", tint: "#F2F8FC", head: "#0369A1", real: (f) => f.wMl != null ? fmt(Math.round(f.wMl)) : null, std: (f) => f.stdWMl != null ? fmt(Math.round(f.stdWMl)) : null, pct: (f) => f.waterPct },
+        ];
+        if (anyBw) GRP.push({ key: "bw", label: "⚖️ น้ำหนักตัว (ก.)", tint: "#F9F4FC", head: "#7E22CE", real: (f) => f.bwG != null ? fmt(Math.round(f.bwG)) : null, std: (f) => f.stdBw != null ? fmt(Math.round(f.stdBw)) : null, pct: (f) => f.bwPct, sub: (f) => f.bwAge != null && f.bwAge !== f.ageWk ? "ชั่ง " + f.bwAge + " สป." : null });
+        const cell = { padding: "7px 12px", fontSize: 14, textAlign: "center", whiteSpace: "nowrap", borderBottom: "1px solid #F0E9DA" };
+        const grpEdge = { borderLeft: "2px solid #E4DAC4" };
+        const rowBorder = { borderTop: "1.5px solid #C9BFA8", borderBottom: "1.5px solid #C9BFA8" };
         return (
-          <div style={{ background: allOk ? "#F2F9F1" : "#FFFCF5", border: `1.5px solid ${allOk ? "#BBE3B4" : "#F1DFBF"}`, borderRadius: 12, padding: "12px 15px", marginBottom: 12, display: "inline-block", maxWidth: "100%" }}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: INK, marginBottom: 7 }}>
-              📊 เทียบมาตรฐาน Hy-Line ตามอายุ <span style={{ fontSize: 11, fontWeight: 600, color: "#9b8e78" }}>· กินจริง/มฐ ต่อตัว · ▼ ต่ำ &lt;90%</span>
+          <div style={{ background: "#fff", border: `2px solid ${allOk ? "#BBE3B4" : "#F1DFBF"}`, borderRadius: 14, padding: "13px 15px 11px", marginBottom: 12, display: "inline-block", maxWidth: "100%", boxShadow: "0 2px 8px rgba(90,60,20,0.10)" }}>
+            <div style={{ fontSize: 14.5, fontWeight: 800, color: INK, marginBottom: 9 }}>
+              📊 เทียบมาตรฐาน Hy-Line ตามอายุ <span style={{ fontSize: 11.5, fontWeight: 600, color: "#9b8e78" }}>· ต่อตัวต่อวัน</span>
             </div>
             <div style={{ overflowX: "auto" }}>
-              <table style={{ borderCollapse: "collapse", fontSize: 12.5 }}>
+              <table style={{ borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
-                    <th style={{ ...rTh, textAlign: "left" }}>หลัง</th>
-                    <th style={rTh}>อายุ</th>
-                    <th style={{ ...rTh, color: "#15803D" }}>ไข่<br />%ผลผลิต</th>
-                    <th style={rTh}>%มฐ</th>
-                    <th style={{ ...rTh, color: "#B45309" }}>อาหาร<br />ก./ตัว</th>
-                    <th style={rTh}>%มฐ</th>
-                    <th style={{ ...rTh, color: "#0369A1" }}>น้ำ<br />มล./ตัว</th>
-                    <th style={rTh}>%มฐ</th>
+                    <th rowSpan={2} style={{ ...th, padding: "6px 12px", fontSize: 12.5, textAlign: "left", verticalAlign: "bottom" }}>หลัง</th>
+                    <th rowSpan={2} style={{ ...th, padding: "6px 12px", fontSize: 12.5, textAlign: "center", verticalAlign: "bottom" }}>อายุ<br />(สป.)</th>
+                    {GRP.map((g) => (
+                      <th key={g.key} colSpan={3} style={{ padding: "6px 12px", fontSize: 13.5, fontWeight: 800, color: g.head, background: g.tint, textAlign: "center", whiteSpace: "nowrap", ...grpEdge, borderBottom: `2px solid ${g.head}33` }}>{g.label}</th>
+                    ))}
+                  </tr>
+                  <tr>
+                    {GRP.map((g) => [
+                      <th key={g.key + "a"} style={{ padding: "4px 12px", fontSize: 12, fontWeight: 800, color: "#5d5341", background: g.tint, whiteSpace: "nowrap", ...grpEdge }}>ค่าจริง</th>,
+                      <th key={g.key + "b"} style={{ padding: "4px 12px", fontSize: 12, fontWeight: 800, color: "#fff", background: "#8C7B5E", whiteSpace: "nowrap" }}>มาตรฐาน</th>,
+                      <th key={g.key + "c"} style={{ padding: "4px 12px", fontSize: 12, fontWeight: 800, color: "#5d5341", background: g.tint, whiteSpace: "nowrap" }}>เทียบ</th>,
+                    ])}
                   </tr>
                 </thead>
                 <tbody>
                   {data.map((f, i) => (
-                    <tr key={f.hid} style={{ background: i % 2 ? "#FFFDF8" : "transparent" }}>
-                      <td style={{ ...rTd, textAlign: "left", fontWeight: 800 }}>{f.hid}</td>
-                      <td style={rTd}>{f.ageWk}</td>
-                      <td style={rTd}>{f.eggPct != null ? f.eggPct.toFixed(1) : "—"}<span style={gray}> / {f.stdHD != null ? f.stdHD.toFixed(1) : "—"}</span></td>
-                      <td style={{ ...rTd, ...pctStyle(f.eggVsStd, "egg") }}>{f.eggVsStd != null ? f.eggVsStd.toFixed(0) + "%" + arrow(f.eggVsStd, "egg") : "—"}</td>
-                      <td style={rTd}>{f.gPerBird != null ? fmt1(f.gPerBird) : "—"}<span style={gray}> / {f.stdG != null ? fmt1(f.stdG) : "—"}</span></td>
-                      <td style={{ ...rTd, ...pctStyle(f.feedPct, "feed") }}>{f.feedPct != null ? f.feedPct.toFixed(0) + "%" + arrow(f.feedPct, "feed") : "—"}</td>
-                      <td style={rTd}>{f.wMl != null ? fmt(Math.round(f.wMl)) : "—"}<span style={gray}> / {f.stdWMl != null ? fmt(Math.round(f.stdWMl)) : "—"}</span></td>
-                      <td style={{ ...rTd, ...pctStyle(f.waterPct, "water") }}>{f.waterPct != null ? f.waterPct.toFixed(0) + "%" + arrow(f.waterPct, "water") : "—"}</td>
+                    <tr key={f.hid} style={{ background: i % 2 ? "#F0FDF4" : "#FEF3C7", ...rowBorder }}>
+                      <td style={{ ...cell, textAlign: "left", fontWeight: 800, fontSize: 15 }}>{f.hid}</td>
+                      <td style={{ ...cell, fontWeight: 700 }}>{f.ageWk}</td>
+                      {GRP.map((g) => {
+                        const rv = g.real(f), sv = g.std(f), sub = g.sub ? g.sub(f) : null;
+                        return [
+                          <td key={g.key + "a"} style={{ ...cell, fontWeight: 800, fontSize: 15, ...grpEdge }}>{rv != null ? rv : <span style={{ color: "#c9c0ad" }}>—</span>}{sub ? <div style={{ fontSize: 10, fontWeight: 600, color: "#9b8e78" }}>{sub}</div> : null}</td>,
+                          <td key={g.key + "b"} style={{ ...cell, background: "#F5F0E4", color: "#6b6250", fontWeight: 700 }}>{sv != null ? sv : "—"}</td>,
+                          <td key={g.key + "c"} style={cell}>{pctPill(g.pct(f), g.key)}</td>,
+                        ];
+                      })}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <div style={{ fontSize: 10.5, color: "#9b8e78", marginTop: 5 }}>เลขเทา = มาตรฐาน Hy-Line ตามอายุ · ไข่ %ผลผลิต = ไข่รวม (ดี+ตกเกรด+คละ) ÷ จำนวนไก่ เทียบมาตรฐาน hen-day (เกินมาตรฐาน = ดี ไม่ติดธง) · น้ำ ≈ 2× อาหาร · <b style={{ color: "#B91C1C" }}>แดง</b> ต่ำ &lt;90% · <b style={{ color: "#B45309" }}>ส้ม</b> สูง</div>
+            <div style={{ fontSize: 11.5, color: "#7a6f5c", marginTop: 8, lineHeight: 1.7 }}>
+              <b>มาตรฐาน</b> = ค่าที่ควรเป็นของสายพันธุ์ Hy-Line Brown ที่อายุนี้ · <b>เทียบ</b> = ของจริง ÷ มาตรฐาน<br />
+              <span style={{ display: "inline-block", background: "#DCFCE7", color: "#15803D", fontWeight: 800, borderRadius: 999, padding: "1px 8px" }}>90–110%</span> ปกติ · <span style={{ display: "inline-block", background: "#FEE2E2", color: "#B91C1C", fontWeight: 800, borderRadius: 999, padding: "1px 8px" }}>▼ &lt;90%</span> ต่ำกว่าเกณฑ์ · <span style={{ display: "inline-block", background: "#FEF3C7", color: "#B45309", fontWeight: 800, borderRadius: 999, padding: "1px 8px" }}>▲ สูง</span> อาหาร&gt;110% · น้ำ&gt;160% · นน.ตัว&gt;110% <span style={{ color: "#9b8e78" }}>(ไข่เกินมาตรฐาน = ดี ไม่ติธง)</span><br />
+              <span style={{ color: "#9b8e78" }}>ไข่ %ผลผลิต = ไข่รวม (ดี+ตกเกรด+คละ) ÷ จำนวนไก่ · น้ำมาตรฐาน ≈ 2× อาหาร{anyBw ? "" : " · ⚖️ ชั่งน้ำหนักไก่แล้วกรอกในหน้าการเลี้ยง จะขึ้นคอลัมน์เทียบมาตรฐานให้"}</span>
+            </div>
           </div>
         );
       })()}
@@ -10226,7 +10313,7 @@ function PlanBoard({ bookings, production, planEstimates, setPlanEstimate }) {
 /* ============================================================
    Styles
 ============================================================ */
-const ACCENT = "#E8943A", ACCENT_DK = "#C9742A", INK = "#2B2620", PAPER = "#D8BF9A";   // \ud83c\udfa8 \u0e1e\u0e37\u0e49\u0e19\u0e2b\u0e25\u0e31\u0e07\u0e04\u0e23\u0e35\u0e21\u0e2a\u0e49\u0e21\u0e19\u0e27\u0e25 \u0e25\u0e14\u0e04\u0e27\u0e32\u0e21\u0e2a\u0e27\u0e48\u0e32\u0e07\u0e41\u0e2a\u0e1a\u0e15\u0e32 (\u0e40\u0e08\u0e49\u0e32\u0e02\u0e2d\u0e07\u0e2a\u0e31\u0e48\u0e07 20 \u0e2a.\u0e04. 69) \u2014 \u0e40\u0e14\u0e34\u0e21 #FBF8F2
+const ACCENT = "#E8943A", ACCENT_DK = "#C9742A", INK = "#2B2620", PAPER = "#D8BF9A";   // 🎨 พื้นหลังครีมส้มนวล ลดความสว่างแสบตา (เจ้าของสั่ง 20 ส.ค. 69) — เดิม #FBF8F2
 
 const S = {
   app: { fontFamily: "'Noto Sans Thai', system-ui, sans-serif", background: PAPER, minHeight: "100vh", color: INK, paddingBottom: 32 },
@@ -10256,7 +10343,7 @@ const S = {
   custGroupHead: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, paddingBottom: 6, borderBottom: "2px solid #f0ece2" },
   custGroupName: { fontSize: 14, fontWeight: 700, color: ACCENT_DK },
   custGroupCount: { fontSize: 12, color: "#9b9384", background: "#f3f0e9", padding: "2px 10px", borderRadius: 12 },
-  customerCard: { display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", background: "#FFFBF2", border: `2px solid ${ACCENT_DK}`, borderLeft: `7px solid ${ACCENT}`, borderRadius: 14, cursor: "pointer", fontFamily: "inherit", boxShadow: "0 3px 10px rgba(90,55,15,0.20)" },   // \ud83c\udfa8 \u0e01\u0e23\u0e2d\u0e1a\u0e2a\u0e49\u0e21\u0e2b\u0e19\u0e32+\u0e40\u0e07\u0e32 \u0e01\u0e31\u0e19\u0e01\u0e25\u0e37\u0e19\u0e01\u0e31\u0e1a\u0e1e\u0e37\u0e49\u0e19\u0e2b\u0e25\u0e31\u0e07\u0e19\u0e49\u0e33\u0e15\u0e32\u0e25 (\u0e40\u0e08\u0e49\u0e32\u0e02\u0e2d\u0e07\u0e2a\u0e31\u0e48\u0e07 20 \u0e2a.\u0e04. 69)
+  customerCard: { display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", background: "#FFFBF2", border: `2px solid ${ACCENT_DK}`, borderLeft: `7px solid ${ACCENT}`, borderRadius: 14, cursor: "pointer", fontFamily: "inherit", boxShadow: "0 3px 10px rgba(90,55,15,0.20)" },   // 🎨 กรอบส้มหนา+เงา กันกลืนกับพื้นหลังน้ำตาล (เจ้าของสั่ง 20 ส.ค. 69)
   custIcon: { width: 38, height: 38, borderRadius: 10, background: ACCENT, color: "#fff", display: "grid", placeItems: "center" },
   custName: { fontWeight: 800, fontSize: 16, color: "#5A3A12" },
   custPhone: { fontSize: 12.5, color: "#9b9384" },
