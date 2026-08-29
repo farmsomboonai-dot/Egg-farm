@@ -4824,7 +4824,7 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
   const hasBills = Object.keys(salesLog).length > 0;   // มีบิลของวันนี้ → เชื่อยอดขายได้ จึงเทียบ "ส่วนต่าง" (ของขาด/เกิน) ได้
   const showDiff = reconciled && hasBills;             // วันปิดยอดที่ไม่มีบิล (เช่น seed 3/7) → ใช้ back-calc เดิม ไม่โชว์ส่วนต่าง (กันตัวเลขหลอน)
   // จำนวนคอลัมน์ทั้งหมด: ชื่อ + ยกมา + รับเข้า + รวม + ลูกค้า + ขายรวม + [คงเหลือระบบ] + คงเหลือ + [ส่วนต่าง] + ประมาณการ
-  const colCount = 6 + activeCustomers.length + (reconciled ? 1 : 0) + (showDiff ? 1 : 0);
+  const colCount = 7 + activeCustomers.length + (reconciled ? 1 : 0) + (showDiff ? 1 : 0);   // +1 = คอลัมน์ชื่อไข่ที่ซ้ำท้ายขวา
 
   const rows = STOCK_ORDER.map((pid) => {
     const op = opening[pid] || 0;
@@ -4912,6 +4912,7 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
               <th style={{ ...thX, background: "#15803D", color: "#fff" }}>คงเหลือ<br />{reconciled ? "(นับจริง)" : "(17:00)"}</th>
               {showDiff && <th style={{ ...thX, background: "#FDECEC" }}>ส่วนต่าง<br />(นับ−ระบบ)</th>}
               <th style={{ ...thX, background: "#DBEAFE" }}>ประมาณการ<br />พรุ่งนี้</th>
+              <th style={{ ...thX, textAlign: "left", borderLeft: "3px solid #D9CDB4" }}>ไข่เบอร์</th>
             </tr>
           </thead>
           <tbody>
@@ -4935,6 +4936,7 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
                   <td style={{ ...tdX, background: "#F1F8F2", fontWeight: 700, color: r.remain < 0 ? "#dc2626" : "#15803D" }}>{fmt(r.remain)}</td>
                   {showDiff && <td style={{ ...tdX, background: "#FEF6F6", fontWeight: 700, color: diffColor(r.diff) }}>{diffText(r.diff)}</td>}
                   <td style={{ ...tdX, background: "#EFF5FE", fontWeight: 700, color: "#1D4ED8" }}>{fmt(r.remain + r.received)}</td>
+                  <td style={{ ...tdX, fontWeight: 700, textAlign: "left", whiteSpace: "normal", wordBreak: "break-word", background: mid, color: ink, borderLeft: "3px solid #D9CDB4" }}>{r.name}</td>
                 </tr>
               );
             })}
@@ -4952,6 +4954,7 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
               <td style={{ ...tdX, ...S.tfoot }}>{fmt(totals.remain)}</td>
               {showDiff && <td style={{ ...tdX, ...S.tfoot, color: diffColor(totals.diff) }}>{diffText(totals.diff)}</td>}
               <td style={{ ...tdX, ...S.tfoot, color: "#1D4ED8" }}>{fmt(totals.remain + totals.received)}</td>
+              <td style={{ ...tdX, ...S.tfoot, textAlign: "left", borderLeft: "3px solid #D9CDB4" }}>รวม <span style={{ fontSize: 10.5, fontWeight: 600, color: "#8a8170" }}>(แผง)</span></td>
             </tr>
 
             {/* 🥛 ไข่แก้ว/ไข่เหลว — นับคนละหน่วย แยกไว้ท้ายสุด ไม่รวมในยอดแผงข้างบน */}
@@ -4984,6 +4987,10 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
                     <td style={{ ...tdX, background: "#FFE4E6", fontWeight: 700, color: r.remain < 0 ? "#dc2626" : "#9F1239" }}>{fmt(r.remain)}</td>
                     {showDiff && <td style={{ ...tdX, background: "#FFF1F2", fontWeight: 700, color: diffColor(r.diff) }}>{diffText(r.diff)}</td>}
                     <td style={{ ...tdX, background: "#FFF1F2", fontWeight: 700, color: "#9F1239" }}>{fmt(r.remain + r.received)}</td>
+                    <td style={{ ...tdX, fontWeight: 700, textAlign: "left", whiteSpace: "normal", wordBreak: "break-word", background: "#FFE4E6", color: "#9F1239", borderLeft: "3px solid #D9CDB4" }}>
+                      {r.name}
+                      <div style={{ fontSize: 10.5, fontWeight: 700, color: "#BE123C" }}>หน่วย: {u}{u === "แก้ว" ? ` · 1 แก้ว = ${PER_GLASS} ฟอง` : ""}</div>
+                    </td>
                   </tr>
                 );
               })}
@@ -5004,6 +5011,7 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
                     <td style={{ ...tdX, background: "#FECDD3", fontWeight: 800, color: "#9F1239" }}>{fmt(sg((r) => r.remain))}</td>
                     {showDiff && <td style={{ ...tdX, background: "#FECDD3", fontWeight: 800, color: diffColor(sg((r) => r.diff)) }}>{diffText(sg((r) => r.diff))}</td>}
                     <td style={{ ...tdX, background: "#FECDD3", fontWeight: 800, color: "#9F1239" }}>{fmt(sg((r) => r.remain + r.received))}</td>
+                    <td style={{ ...tdX, background: "#FECDD3", fontWeight: 800, color: "#9F1239", textAlign: "left", borderLeft: "3px solid #D9CDB4" }}>รวม <span style={{ fontSize: 10.5, fontWeight: 600 }}>({u})</span></td>
                   </tr>
                 );
               })}
@@ -5021,6 +5029,7 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
               <th style={{ ...thX, background: "#15803D", color: "#fff", borderTop: "3px solid #D9CDB4" }}>คงเหลือ<br />{reconciled ? "(นับจริง)" : "(17:00)"}</th>
               {showDiff && <th style={{ ...thX, background: "#FDECEC", borderTop: "3px solid #D9CDB4" }}>ส่วนต่าง<br />(นับ−ระบบ)</th>}
               <th style={{ ...thX, background: "#DBEAFE", borderTop: "3px solid #D9CDB4" }}>ประมาณการ<br />พรุ่งนี้</th>
+              <th style={{ ...thX, textAlign: "left", borderTop: "3px solid #D9CDB4", borderLeft: "3px solid #D9CDB4" }}>ไข่เบอร์</th>
             </tr>
           </tbody>
         </table>
