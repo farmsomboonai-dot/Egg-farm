@@ -946,6 +946,17 @@ const PER_GLASS = 8;
 // 🥛 รายการที่ไม่ได้นับเป็นแผง — แยกไว้ท้ายตารางสต๊อค ไม่รวมในยอด "รวม (แผง)" (เจ้าของสั่ง 27 ส.ค. 69)
 const STOCK_SPECIAL_UNIT = { g_tok: "แก้ว", g_toklew: "กิโล", g_tokdaeng: "กิโล" };
 const isSpecialStock = (pid) => !!STOCK_SPECIAL_UNIT[pid];
+// หน่วยที่ใช้ในหน้าสต๊อค — ต่างจาก productUnit() ที่ใช้ในบิล (บิลรู้จักแค่ "แก้ว")
+const stockUnit = (pid) => STOCK_SPECIAL_UNIT[pid] || "แผง";
+
+/* 🥚 กลุ่มไข่ที่ "ขายรวมกันราคาเดียว แต่แยกนับในสต๊อค" (เจ้าของอธิบาย 29 ส.ค. 69)
+   เวลาขาย: ขาว/นวล/หัวทราย เรียกรวมว่า "ไข่นวล" ราคาเดียวกัน เสมียนจึงคีย์สลับกันได้ง่าย
+   เวลานับสต๊อค: ต้องแยก เพราะแต่ละแบบบ่งบอกอาการป่วยคนละอย่าง ใช้เช็คประสิทธิภาพการเลี้ยง/การให้ยา
+   → ถ้ารายการเดี่ยวติดลบแต่ยอด "รวมกลุ่ม" ยังไม่ติดลบ = คีย์สลับกันในกลุ่ม ไม่ใช่ขายเกินของจริง */
+const EGG_SELL_GROUPS = [
+  { key: "nuan", label: "ขาว+นวล+ทราย", short: "ขาว+นวล+ทราย", ids: ["s_white", "g_nuan", "g_sand"] },
+];
+const sellGroupOf = (pid) => EGG_SELL_GROUPS.find((g) => g.ids.includes(pid)) || null;
 // แปลงเป็นฟอง — ใช้ตอนประมาณจำนวนฟองในบิล (หน้าสต๊อคไม่ใช้แล้ว เพราะแยกตารางตามหน่วยแทน)
 const qtyToFong = (pid, qty) => PRODUCT_UNIT[pid] === "แก้ว" ? (qty || 0) * PER_GLASS : (qty || 0) * PER_PRADANG;
 // สาเหตุส่วนต่างตอนปิดยอด (แท็กต่อรายการ)
@@ -4790,9 +4801,15 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
   const padTd = ["9px 10px", "8px 5px", "7px 3px", "6px 2px"][density];
   const padTh = ["10px 10px", "9px 5px", "8px 3px", "7px 2px"][density];
   const tblX = { ...S.table, minWidth: 0, tableLayout: "fixed", fontSize: fzTbl };
-  const thX = { ...S.th, padding: padTh, whiteSpace: "normal", fontSize: Math.max(9.5, fzTbl - 1), lineHeight: 1.25 };
+  const thX = { ...S.th, padding: padTh, whiteSpace: "normal", fontSize: Math.max(11, fzTbl + 0.5), lineHeight: 1.25 };   // หัวช่องสรุป — ใหญ่ขึ้นตามตัวเลข
   const thCustX = { ...S.thCust, padding: padTh, whiteSpace: "normal", wordBreak: "break-word", fontSize: fzCust, lineHeight: 1.25 };
-  const tdX = { ...S.td, padding: padTd };
+  // 🔲 เส้นคั่นเฉพาะรอยต่อโซน (เจ้าของเลือก 29 ส.ค. 69) — โซนลูกค้าไม่คั่นเส้นภายใน
+  //    โซน: ชื่อ | ยกมา-รับเข้า-รวม | ลูกค้า | ขายรวม | คงเหลือ-ส่วนต่าง | ประมาณการ | ชื่อ(ขวา)
+  const zEdge = { borderLeft: "2px solid #C0B296" };
+  const tdX = { ...S.td, padding: padTd, fontSize: fzCust };                 // ช่องขายรายลูกค้า — เล็กได้ เพราะมีเยอะ
+  // 🔍 ช่องสรุป (ยกมา/รับเข้า/รวม/ขายรวม/คงเหลือ/ส่วนต่าง/ประมาณการ) — ตัวใหญ่กว่า อ่านง่าย (เจ้าของสั่ง 29 ส.ค. 69)
+  const fzBig = [16, 15, 13.5, 12.5][density];
+  const tdBig = { ...S.td, padding: padTd, fontSize: fzBig };
   const nameW = density === 0 ? 92 : density === 1 ? 80 : 68;   // คอลัมน์ชื่อไข่เบอร์
 
   // โทนสีประจำไข่แต่ละชนิด [พื้นแถวอ่อน, พื้นช่องชื่อ, สีตัวอักษรชื่อ] — ช่วยกวาดตาแยกแถวง่าย
@@ -4844,6 +4861,29 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
   // 🥛 แยกไข่แก้ว/ไข่เหลว (หน่วยแก้ว·กิโล) ออกไปไว้ท้ายตาราง — ไม่รวมในยอด "รวม (แผง)"
   const mainRows = rows.filter((r) => !isSpecialStock(r.pid));
   const specialRows = rows.filter((r) => isSpecialStock(r.pid));
+  // 🥚 ยอดรวมของกลุ่มไข่ที่ขายรวมกัน (ขาว+นวล+หัวทราย) — ใช้ทั้งแถวสรุปในตารางและตรวจว่าติดลบจริงไหม
+  const groupAgg = {};
+  EGG_SELL_GROUPS.forEach((g) => {
+    const rs = rows.filter((r) => g.ids.includes(r.pid));
+    if (!rs.length) return;
+    groupAgg[g.key] = {
+      ...g,
+      rows: rs,
+      opening: rs.reduce((t, r) => t + r.opening, 0),
+      received: rs.reduce((t, r) => t + r.received, 0),
+      total: rs.reduce((t, r) => t + r.total, 0),
+      sold: rs.reduce((t, r) => t + r.sold, 0),
+      computedRemain: rs.reduce((t, r) => t + r.computedRemain, 0),
+      remain: rs.reduce((t, r) => t + r.remain, 0),
+      diff: rs.reduce((t, r) => t + r.diff, 0),
+      lastId: g.ids[g.ids.length - 1],
+    };
+  });
+  // 🔴 รายการที่ "ขายเกินของที่มี" — ยกมา+รับเข้า−ขาย ติดลบ
+  //    แยก 2 แบบ: (ก) ติดลบจริง = ของไม่พอจริง  (ข) ติดลบแต่รวมกลุ่มยังพอ = เสมียนคีย์สลับกันในกลุ่ม
+  const negAll = rows.filter((r) => r.computedRemain < 0);
+  const negRows = negAll.filter((r) => { const g = sellGroupOf(r.pid); return !g || !groupAgg[g.key] || groupAgg[g.key].computedRemain < 0; });
+  const negSwap = negAll.filter((r) => { const g = sellGroupOf(r.pid); return g && groupAgg[g.key] && groupAgg[g.key].computedRemain >= 0; });
   // แถว "รวม" นับเฉพาะรายการที่เป็นแผงจริง
   const totals = mainRows.reduce((t, r) => ({
     opening: t.opening + r.opening, received: t.received + r.received,
@@ -4881,6 +4921,43 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
       </div>
       <PrevDayWarn prevISO={prevUnrecordedDay(day, (d) => !!stockCounts[d], Object.keys(stockCounts).sort()[0])} what="(ปิดยอดสิ้นวัน)" onGo={setDay} />
 
+      {/* 🔴 แถบเตือน "ขายเกินของที่มี" — คงเหลือ(ระบบ) ติดลบ = เป็นไปไม่ได้ทางกายภาพ ต้องมีข้อมูลผิด (เจ้าของสั่ง 29 ส.ค. 69) */}
+      {negRows.length > 0 && (
+        <div style={{ margin: "0 0 10px", padding: "11px 15px", borderRadius: 10, background: "#FEF2F2", border: "2px solid #EF4444", color: "#B91C1C", fontSize: 13.5, lineHeight: 1.7 }}>
+          <div style={{ fontWeight: 800, fontSize: 14.5, marginBottom: 4 }}>
+            🔴 ขายเกินของที่มี {negRows.length} รายการ — ข้อมูลผิดแน่นอน
+          </div>
+          {negRows.map((r) => (
+            <div key={r.pid} style={{ marginTop: 3 }}>
+              • <b>{r.name}</b> — มีทั้งวัน {fmt(r.total)} แต่ขายไป <b>{fmt(r.sold)}</b> → <b>เกินมา {fmt(-r.computedRemain)} {stockUnit(r.pid)}</b>
+            </div>
+          ))}
+          <div style={{ marginTop: 6, fontSize: 12.5, fontWeight: 600, color: "#7F1D1D" }}>
+            สาเหตุที่พบบ่อย: ผลผลิตวันนี้ยังกรอกไม่ครบ (ช่อง "รับเข้า" น้อยกว่าจริง) · บิลคีย์สินค้าผิดประเภท · ลืมบันทึกยอดยกมาจากเมื่อวาน
+          </div>
+        </div>
+      )}
+
+      {/* 🟡 ติดลบเฉพาะรายการ แต่ยอดรวมกลุ่มยังพอ = เสมียนคีย์สลับกันในกลุ่มที่ขายราคาเดียวกัน ไม่ใช่ของหาย */}
+      {negSwap.length > 0 && (
+        <div style={{ margin: "0 0 10px", padding: "11px 15px", borderRadius: 10, background: "#FFFBEB", border: "2px solid #F59E0B", color: "#B45309", fontSize: 13.5, lineHeight: 1.7 }}>
+          <div style={{ fontWeight: 800, fontSize: 14.5, marginBottom: 4 }}>
+            🔄 น่าจะคีย์สลับกันในกลุ่ม {negSwap.length} รายการ — ของไม่ได้หาย
+          </div>
+          {negSwap.map((r) => {
+            const g = groupAgg[sellGroupOf(r.pid).key];
+            return (
+              <div key={r.pid} style={{ marginTop: 3 }}>
+                • <b>{r.name}</b> ติดลบ {fmt(-r.computedRemain)} {stockUnit(r.pid)} แต่ <b>{g.short}</b> ทั้งกลุ่มยังเหลือ {fmt(g.computedRemain)} — ขายกลุ่มนี้ราคาเดียวกัน เสมียนคีย์ผิดตัวได้
+              </div>
+            );
+          })}
+          <div style={{ marginTop: 6, fontSize: 12.5, fontWeight: 600, color: "#92400E" }}>
+            ไม่ต้องตกใจเรื่องของหาย — แต่ยอดแยกรายชนิดจะเพี้ยน ทำให้ดูอาการป่วย/ประสิทธิภาพการเลี้ยงไม่แม่น ควรย้ำเสมียนให้เลือกให้ตรงชนิดจริงตอนคีย์
+          </div>
+        </div>
+      )}
+
       {showDiff && totals.diff !== 0 && (
         <div style={{ margin: "0 0 10px", padding: "9px 13px", borderRadius: 10, background: totals.diff < 0 ? "#FEF2F2" : "#F0FDF4", border: `1px solid ${totals.diff < 0 ? "#FECACA" : "#BBF7D0"}`, color: totals.diff < 0 ? "#B91C1C" : "#15803D", fontSize: 13, fontWeight: 600 }}>
           {totals.diff < 0
@@ -4903,15 +4980,15 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
           <thead>
             <tr>
               <th style={{ ...thX, ...S.thSticky, textAlign: "left" }}>ไข่เบอร์</th>
-              <th style={thX}>ยกมา</th>
+              <th style={{ ...thX, ...zEdge }}>ยกมา</th>
               <th style={thX}>รับเข้า</th>
               <th style={{ ...thX, background: "#F5EFE3" }}>รวม</th>
-              {activeCustomers.map((c) => <th key={c.id} style={thCustX}>{c.name}</th>)}
-              <th style={{ ...thX, background: "#FBEFDD" }}>ขายรวม</th>
-              {reconciled && <th style={{ ...thX, background: "#E7F0E9" }}>คงเหลือ<br />(ระบบ)</th>}
-              <th style={{ ...thX, background: "#15803D", color: "#fff" }}>คงเหลือ<br />{reconciled ? "(นับจริง)" : "(17:00)"}</th>
+              {activeCustomers.map((c, ci) => <th key={c.id} style={{ ...thCustX, ...(ci === 0 ? zEdge : null) }}>{c.name}</th>)}
+              <th style={{ ...thX, background: "#FBEFDD", ...zEdge }}>ขายรวม</th>
+              {reconciled && <th style={{ ...thX, background: "#E7F0E9", ...zEdge }}>คงเหลือ<br />(ระบบ)</th>}
+              <th style={{ ...thX, background: "#15803D", color: "#fff", ...(reconciled ? null : zEdge) }}>คงเหลือ<br />{reconciled ? "(นับจริง)" : "(17:00)"}</th>
               {showDiff && <th style={{ ...thX, background: "#FDECEC" }}>ส่วนต่าง<br />(นับ−ระบบ)</th>}
-              <th style={{ ...thX, background: "#DBEAFE" }}>ประมาณการ<br />พรุ่งนี้</th>
+              <th style={{ ...thX, background: "#DBEAFE", ...zEdge }}>ประมาณการ<br />พรุ่งนี้</th>
               <th style={{ ...thX, textAlign: "left", borderLeft: "3px solid #D9CDB4" }}>ไข่เบอร์</th>
             </tr>
           </thead>
@@ -4920,41 +4997,62 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
               const [lite, mid, ink] = rowTone(r.name);
               return (
                 <tr key={r.pid}>
-                  <td style={{ ...tdX, ...S.tdSticky, fontWeight: 700, textAlign: "left", whiteSpace: "normal", wordBreak: "break-word", background: mid, color: ink }}>
+                  <td style={{ ...tdBig, ...S.tdSticky, fontWeight: 700, textAlign: "left", whiteSpace: "normal", wordBreak: "break-word", background: mid, color: ink }}>
                     {r.name}
                   </td>
-                  <td style={{ ...tdX, background: lite }}>{fmt(r.opening)}</td>
-                  <td style={{ ...tdX, background: lite }}>{fmt(r.received)}</td>
-                  <td style={{ ...tdX, background: "#FAF6EE", fontWeight: 600 }}>{fmt(r.total)}</td>
-                  {activeCustomers.map((c) => (
-                    <td key={c.id} style={{ ...tdX, background: lite, color: r.perCust[c.id] ? "#1f2937" : "#c8c2b6" }}>
+                  <td style={{ ...tdBig, background: lite, ...zEdge }}>{fmt(r.opening)}</td>
+                  <td style={{ ...tdBig, background: lite }}>{fmt(r.received)}</td>
+                  <td style={{ ...tdBig, background: "#FAF6EE", fontWeight: 700 }}>{fmt(r.total)}</td>
+                  {activeCustomers.map((c, ci) => (
+                    <td key={c.id} style={{ ...tdX, background: lite, color: r.perCust[c.id] ? "#1f2937" : "#c8c2b6", ...(ci === 0 ? zEdge : null) }}>
                       {r.perCust[c.id] ? fmt(r.perCust[c.id]) : "·"}
                     </td>
                   ))}
-                  <td style={{ ...tdX, background: "#FEF8F0", fontWeight: 600 }}>{fmt(r.sold)}</td>
-                  {reconciled && <td style={{ ...tdX, background: "#F4F9F5", fontWeight: 600, color: r.computedRemain < 0 ? "#dc2626" : "#4b5f4e" }}>{fmt(r.computedRemain)}</td>}
-                  <td style={{ ...tdX, background: "#F1F8F2", fontWeight: 700, color: r.remain < 0 ? "#dc2626" : "#15803D" }}>{fmt(r.remain)}</td>
-                  {showDiff && <td style={{ ...tdX, background: "#FEF6F6", fontWeight: 700, color: diffColor(r.diff) }}>{diffText(r.diff)}</td>}
-                  <td style={{ ...tdX, background: "#EFF5FE", fontWeight: 700, color: "#1D4ED8" }}>{fmt(r.remain + r.received)}</td>
-                  <td style={{ ...tdX, fontWeight: 700, textAlign: "left", whiteSpace: "normal", wordBreak: "break-word", background: mid, color: ink, borderLeft: "3px solid #D9CDB4" }}>{r.name}</td>
+                  <td style={{ ...tdBig, background: "#FEF8F0", fontWeight: 700, ...zEdge }}>{fmt(r.sold)}</td>
+                  {reconciled && <td style={{ ...tdBig, background: "#F4F9F5", fontWeight: 700, color: r.computedRemain < 0 ? "#dc2626" : "#4b5f4e", ...zEdge }}>{fmt(r.computedRemain)}</td>}
+                  <td style={{ ...tdBig, background: "#F1F8F2", fontWeight: 800, color: r.remain < 0 ? "#dc2626" : "#15803D", ...(reconciled ? null : zEdge) }}>{fmt(r.remain)}</td>
+                  {showDiff && <td style={{ ...tdBig, background: "#FEF6F6", fontWeight: 800, color: diffColor(r.diff) }}>{diffText(r.diff)}</td>}
+                  <td style={{ ...tdBig, background: "#EFF5FE", fontWeight: 800, color: "#1D4ED8", ...zEdge }}>{fmt(r.remain + r.received)}</td>
+                  <td style={{ ...tdBig, fontWeight: 700, textAlign: "left", whiteSpace: "normal", wordBreak: "break-word", background: mid, color: ink, borderLeft: "3px solid #D9CDB4" }}>{r.name}</td>
                 </tr>
               );
+            }).flatMap((el, i) => {
+              // แทรกแถว "รวมกลุ่มไข่นวล" ต่อท้ายรายการสุดท้ายของกลุ่ม (ขาว+นวล+หัวทราย ขายรวมกันราคาเดียว)
+              const r = mainRows[i];
+              const g = Object.values(groupAgg).find((x) => x.lastId === r.pid);
+              if (!g) return [el];
+              const gc = { background: "#EDE9FE", color: "#5B21B6", fontWeight: 800 };
+              return [el, (
+                <tr key={"grp-" + g.key}>
+                  <td style={{ ...tdBig, ...S.tdSticky, ...gc, textAlign: "left", whiteSpace: "normal", wordBreak: "break-word" }}>{g.label}</td>
+                  <td style={{ ...tdBig, ...gc, ...zEdge }}>{fmt(g.opening)}</td>
+                  <td style={{ ...tdBig, ...gc }}>{fmt(g.received)}</td>
+                  <td style={{ ...tdBig, ...gc }}>{fmt(g.total)}</td>
+                  {activeCustomers.map((c, ci) => <td key={c.id} style={{ ...tdX, ...gc, ...(ci === 0 ? zEdge : null) }}>{fmt(g.rows.reduce((t, x) => t + (x.perCust[c.id] || 0), 0))}</td>)}
+                  <td style={{ ...tdBig, ...gc, ...zEdge }}>{fmt(g.sold)}</td>
+                  {reconciled && <td style={{ ...tdBig, ...gc, color: g.computedRemain < 0 ? "#dc2626" : "#5B21B6", ...zEdge }}>{fmt(g.computedRemain)}</td>}
+                  <td style={{ ...tdBig, ...gc, color: g.remain < 0 ? "#dc2626" : "#5B21B6", ...(reconciled ? null : zEdge) }}>{fmt(g.remain)}</td>
+                  {showDiff && <td style={{ ...tdBig, ...gc, color: diffColor(g.diff) }}>{diffText(g.diff)}</td>}
+                  <td style={{ ...tdBig, ...gc, ...zEdge }}>{fmt(g.remain + g.received)}</td>
+                  <td style={{ ...tdBig, ...gc, textAlign: "left", whiteSpace: "normal", wordBreak: "break-word", borderLeft: "3px solid #D9CDB4" }}>{g.label}</td>
+                </tr>
+              )];
             })}
             <tr>
-              <td style={{ ...tdX, ...S.tdSticky, ...S.tfoot, textAlign: "left" }}>รวม <span style={{ fontSize: 10.5, fontWeight: 600, color: "#8a8170" }}>(แผง)</span></td>
-              <td style={{ ...tdX, ...S.tfoot }}>{fmt(totals.opening)}</td>
-              <td style={{ ...tdX, ...S.tfoot }}>{fmt(totals.received)}</td>
-              <td style={{ ...tdX, ...S.tfoot }}>{fmt(totals.total)}</td>
-              {activeCustomers.map((c) => {
+              <td style={{ ...tdBig, ...S.tdSticky, ...S.tfoot, textAlign: "left" }}>รวม <span style={{ fontSize: 10.5, fontWeight: 600, color: "#8a8170" }}>(แผง)</span></td>
+              <td style={{ ...tdBig, ...S.tfoot, ...zEdge }}>{fmt(totals.opening)}</td>
+              <td style={{ ...tdBig, ...S.tfoot }}>{fmt(totals.received)}</td>
+              <td style={{ ...tdBig, ...S.tfoot }}>{fmt(totals.total)}</td>
+              {activeCustomers.map((c, ci) => {
                 const cs = mainRows.reduce((s, r) => s + (r.perCust[c.id] || 0), 0);
-                return <td key={c.id} style={{ ...tdX, ...S.tfoot }}>{fmt(cs)}</td>;
+                return <td key={c.id} style={{ ...tdX, ...S.tfoot, ...(ci === 0 ? zEdge : null) }}>{fmt(cs)}</td>;
               })}
-              <td style={{ ...tdX, ...S.tfoot }}>{fmt(totals.sold)}</td>
-              {reconciled && <td style={{ ...tdX, ...S.tfoot }}>{fmt(mainRows.reduce((s, r) => s + r.computedRemain, 0))}</td>}
-              <td style={{ ...tdX, ...S.tfoot }}>{fmt(totals.remain)}</td>
-              {showDiff && <td style={{ ...tdX, ...S.tfoot, color: diffColor(totals.diff) }}>{diffText(totals.diff)}</td>}
-              <td style={{ ...tdX, ...S.tfoot, color: "#1D4ED8" }}>{fmt(totals.remain + totals.received)}</td>
-              <td style={{ ...tdX, ...S.tfoot, textAlign: "left", borderLeft: "3px solid #D9CDB4" }}>รวม <span style={{ fontSize: 10.5, fontWeight: 600, color: "#8a8170" }}>(แผง)</span></td>
+              <td style={{ ...tdBig, ...S.tfoot, ...zEdge }}>{fmt(totals.sold)}</td>
+              {reconciled && <td style={{ ...tdBig, ...S.tfoot, ...zEdge }}>{fmt(mainRows.reduce((s, r) => s + r.computedRemain, 0))}</td>}
+              <td style={{ ...tdBig, ...S.tfoot, ...(reconciled ? null : zEdge) }}>{fmt(totals.remain)}</td>
+              {showDiff && <td style={{ ...tdBig, ...S.tfoot, color: diffColor(totals.diff) }}>{diffText(totals.diff)}</td>}
+              <td style={{ ...tdBig, ...S.tfoot, color: "#1D4ED8", ...zEdge }}>{fmt(totals.remain + totals.received)}</td>
+              <td style={{ ...tdBig, ...S.tfoot, textAlign: "left", borderLeft: "3px solid #D9CDB4" }}>รวม <span style={{ fontSize: 10.5, fontWeight: 600, color: "#8a8170" }}>(แผง)</span></td>
             </tr>
 
             {/* 🥛 ไข่แก้ว/ไข่เหลว — นับคนละหน่วย แยกไว้ท้ายสุด ไม่รวมในยอดแผงข้างบน */}
@@ -4968,26 +5066,26 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
                 const u = STOCK_SPECIAL_UNIT[r.pid];
                 return (
                   <tr key={r.pid}>
-                    <td style={{ ...tdX, ...S.tdSticky, fontWeight: 700, textAlign: "left", whiteSpace: "normal", wordBreak: "break-word", background: "#FFE4E6", color: "#9F1239" }}>
+                    <td style={{ ...tdBig, ...S.tdSticky, fontWeight: 700, textAlign: "left", whiteSpace: "normal", wordBreak: "break-word", background: "#FFE4E6", color: "#9F1239" }}>
                       {r.name}
                       <div style={{ fontSize: 10.5, fontWeight: 700, color: "#BE123C" }}>
                         หน่วย: {u}{u === "แก้ว" ? ` · 1 แก้ว = ${PER_GLASS} ฟอง` : ""}
                       </div>
                     </td>
-                    <td style={{ ...tdX, background: "#FFF1F2" }}>{fmt(r.opening)}</td>
-                    <td style={{ ...tdX, background: "#FFF1F2" }}>{fmt(r.received)}</td>
-                    <td style={{ ...tdX, background: "#FFE9EB", fontWeight: 600 }}>{fmt(r.total)}</td>
-                    {activeCustomers.map((c) => (
-                      <td key={c.id} style={{ ...tdX, background: "#FFF1F2", color: r.perCust[c.id] ? "#1f2937" : "#d8b4bb" }}>
+                    <td style={{ ...tdBig, background: "#FFF1F2", ...zEdge }}>{fmt(r.opening)}</td>
+                    <td style={{ ...tdBig, background: "#FFF1F2" }}>{fmt(r.received)}</td>
+                    <td style={{ ...tdBig, background: "#FFE9EB", fontWeight: 700 }}>{fmt(r.total)}</td>
+                    {activeCustomers.map((c, ci) => (
+                      <td key={c.id} style={{ ...tdX, background: "#FFF1F2", color: r.perCust[c.id] ? "#1f2937" : "#d8b4bb", ...(ci === 0 ? zEdge : null) }}>
                         {r.perCust[c.id] ? fmt(r.perCust[c.id]) : "·"}
                       </td>
                     ))}
-                    <td style={{ ...tdX, background: "#FFE9EB", fontWeight: 600 }}>{fmt(r.sold)}</td>
-                    {reconciled && <td style={{ ...tdX, background: "#FFF1F2", fontWeight: 600, color: r.computedRemain < 0 ? "#dc2626" : "#9F1239" }}>{fmt(r.computedRemain)}</td>}
-                    <td style={{ ...tdX, background: "#FFE4E6", fontWeight: 700, color: r.remain < 0 ? "#dc2626" : "#9F1239" }}>{fmt(r.remain)}</td>
-                    {showDiff && <td style={{ ...tdX, background: "#FFF1F2", fontWeight: 700, color: diffColor(r.diff) }}>{diffText(r.diff)}</td>}
-                    <td style={{ ...tdX, background: "#FFF1F2", fontWeight: 700, color: "#9F1239" }}>{fmt(r.remain + r.received)}</td>
-                    <td style={{ ...tdX, fontWeight: 700, textAlign: "left", whiteSpace: "normal", wordBreak: "break-word", background: "#FFE4E6", color: "#9F1239", borderLeft: "3px solid #D9CDB4" }}>
+                    <td style={{ ...tdBig, background: "#FFE9EB", fontWeight: 700, ...zEdge }}>{fmt(r.sold)}</td>
+                    {reconciled && <td style={{ ...tdBig, background: "#FFF1F2", fontWeight: 700, color: r.computedRemain < 0 ? "#dc2626" : "#9F1239", ...zEdge }}>{fmt(r.computedRemain)}</td>}
+                    <td style={{ ...tdBig, background: "#FFE4E6", fontWeight: 800, color: r.remain < 0 ? "#dc2626" : "#9F1239", ...(reconciled ? null : zEdge) }}>{fmt(r.remain)}</td>
+                    {showDiff && <td style={{ ...tdBig, background: "#FFF1F2", fontWeight: 800, color: diffColor(r.diff) }}>{diffText(r.diff)}</td>}
+                    <td style={{ ...tdBig, background: "#FFF1F2", fontWeight: 800, color: "#9F1239", ...zEdge }}>{fmt(r.remain + r.received)}</td>
+                    <td style={{ ...tdBig, fontWeight: 700, textAlign: "left", whiteSpace: "normal", wordBreak: "break-word", background: "#FFE4E6", color: "#9F1239", borderLeft: "3px solid #D9CDB4" }}>
                       {r.name}
                       <div style={{ fontSize: 10.5, fontWeight: 700, color: "#BE123C" }}>หน่วย: {u}{u === "แก้ว" ? ` · 1 แก้ว = ${PER_GLASS} ฟอง` : ""}</div>
                     </td>
@@ -5001,17 +5099,17 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
                 const sg = (f) => g.reduce((s, r) => s + f(r), 0);
                 return (
                   <tr key={u}>
-                    <td style={{ ...tdX, ...S.tdSticky, textAlign: "left", background: "#FECDD3", color: "#9F1239", fontWeight: 800 }}>รวม <span style={{ fontSize: 10.5, fontWeight: 600 }}>({u})</span></td>
-                    <td style={{ ...tdX, background: "#FECDD3", fontWeight: 800, color: "#9F1239" }}>{fmt(sg((r) => r.opening))}</td>
-                    <td style={{ ...tdX, background: "#FECDD3", fontWeight: 800, color: "#9F1239" }}>{fmt(sg((r) => r.received))}</td>
-                    <td style={{ ...tdX, background: "#FECDD3", fontWeight: 800, color: "#9F1239" }}>{fmt(sg((r) => r.total))}</td>
-                    {activeCustomers.map((c) => <td key={c.id} style={{ ...tdX, background: "#FECDD3", fontWeight: 800, color: "#9F1239" }}>{fmt(sg((r) => r.perCust[c.id] || 0))}</td>)}
-                    <td style={{ ...tdX, background: "#FECDD3", fontWeight: 800, color: "#9F1239" }}>{fmt(sg((r) => r.sold))}</td>
-                    {reconciled && <td style={{ ...tdX, background: "#FECDD3", fontWeight: 800, color: "#9F1239" }}>{fmt(sg((r) => r.computedRemain))}</td>}
-                    <td style={{ ...tdX, background: "#FECDD3", fontWeight: 800, color: "#9F1239" }}>{fmt(sg((r) => r.remain))}</td>
-                    {showDiff && <td style={{ ...tdX, background: "#FECDD3", fontWeight: 800, color: diffColor(sg((r) => r.diff)) }}>{diffText(sg((r) => r.diff))}</td>}
-                    <td style={{ ...tdX, background: "#FECDD3", fontWeight: 800, color: "#9F1239" }}>{fmt(sg((r) => r.remain + r.received))}</td>
-                    <td style={{ ...tdX, background: "#FECDD3", fontWeight: 800, color: "#9F1239", textAlign: "left", borderLeft: "3px solid #D9CDB4" }}>รวม <span style={{ fontSize: 10.5, fontWeight: 600 }}>({u})</span></td>
+                    <td style={{ ...tdBig, ...S.tdSticky, textAlign: "left", background: "#FECDD3", color: "#9F1239", fontWeight: 800 }}>รวม <span style={{ fontSize: 10.5, fontWeight: 600 }}>({u})</span></td>
+                    <td style={{ ...tdBig, background: "#FECDD3", fontWeight: 800, color: "#9F1239", ...zEdge }}>{fmt(sg((r) => r.opening))}</td>
+                    <td style={{ ...tdBig, background: "#FECDD3", fontWeight: 800, color: "#9F1239" }}>{fmt(sg((r) => r.received))}</td>
+                    <td style={{ ...tdBig, background: "#FECDD3", fontWeight: 800, color: "#9F1239" }}>{fmt(sg((r) => r.total))}</td>
+                    {activeCustomers.map((c, ci) => <td key={c.id} style={{ ...tdX, background: "#FECDD3", fontWeight: 800, color: "#9F1239", ...(ci === 0 ? zEdge : null) }}>{fmt(sg((r) => r.perCust[c.id] || 0))}</td>)}
+                    <td style={{ ...tdBig, background: "#FECDD3", fontWeight: 800, color: "#9F1239", ...zEdge }}>{fmt(sg((r) => r.sold))}</td>
+                    {reconciled && <td style={{ ...tdBig, background: "#FECDD3", fontWeight: 800, color: "#9F1239", ...zEdge }}>{fmt(sg((r) => r.computedRemain))}</td>}
+                    <td style={{ ...tdBig, background: "#FECDD3", fontWeight: 800, color: "#9F1239", ...(reconciled ? null : zEdge) }}>{fmt(sg((r) => r.remain))}</td>
+                    {showDiff && <td style={{ ...tdBig, background: "#FECDD3", fontWeight: 800, color: diffColor(sg((r) => r.diff)) }}>{diffText(sg((r) => r.diff))}</td>}
+                    <td style={{ ...tdBig, background: "#FECDD3", fontWeight: 800, color: "#9F1239", ...zEdge }}>{fmt(sg((r) => r.remain + r.received))}</td>
+                    <td style={{ ...tdBig, background: "#FECDD3", fontWeight: 800, color: "#9F1239", textAlign: "left", borderLeft: "3px solid #D9CDB4" }}>รวม <span style={{ fontSize: 10.5, fontWeight: 600 }}>({u})</span></td>
                   </tr>
                 );
               })}
@@ -5020,15 +5118,15 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
             {/* 🔁 หัวตารางซ้ำท้ายสุด — เลื่อนดูถึงล่างแล้วยังรู้ว่าคอลัมน์ไหนคืออะไร (เจ้าของสั่ง 27 ส.ค. 69) */}
             <tr>
               <th style={{ ...thX, ...S.thSticky, textAlign: "left", borderTop: "3px solid #D9CDB4" }}>ไข่เบอร์</th>
-              <th style={{ ...thX, borderTop: "3px solid #D9CDB4" }}>ยกมา</th>
+              <th style={{ ...thX, borderTop: "3px solid #D9CDB4", ...zEdge }}>ยกมา</th>
               <th style={{ ...thX, borderTop: "3px solid #D9CDB4" }}>รับเข้า</th>
               <th style={{ ...thX, background: "#F5EFE3", borderTop: "3px solid #D9CDB4" }}>รวม</th>
-              {activeCustomers.map((c) => <th key={c.id} style={{ ...thCustX, borderTop: "3px solid #D9CDB4" }}>{c.name}</th>)}
-              <th style={{ ...thX, background: "#FBEFDD", borderTop: "3px solid #D9CDB4" }}>ขายรวม</th>
-              {reconciled && <th style={{ ...thX, background: "#E7F0E9", borderTop: "3px solid #D9CDB4" }}>คงเหลือ<br />(ระบบ)</th>}
-              <th style={{ ...thX, background: "#15803D", color: "#fff", borderTop: "3px solid #D9CDB4" }}>คงเหลือ<br />{reconciled ? "(นับจริง)" : "(17:00)"}</th>
+              {activeCustomers.map((c, ci) => <th key={c.id} style={{ ...thCustX, borderTop: "3px solid #D9CDB4", ...(ci === 0 ? zEdge : null) }}>{c.name}</th>)}
+              <th style={{ ...thX, background: "#FBEFDD", borderTop: "3px solid #D9CDB4", ...zEdge }}>ขายรวม</th>
+              {reconciled && <th style={{ ...thX, background: "#E7F0E9", borderTop: "3px solid #D9CDB4", ...zEdge }}>คงเหลือ<br />(ระบบ)</th>}
+              <th style={{ ...thX, background: "#15803D", color: "#fff", borderTop: "3px solid #D9CDB4", ...(reconciled ? null : zEdge) }}>คงเหลือ<br />{reconciled ? "(นับจริง)" : "(17:00)"}</th>
               {showDiff && <th style={{ ...thX, background: "#FDECEC", borderTop: "3px solid #D9CDB4" }}>ส่วนต่าง<br />(นับ−ระบบ)</th>}
-              <th style={{ ...thX, background: "#DBEAFE", borderTop: "3px solid #D9CDB4" }}>ประมาณการ<br />พรุ่งนี้</th>
+              <th style={{ ...thX, background: "#DBEAFE", borderTop: "3px solid #D9CDB4", ...zEdge }}>ประมาณการ<br />พรุ่งนี้</th>
               <th style={{ ...thX, textAlign: "left", borderTop: "3px solid #D9CDB4", borderLeft: "3px solid #D9CDB4" }}>ไข่เบอร์</th>
             </tr>
           </tbody>
@@ -5275,7 +5373,7 @@ function exportCloseDayExcel(day, dayTH, rows, meta, refPrices = {}) {
   const specData = data.filter((r) => isSpecialStock(r.pid));
   const rowHtml = (r, i, bg) => {
     const val = Math.round(r.diff * priceOf(r.pid));
-    const cells = [r.name, isSpecialStock(r.pid) ? STOCK_SPECIAL_UNIT[r.pid] : "แผง", r.opening, r.received, r.sold, r.computedRemain, r.remain, (r.diff > 0 ? "+" + r.diff : r.diff), (val === 0 ? "" : val), (reasons[r.pid] || "")];
+    const cells = [r.name, stockUnit(r.pid), r.opening, r.received, r.sold, r.computedRemain, r.remain, (r.diff > 0 ? "+" + r.diff : r.diff), (val === 0 ? "" : val), (reasons[r.pid] || "")];
     return "<tr>" + cells.map((v, ci) => td(v, cols[ci], bg, cols[ci].hl ? "font-weight:bold;color:#15803D;" : "")).join("") + "</tr>";
   };
   const bodyRows = mainData.map((r, i) => rowHtml(r, i, i % 2 ? "background:#FBF7EF;" : "background:#ffffff;"));
