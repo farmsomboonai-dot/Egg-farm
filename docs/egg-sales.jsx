@@ -911,12 +911,13 @@ const SMALL_TRAY_IDS = new Set(["n2", "n3", "n4", "n5"]);
 
 // ลำดับสำหรับแสดงในรายงานคลัง (ตามชีทของเจ้าของ 7 ส.ค. 69: เบอร์ → จิ๋ว/ขาว/นวล/หัวทราย/เปื้อน/บุบ/ตอก/ไข่เหลว → จัมโบ้+แฝด → คละ 17++-23++)
 // g_tokdaeng ไม่มีในชีทแต่มีข้อมูลปิดยอดจริงย้อนหลัง → คงไว้ท้ายตาราง
+// 🥛 ไข่แก้ว/ไข่เหลว (g_tok · g_toklew · g_tokdaeng) ย้ายไปท้ายสุด — คนละหน่วย แยกจากยอดแผง (เจ้าของสั่ง 27 ส.ค. 69)
 const STOCK_ORDER = [
   "n0", "n1", "n2", "n3", "n4", "n5",
-  "g_jiw", "s_white", "g_nuan", "g_sand", "g_pueanmak", "g_pueannoi", "g_bub", "g_tok", "g_toklew",
+  "g_jiw", "s_white", "g_nuan", "g_sand", "g_pueanmak", "g_pueannoi", "g_bub",
   "s_jumbo",
   "w17", "w18", "w19", "w20", "w21", "w22", "w23",
-  "g_tokdaeng",
+  "g_tok", "g_toklew", "g_tokdaeng",
 ];
 // ป้ายชื่อเฉพาะหน้ารายงานคลัง (ชื่อสินค้าจริงในบิล/หน้าขายคงเดิม — เปลี่ยนเฉพาะหัวข้อรายงานตามชีท)
 const STOCK_LABEL = {
@@ -940,9 +941,12 @@ const REF_PRICE_FALLBACK = { n0: 130, n1: 120, n2: 110, n3: 100, n4: 90, n5: 85,
 // หน่วยขายต่อสินค้า — ปกติขายเป็น "แผง" · ไข่ตอกแก้ว ขายเป็น "แก้ว" (เจ้าของสั่ง 16 ส.ค. 69)
 const PRODUCT_UNIT = { g_tok: "แก้ว" };
 const productUnit = (pid) => PRODUCT_UNIT[pid] || "แผง";
-// 🥛 ไข่ตอก 1 แก้ว = 8 ฟอง (เจ้าของยืนยัน 27 ส.ค. 69) — ต้องแปลงหน่วยก่อนรวมกับรายการอื่นที่นับเป็นแผง
+// 🥛 ไข่ตอก 1 แก้ว = 8 ฟอง (เจ้าของยืนยัน 27 ส.ค. 69)
 const PER_GLASS = 8;
-const qtyToPrang = (pid, qty) => PRODUCT_UNIT[pid] === "แก้ว" ? ((qty || 0) * PER_GLASS) / PER_PRADANG : (qty || 0);
+// 🥛 รายการที่ไม่ได้นับเป็นแผง — แยกไว้ท้ายตารางสต๊อค ไม่รวมในยอด "รวม (แผง)" (เจ้าของสั่ง 27 ส.ค. 69)
+const STOCK_SPECIAL_UNIT = { g_tok: "แก้ว", g_toklew: "กิโล", g_tokdaeng: "กิโล" };
+const isSpecialStock = (pid) => !!STOCK_SPECIAL_UNIT[pid];
+// แปลงเป็นฟอง — ใช้ตอนประมาณจำนวนฟองในบิล (หน้าสต๊อคไม่ใช้แล้ว เพราะแยกตารางตามหน่วยแทน)
 const qtyToFong = (pid, qty) => PRODUCT_UNIT[pid] === "แก้ว" ? (qty || 0) * PER_GLASS : (qty || 0) * PER_PRADANG;
 // สาเหตุส่วนต่างตอนปิดยอด (แท็กต่อรายการ)
 const DIFF_REASONS = ["แตก", "หาย", "แถม", "นับพลาด", "อื่นๆ"];
@@ -4818,6 +4822,8 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
   const production = useMemo(() => productionToStock(productionByDate[day] || []), [productionByDate, day]);  // รับเข้า = ผลผลิตวันนั้น (สด)
   const hasBills = Object.keys(salesLog).length > 0;   // มีบิลของวันนี้ → เชื่อยอดขายได้ จึงเทียบ "ส่วนต่าง" (ของขาด/เกิน) ได้
   const showDiff = reconciled && hasBills;             // วันปิดยอดที่ไม่มีบิล (เช่น seed 3/7) → ใช้ back-calc เดิม ไม่โชว์ส่วนต่าง (กันตัวเลขหลอน)
+  // จำนวนคอลัมน์ทั้งหมด: ชื่อ + ยกมา + รับเข้า + รวม + ลูกค้า + ขายรวม + [คงเหลือระบบ] + คงเหลือ + [ส่วนต่าง] + ประมาณการ
+  const colCount = 6 + activeCustomers.length + (reconciled ? 1 : 0) + (showDiff ? 1 : 0);
 
   const rows = STOCK_ORDER.map((pid) => {
     const op = opening[pid] || 0;
@@ -4834,11 +4840,13 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
     return { pid, name: STOCK_LABEL[pid] || PRODUCT_BY_ID[pid]?.name || pid, opening: op, received: rec, total: op + rec, perCust, sold, computedRemain, remain, diff };
   });
 
-  // แถว "รวม" ต้องแปลงหน่วยก่อนบวก — ไข่ตอกนับเป็นแก้ว (1 แก้ว = 8 ฟอง) เอามาบวกกับแผงตรงๆ ไม่ได้
-  const totals = rows.reduce((t, r) => ({
-    opening: t.opening + qtyToPrang(r.pid, r.opening), received: t.received + qtyToPrang(r.pid, r.received),
-    total: t.total + qtyToPrang(r.pid, r.total), sold: t.sold + qtyToPrang(r.pid, r.sold),
-    remain: t.remain + qtyToPrang(r.pid, r.remain), diff: t.diff + qtyToPrang(r.pid, r.diff),
+  // 🥛 แยกไข่แก้ว/ไข่เหลว (หน่วยแก้ว·กิโล) ออกไปไว้ท้ายตาราง — ไม่รวมในยอด "รวม (แผง)"
+  const mainRows = rows.filter((r) => !isSpecialStock(r.pid));
+  const specialRows = rows.filter((r) => isSpecialStock(r.pid));
+  // แถว "รวม" นับเฉพาะรายการที่เป็นแผงจริง
+  const totals = mainRows.reduce((t, r) => ({
+    opening: t.opening + r.opening, received: t.received + r.received,
+    total: t.total + r.total, sold: t.sold + r.sold, remain: t.remain + r.remain, diff: t.diff + r.diff,
   }), { opening: 0, received: 0, total: 0, sold: 0, remain: 0, diff: 0 });
 
   const hasStock = totals.total > 0;
@@ -4906,13 +4914,12 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => {
+            {mainRows.map((r) => {
               const [lite, mid, ink] = rowTone(r.name);
               return (
                 <tr key={r.pid}>
                   <td style={{ ...tdX, ...S.tdSticky, fontWeight: 700, textAlign: "left", whiteSpace: "normal", wordBreak: "break-word", background: mid, color: ink }}>
                     {r.name}
-                    {PRODUCT_UNIT[r.pid] ? <div style={{ fontSize: 10.5, fontWeight: 700, color: "#BE123C" }}>หน่วย: {PRODUCT_UNIT[r.pid]} · 1 {PRODUCT_UNIT[r.pid]} = {PER_GLASS} ฟอง</div> : null}
                   </td>
                   <td style={{ ...tdX, background: lite }}>{fmt(r.opening)}</td>
                   <td style={{ ...tdX, background: lite }}>{fmt(r.received)}</td>
@@ -4932,18 +4939,87 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
             })}
             <tr>
               <td style={{ ...tdX, ...S.tdSticky, ...S.tfoot, textAlign: "left" }}>รวม <span style={{ fontSize: 10.5, fontWeight: 600, color: "#8a8170" }}>(แผง)</span></td>
-              <td style={{ ...tdX, ...S.tfoot }}>{fmt(Math.round(totals.opening))}</td>
-              <td style={{ ...tdX, ...S.tfoot }}>{fmt(Math.round(totals.received))}</td>
-              <td style={{ ...tdX, ...S.tfoot }}>{fmt(Math.round(totals.total))}</td>
+              <td style={{ ...tdX, ...S.tfoot }}>{fmt(totals.opening)}</td>
+              <td style={{ ...tdX, ...S.tfoot }}>{fmt(totals.received)}</td>
+              <td style={{ ...tdX, ...S.tfoot }}>{fmt(totals.total)}</td>
               {activeCustomers.map((c) => {
-                const cs = rows.reduce((s, r) => s + qtyToPrang(r.pid, r.perCust[c.id] || 0), 0);
-                return <td key={c.id} style={{ ...tdX, ...S.tfoot }}>{fmt(Math.round(cs))}</td>;
+                const cs = mainRows.reduce((s, r) => s + (r.perCust[c.id] || 0), 0);
+                return <td key={c.id} style={{ ...tdX, ...S.tfoot }}>{fmt(cs)}</td>;
               })}
-              <td style={{ ...tdX, ...S.tfoot }}>{fmt(Math.round(totals.sold))}</td>
-              {reconciled && <td style={{ ...tdX, ...S.tfoot }}>{fmt(Math.round(rows.reduce((s, r) => s + qtyToPrang(r.pid, r.computedRemain), 0)))}</td>}
-              <td style={{ ...tdX, ...S.tfoot }}>{fmt(Math.round(totals.remain))}</td>
-              {showDiff && <td style={{ ...tdX, ...S.tfoot, color: diffColor(totals.diff) }}>{Math.round(totals.diff) === 0 ? "—" : (totals.diff > 0 ? "+" : "") + fmt(Math.round(totals.diff))}</td>}
-              <td style={{ ...tdX, ...S.tfoot, color: "#1D4ED8" }}>{fmt(Math.round(totals.remain + totals.received))}</td>
+              <td style={{ ...tdX, ...S.tfoot }}>{fmt(totals.sold)}</td>
+              {reconciled && <td style={{ ...tdX, ...S.tfoot }}>{fmt(mainRows.reduce((s, r) => s + r.computedRemain, 0))}</td>}
+              <td style={{ ...tdX, ...S.tfoot }}>{fmt(totals.remain)}</td>
+              {showDiff && <td style={{ ...tdX, ...S.tfoot, color: diffColor(totals.diff) }}>{diffText(totals.diff)}</td>}
+              <td style={{ ...tdX, ...S.tfoot, color: "#1D4ED8" }}>{fmt(totals.remain + totals.received)}</td>
+            </tr>
+
+            {/* 🥛 ไข่แก้ว/ไข่เหลว — นับคนละหน่วย แยกไว้ท้ายสุด ไม่รวมในยอดแผงข้างบน */}
+            {specialRows.some((r) => r.total > 0 || r.remain > 0) && (<>
+              <tr>
+                <td colSpan={colCount} style={{ padding: "7px 12px", background: "#FFF1F2", color: "#BE123C", fontWeight: 800, fontSize: 12.5, borderTop: "3px solid #FDA4AF", textAlign: "left" }}>
+                  🥛 ไข่แก้ว / ไข่เหลว · นับคนละหน่วย — <span style={{ fontWeight: 600 }}>ไม่รวมในยอดแผงข้างบน</span>
+                </td>
+              </tr>
+              {specialRows.map((r) => {
+                const u = STOCK_SPECIAL_UNIT[r.pid];
+                return (
+                  <tr key={r.pid}>
+                    <td style={{ ...tdX, ...S.tdSticky, fontWeight: 700, textAlign: "left", whiteSpace: "normal", wordBreak: "break-word", background: "#FFE4E6", color: "#9F1239" }}>
+                      {r.name}
+                      <div style={{ fontSize: 10.5, fontWeight: 700, color: "#BE123C" }}>
+                        หน่วย: {u}{u === "แก้ว" ? ` · 1 แก้ว = ${PER_GLASS} ฟอง` : ""}
+                      </div>
+                    </td>
+                    <td style={{ ...tdX, background: "#FFF1F2" }}>{fmt(r.opening)}</td>
+                    <td style={{ ...tdX, background: "#FFF1F2" }}>{fmt(r.received)}</td>
+                    <td style={{ ...tdX, background: "#FFE9EB", fontWeight: 600 }}>{fmt(r.total)}</td>
+                    {activeCustomers.map((c) => (
+                      <td key={c.id} style={{ ...tdX, background: "#FFF1F2", color: r.perCust[c.id] ? "#1f2937" : "#d8b4bb" }}>
+                        {r.perCust[c.id] ? fmt(r.perCust[c.id]) : "·"}
+                      </td>
+                    ))}
+                    <td style={{ ...tdX, background: "#FFE9EB", fontWeight: 600 }}>{fmt(r.sold)}</td>
+                    {reconciled && <td style={{ ...tdX, background: "#FFF1F2", fontWeight: 600, color: r.computedRemain < 0 ? "#dc2626" : "#9F1239" }}>{fmt(r.computedRemain)}</td>}
+                    <td style={{ ...tdX, background: "#FFE4E6", fontWeight: 700, color: r.remain < 0 ? "#dc2626" : "#9F1239" }}>{fmt(r.remain)}</td>
+                    {showDiff && <td style={{ ...tdX, background: "#FFF1F2", fontWeight: 700, color: diffColor(r.diff) }}>{diffText(r.diff)}</td>}
+                    <td style={{ ...tdX, background: "#FFF1F2", fontWeight: 700, color: "#9F1239" }}>{fmt(r.remain + r.received)}</td>
+                  </tr>
+                );
+              })}
+              {/* รวมย่อยแยกตามหน่วย (แก้ว / กิโล) — ไม่เอามาบวกกับแผง */}
+              {[...new Set(specialRows.map((r) => STOCK_SPECIAL_UNIT[r.pid]))].map((u) => {
+                const g = specialRows.filter((r) => STOCK_SPECIAL_UNIT[r.pid] === u);
+                if (!g.some((r) => r.total > 0 || r.remain > 0)) return null;
+                const sg = (f) => g.reduce((s, r) => s + f(r), 0);
+                return (
+                  <tr key={u}>
+                    <td style={{ ...tdX, ...S.tdSticky, textAlign: "left", background: "#FECDD3", color: "#9F1239", fontWeight: 800 }}>รวม <span style={{ fontSize: 10.5, fontWeight: 600 }}>({u})</span></td>
+                    <td style={{ ...tdX, background: "#FECDD3", fontWeight: 800, color: "#9F1239" }}>{fmt(sg((r) => r.opening))}</td>
+                    <td style={{ ...tdX, background: "#FECDD3", fontWeight: 800, color: "#9F1239" }}>{fmt(sg((r) => r.received))}</td>
+                    <td style={{ ...tdX, background: "#FECDD3", fontWeight: 800, color: "#9F1239" }}>{fmt(sg((r) => r.total))}</td>
+                    {activeCustomers.map((c) => <td key={c.id} style={{ ...tdX, background: "#FECDD3", fontWeight: 800, color: "#9F1239" }}>{fmt(sg((r) => r.perCust[c.id] || 0))}</td>)}
+                    <td style={{ ...tdX, background: "#FECDD3", fontWeight: 800, color: "#9F1239" }}>{fmt(sg((r) => r.sold))}</td>
+                    {reconciled && <td style={{ ...tdX, background: "#FECDD3", fontWeight: 800, color: "#9F1239" }}>{fmt(sg((r) => r.computedRemain))}</td>}
+                    <td style={{ ...tdX, background: "#FECDD3", fontWeight: 800, color: "#9F1239" }}>{fmt(sg((r) => r.remain))}</td>
+                    {showDiff && <td style={{ ...tdX, background: "#FECDD3", fontWeight: 800, color: diffColor(sg((r) => r.diff)) }}>{diffText(sg((r) => r.diff))}</td>}
+                    <td style={{ ...tdX, background: "#FECDD3", fontWeight: 800, color: "#9F1239" }}>{fmt(sg((r) => r.remain + r.received))}</td>
+                  </tr>
+                );
+              })}
+            </>)}
+
+            {/* 🔁 หัวตารางซ้ำท้ายสุด — เลื่อนดูถึงล่างแล้วยังรู้ว่าคอลัมน์ไหนคืออะไร (เจ้าของสั่ง 27 ส.ค. 69) */}
+            <tr>
+              <th style={{ ...thX, ...S.thSticky, textAlign: "left", borderTop: "3px solid #D9CDB4" }}>ไข่เบอร์</th>
+              <th style={{ ...thX, borderTop: "3px solid #D9CDB4" }}>ยกมา</th>
+              <th style={{ ...thX, borderTop: "3px solid #D9CDB4" }}>รับเข้า</th>
+              <th style={{ ...thX, background: "#F5EFE3", borderTop: "3px solid #D9CDB4" }}>รวม</th>
+              {activeCustomers.map((c) => <th key={c.id} style={{ ...thCustX, borderTop: "3px solid #D9CDB4" }}>{c.name}</th>)}
+              <th style={{ ...thX, background: "#FBEFDD", borderTop: "3px solid #D9CDB4" }}>ขายรวม</th>
+              {reconciled && <th style={{ ...thX, background: "#E7F0E9", borderTop: "3px solid #D9CDB4" }}>คงเหลือ<br />(ระบบ)</th>}
+              <th style={{ ...thX, background: "#15803D", color: "#fff", borderTop: "3px solid #D9CDB4" }}>คงเหลือ<br />{reconciled ? "(นับจริง)" : "(17:00)"}</th>
+              {showDiff && <th style={{ ...thX, background: "#FDECEC", borderTop: "3px solid #D9CDB4" }}>ส่วนต่าง<br />(นับ−ระบบ)</th>}
+              <th style={{ ...thX, background: "#DBEAFE", borderTop: "3px solid #D9CDB4" }}>ประมาณการ<br />พรุ่งนี้</th>
             </tr>
           </tbody>
         </table>
@@ -5113,7 +5189,7 @@ function CloseHistoryModal({ stockCounts = {}, closeMeta = {}, productionByDate 
     STOCK_ORDER.forEach((pid) => {
       const computed = (opening[pid] || 0) + (production[pid] || 0) - Object.values(salesLog[pid] || {}).reduce((s, q) => s + (q || 0), 0);
       const diff = hasBills ? ((counts[pid] || 0) - computed) : 0;
-      diffQty += qtyToPrang(pid, diff);   // แปลงแก้ว→แผงก่อนรวม (ไข่ตอก)
+      if (!isSpecialStock(pid)) diffQty += diff;   // ไข่แก้ว/ไข่เหลว คนละหน่วย ไม่รวมในส่วนต่างแผง
       if (diff < 0) lossBaht += -diff * priceOf(pid);
     });
     return { date: d, meta: closeMeta[d] || {}, diffQty, lossBaht: Math.round(lossBaht), hasBills };
@@ -5121,7 +5197,7 @@ function CloseHistoryModal({ stockCounts = {}, closeMeta = {}, productionByDate 
   const totalLoss = rows.reduce((s, r) => s + r.lossBaht, 0);
   const totalDiff = rows.reduce((s, r) => s + r.diffQty, 0);
   const dColor = (d) => d < 0 ? "#dc2626" : d > 0 ? "#15803D" : "#9ca3af";
-  const dText = (d) => Math.round(d) === 0 ? "—" : (d > 0 ? "+" + fmt(Math.round(d)) : fmt(Math.round(d)));   // แผง (ปัดเต็ม ไม่เอาทศนิยม)
+  const dText = (d) => d === 0 ? "—" : (d > 0 ? "+" + fmt(d) : fmt(d));   // แผง (ไข่แก้ว/ไข่เหลว แยกออกแล้ว จึงเป็นจำนวนเต็มเสมอ)
   const thSt = { padding: "8px 10px", color: "#6b6358", fontWeight: 700, fontSize: 12.5, textAlign: "left", borderBottom: "2px solid #EFE7D6", position: "sticky", top: 0, background: "#fff" };
   const card = { flex: "1 1 110px", padding: "10px 12px", borderRadius: 10 };
 
@@ -5184,18 +5260,33 @@ function exportCloseDayExcel(day, dayTH, rows, meta, refPrices = {}) {
   ];
   const NC = cols.length;
   const td = (v, c, bg, extra) => `<td style="${bg || ""}${c.num ? NF : 'mso-number-format:"\\@";'}text-align:${c.num ? "right" : (c.c || "left")};border:1px solid #E2DAC9;padding:5px 8px;font-size:12px;${extra || ""}">${esc(v)}</td>`;
-  const bodyRows = data.map((r, i) => {
+  // 🥛 แยกไข่แก้ว/ไข่เหลว (หน่วยแก้ว·กิโล) ไปไว้ท้ายสุด ไม่รวมในยอดแผง
+  const mainData = data.filter((r) => !isSpecialStock(r.pid));
+  const specData = data.filter((r) => isSpecialStock(r.pid));
+  const rowHtml = (r, i, bg) => {
     const val = Math.round(r.diff * priceOf(r.pid));
-    const cells = [r.name, productUnit(r.pid), r.opening, r.received, r.sold, r.computedRemain, r.remain, (r.diff > 0 ? "+" + r.diff : r.diff), (val === 0 ? "" : val), (reasons[r.pid] || "")];
-    const bg = i % 2 ? "background:#FBF7EF;" : "background:#ffffff;";
+    const cells = [r.name, isSpecialStock(r.pid) ? STOCK_SPECIAL_UNIT[r.pid] : "แผง", r.opening, r.received, r.sold, r.computedRemain, r.remain, (r.diff > 0 ? "+" + r.diff : r.diff), (val === 0 ? "" : val), (reasons[r.pid] || "")];
     return "<tr>" + cells.map((v, ci) => td(v, cols[ci], bg, cols[ci].hl ? "font-weight:bold;color:#15803D;" : "")).join("") + "</tr>";
-  });
-  // แถวรวม: แปลงหน่วยเป็นแผงก่อนบวก (ไข่ตอกนับเป็นแก้ว 1 แก้ว = 8 ฟอง) ไม่งั้นบวกข้ามหน่วยผิด
-  const sum = (f) => Math.round(data.reduce((s, r) => s + qtyToPrang(r.pid, f(r)), 0));
+  };
+  const bodyRows = mainData.map((r, i) => rowHtml(r, i, i % 2 ? "background:#FBF7EF;" : "background:#ffffff;"));
+  // แถวรวม: นับเฉพาะรายการที่เป็นแผงจริง
+  const sum = (f) => mainData.reduce((s, r) => s + f(r), 0);
   const totLoss = Math.round(-data.reduce((s, r) => s + (r.diff < 0 ? r.diff * priceOf(r.pid) : 0), 0));
   const totDiff = sum((r) => r.diff);
   const totVals = ["รวม (แผง)", "แผง", sum((r) => r.opening), sum((r) => r.received), sum((r) => r.sold), sum((r) => r.computedRemain), sum((r) => r.remain), (totDiff > 0 ? "+" + totDiff : totDiff), totLoss, ""];
-  const totalRow = "<tr>" + totVals.map((v, ci) => `<td style="background:#F5E6CE;font-weight:bold;color:#7A4F16;text-align:${cols[ci].num ? "right" : "left"};border:1px solid #D9B27A;padding:6px 8px;font-size:12px;${cols[ci].num ? NF : ""}">${esc(v)}</td>`).join("") + "</tr>";
+  let totalRow = "<tr>" + totVals.map((v, ci) => `<td style="background:#F5E6CE;font-weight:bold;color:#7A4F16;text-align:${cols[ci].num ? "right" : "left"};border:1px solid #D9B27A;padding:6px 8px;font-size:12px;${cols[ci].num ? NF : ""}">${esc(v)}</td>`).join("") + "</tr>";
+  // ต่อท้ายด้วยบล็อกไข่แก้ว/ไข่เหลว + รวมย่อยแยกตามหน่วย
+  if (specData.length) {
+    totalRow += `<tr><td colspan="${NC}" style="background:#FFF1F2;color:#BE123C;font-weight:bold;border:1px solid #FDA4AF;padding:6px 8px;font-size:12px;">🥛 ไข่แก้ว / ไข่เหลว · นับคนละหน่วย — ไม่รวมในยอดแผงข้างบน</td></tr>`;
+    totalRow += specData.map((r, i) => rowHtml(r, i, "background:#FFF7F8;")).join("");
+    [...new Set(specData.map((r) => STOCK_SPECIAL_UNIT[r.pid]))].forEach((u) => {
+      const g = specData.filter((r) => STOCK_SPECIAL_UNIT[r.pid] === u);
+      const sg = (f) => g.reduce((s, r) => s + f(r), 0);
+      const d = sg((r) => r.diff);
+      const vals = [`รวม (${u})`, u, sg((r) => r.opening), sg((r) => r.received), sg((r) => r.sold), sg((r) => r.computedRemain), sg((r) => r.remain), (d > 0 ? "+" + d : d), "", ""];
+      totalRow += "<tr>" + vals.map((v, ci) => `<td style="background:#FECDD3;font-weight:bold;color:#9F1239;text-align:${cols[ci].num ? "right" : "left"};border:1px solid #FDA4AF;padding:6px 8px;font-size:12px;${cols[ci].num ? NF : ""}">${esc(v)}</td>`).join("") + "</tr>";
+    });
+  }
   const colgroup = "<colgroup>" + cols.map((c) => `<col style="width:${c.w}px">`).join("") + "</colgroup>";
   const headerCells = "<tr>" + cols.map((c) => `<td style="background:#15803D;color:#fff;font-weight:bold;text-align:center;border:1px solid #0f6b30;padding:6px;font-size:12px;">${esc(c.t)}</td>`).join("") + "</tr>";
   const metaLine = meta ? `ผู้ปิดยอด: ${esc(meta.by || "—")}${meta.at ? " · เวลา " + esc(new Date(meta.at).toLocaleString("th-TH")) : ""}${meta.note ? " · หมายเหตุ: " + esc(meta.note) : ""}` : "";
