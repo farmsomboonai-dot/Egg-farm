@@ -940,6 +940,10 @@ const REF_PRICE_FALLBACK = { n0: 130, n1: 120, n2: 110, n3: 100, n4: 90, n5: 85,
 // หน่วยขายต่อสินค้า — ปกติขายเป็น "แผง" · ไข่ตอกแก้ว ขายเป็น "แก้ว" (เจ้าของสั่ง 16 ส.ค. 69)
 const PRODUCT_UNIT = { g_tok: "แก้ว" };
 const productUnit = (pid) => PRODUCT_UNIT[pid] || "แผง";
+// 🥛 ไข่ตอก 1 แก้ว = 8 ฟอง (เจ้าของยืนยัน 27 ส.ค. 69) — ต้องแปลงหน่วยก่อนรวมกับรายการอื่นที่นับเป็นแผง
+const PER_GLASS = 8;
+const qtyToPrang = (pid, qty) => PRODUCT_UNIT[pid] === "แก้ว" ? ((qty || 0) * PER_GLASS) / PER_PRADANG : (qty || 0);
+const qtyToFong = (pid, qty) => PRODUCT_UNIT[pid] === "แก้ว" ? (qty || 0) * PER_GLASS : (qty || 0) * PER_PRADANG;
 // สาเหตุส่วนต่างตอนปิดยอด (แท็กต่อรายการ)
 const DIFF_REASONS = ["แตก", "หาย", "แถม", "นับพลาด", "อื่นๆ"];
 // หมวดต้นทุน 6 หมวด (บัญชีต้นทุน — ตาม roadmap ต้นทุนต่อหลังต่อรุ่น)
@@ -2229,10 +2233,10 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
 
   const eggTotal = cartItems.reduce((s, i) => s + i.subtotal, 0);
   const totalPrang = cartItems.reduce((s, i) => s + (i.product?.noTray ? 0 : i.qty), 0);   // นับเฉพาะแผงไข่จริง (ไม่รวมบรรจุภัณฑ์ เช่น แผงไข่กระดาษ)
-  // 🥛 สินค้าหน่วยพิเศษ (ตอกแก้ว): 1 แก้ว ≈ 8-9 ฟอง (ไข่บุบร้าวหนักต้องตอกใส่แก้วทันที) — แยกออกจากยอดแผง และคิดฟองที่ ~8.5/แก้ว ไม่ใช่ 30
+  // 🥛 สินค้าหน่วยพิเศษ (ตอกแก้ว): 1 แก้ว = 8 ฟอง (เจ้าของยืนยัน 27 ส.ค. 69) — แยกออกจากยอดแผง และคิดฟองที่ 8/แก้ว ไม่ใช่ 30
   const glassQty = cartItems.filter((i) => !i.product?.noTray && PRODUCT_UNIT[i.productId]).reduce((s, i) => s + (i.qty || 0), 0);
   const prangQty = totalPrang - glassQty;
-  const fongEst = Math.round(prangQty * PER_PRADANG + glassQty * 8.5);
+  const fongEst = Math.round(prangQty * PER_PRADANG + glassQty * PER_GLASS);
   // ยอดแผงรับ = ยอดไข่ × 1.1 (จำนวนแผงจริงที่ลูกค้ารับ) — ตอกแก้วไม่ใช้แผง จึงไม่นับ (ใช้ prangQty ไม่ใช่ totalPrang)
   const trayReceivedTotal = Math.round(prangQty * 1.1);
 
@@ -4830,9 +4834,11 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
     return { pid, name: STOCK_LABEL[pid] || PRODUCT_BY_ID[pid]?.name || pid, opening: op, received: rec, total: op + rec, perCust, sold, computedRemain, remain, diff };
   });
 
+  // แถว "รวม" ต้องแปลงหน่วยก่อนบวก — ไข่ตอกนับเป็นแก้ว (1 แก้ว = 8 ฟอง) เอามาบวกกับแผงตรงๆ ไม่ได้
   const totals = rows.reduce((t, r) => ({
-    opening: t.opening + r.opening, received: t.received + r.received,
-    total: t.total + r.total, sold: t.sold + r.sold, remain: t.remain + r.remain, diff: t.diff + r.diff,
+    opening: t.opening + qtyToPrang(r.pid, r.opening), received: t.received + qtyToPrang(r.pid, r.received),
+    total: t.total + qtyToPrang(r.pid, r.total), sold: t.sold + qtyToPrang(r.pid, r.sold),
+    remain: t.remain + qtyToPrang(r.pid, r.remain), diff: t.diff + qtyToPrang(r.pid, r.diff),
   }), { opening: 0, received: 0, total: 0, sold: 0, remain: 0, diff: 0 });
 
   const hasStock = totals.total > 0;
@@ -4869,8 +4875,8 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
       {showDiff && totals.diff !== 0 && (
         <div style={{ margin: "0 0 10px", padding: "9px 13px", borderRadius: 10, background: totals.diff < 0 ? "#FEF2F2" : "#F0FDF4", border: `1px solid ${totals.diff < 0 ? "#FECACA" : "#BBF7D0"}`, color: totals.diff < 0 ? "#B91C1C" : "#15803D", fontSize: 13, fontWeight: 600 }}>
           {totals.diff < 0
-            ? <>⚠️ ปิดยอดวันนี้ <b>ขาด {fmt(-totals.diff)} แผง ≈ {fmt(lossBaht)} บาท</b> — นับจริงน้อยกว่าที่ระบบคำนวณ (ของแตก/หาย/แถม/นับพลาด)</>
-            : <>ℹ️ ปิดยอดวันนี้ <b>เกิน {fmt(totals.diff)} แผง</b> — นับจริงมากกว่าที่ระบบคำนวณ</>}
+            ? <>⚠️ ปิดยอดวันนี้ <b>ขาด {fmt(Math.round(-totals.diff))} แผง ≈ {fmt(lossBaht)} บาท</b> — นับจริงน้อยกว่าที่ระบบคำนวณ (ของแตก/หาย/แถม/นับพลาด)</>
+            : <>ℹ️ ปิดยอดวันนี้ <b>เกิน {fmt(Math.round(totals.diff))} แผง</b> — นับจริงมากกว่าที่ระบบคำนวณ</>}
         </div>
       )}
       {reconciled && meta && (meta.by || meta.note) && (
@@ -4904,7 +4910,10 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
               const [lite, mid, ink] = rowTone(r.name);
               return (
                 <tr key={r.pid}>
-                  <td style={{ ...tdX, ...S.tdSticky, fontWeight: 700, textAlign: "left", whiteSpace: "normal", wordBreak: "break-word", background: mid, color: ink }}>{r.name}</td>
+                  <td style={{ ...tdX, ...S.tdSticky, fontWeight: 700, textAlign: "left", whiteSpace: "normal", wordBreak: "break-word", background: mid, color: ink }}>
+                    {r.name}
+                    {PRODUCT_UNIT[r.pid] ? <div style={{ fontSize: 10.5, fontWeight: 700, color: "#BE123C" }}>หน่วย: {PRODUCT_UNIT[r.pid]} · 1 {PRODUCT_UNIT[r.pid]} = {PER_GLASS} ฟอง</div> : null}
+                  </td>
                   <td style={{ ...tdX, background: lite }}>{fmt(r.opening)}</td>
                   <td style={{ ...tdX, background: lite }}>{fmt(r.received)}</td>
                   <td style={{ ...tdX, background: "#FAF6EE", fontWeight: 600 }}>{fmt(r.total)}</td>
@@ -4922,19 +4931,19 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
               );
             })}
             <tr>
-              <td style={{ ...tdX, ...S.tdSticky, ...S.tfoot, textAlign: "left" }}>รวม</td>
-              <td style={{ ...tdX, ...S.tfoot }}>{fmt(totals.opening)}</td>
-              <td style={{ ...tdX, ...S.tfoot }}>{fmt(totals.received)}</td>
-              <td style={{ ...tdX, ...S.tfoot }}>{fmt(totals.total)}</td>
+              <td style={{ ...tdX, ...S.tdSticky, ...S.tfoot, textAlign: "left" }}>รวม <span style={{ fontSize: 10.5, fontWeight: 600, color: "#8a8170" }}>(แผง)</span></td>
+              <td style={{ ...tdX, ...S.tfoot }}>{fmt(Math.round(totals.opening))}</td>
+              <td style={{ ...tdX, ...S.tfoot }}>{fmt(Math.round(totals.received))}</td>
+              <td style={{ ...tdX, ...S.tfoot }}>{fmt(Math.round(totals.total))}</td>
               {activeCustomers.map((c) => {
-                const cs = rows.reduce((s, r) => s + (r.perCust[c.id] || 0), 0);
-                return <td key={c.id} style={{ ...tdX, ...S.tfoot }}>{fmt(cs)}</td>;
+                const cs = rows.reduce((s, r) => s + qtyToPrang(r.pid, r.perCust[c.id] || 0), 0);
+                return <td key={c.id} style={{ ...tdX, ...S.tfoot }}>{fmt(Math.round(cs))}</td>;
               })}
-              <td style={{ ...tdX, ...S.tfoot }}>{fmt(totals.sold)}</td>
-              {reconciled && <td style={{ ...tdX, ...S.tfoot }}>{fmt(rows.reduce((s, r) => s + r.computedRemain, 0))}</td>}
-              <td style={{ ...tdX, ...S.tfoot }}>{fmt(totals.remain)}</td>
-              {showDiff && <td style={{ ...tdX, ...S.tfoot, color: diffColor(totals.diff) }}>{diffText(totals.diff)}</td>}
-              <td style={{ ...tdX, ...S.tfoot, color: "#1D4ED8" }}>{fmt(totals.remain + totals.received)}</td>
+              <td style={{ ...tdX, ...S.tfoot }}>{fmt(Math.round(totals.sold))}</td>
+              {reconciled && <td style={{ ...tdX, ...S.tfoot }}>{fmt(Math.round(rows.reduce((s, r) => s + qtyToPrang(r.pid, r.computedRemain), 0)))}</td>}
+              <td style={{ ...tdX, ...S.tfoot }}>{fmt(Math.round(totals.remain))}</td>
+              {showDiff && <td style={{ ...tdX, ...S.tfoot, color: diffColor(totals.diff) }}>{Math.round(totals.diff) === 0 ? "—" : (totals.diff > 0 ? "+" : "") + fmt(Math.round(totals.diff))}</td>}
+              <td style={{ ...tdX, ...S.tfoot, color: "#1D4ED8" }}>{fmt(Math.round(totals.remain + totals.received))}</td>
             </tr>
           </tbody>
         </table>
@@ -5104,7 +5113,7 @@ function CloseHistoryModal({ stockCounts = {}, closeMeta = {}, productionByDate 
     STOCK_ORDER.forEach((pid) => {
       const computed = (opening[pid] || 0) + (production[pid] || 0) - Object.values(salesLog[pid] || {}).reduce((s, q) => s + (q || 0), 0);
       const diff = hasBills ? ((counts[pid] || 0) - computed) : 0;
-      diffQty += diff;
+      diffQty += qtyToPrang(pid, diff);   // แปลงแก้ว→แผงก่อนรวม (ไข่ตอก)
       if (diff < 0) lossBaht += -diff * priceOf(pid);
     });
     return { date: d, meta: closeMeta[d] || {}, diffQty, lossBaht: Math.round(lossBaht), hasBills };
@@ -5112,7 +5121,7 @@ function CloseHistoryModal({ stockCounts = {}, closeMeta = {}, productionByDate 
   const totalLoss = rows.reduce((s, r) => s + r.lossBaht, 0);
   const totalDiff = rows.reduce((s, r) => s + r.diffQty, 0);
   const dColor = (d) => d < 0 ? "#dc2626" : d > 0 ? "#15803D" : "#9ca3af";
-  const dText = (d) => d === 0 ? "—" : (d > 0 ? "+" + fmt(d) : fmt(d));
+  const dText = (d) => Math.round(d) === 0 ? "—" : (d > 0 ? "+" + fmt(Math.round(d)) : fmt(Math.round(d)));   // แผง (ปัดเต็ม ไม่เอาทศนิยม)
   const thSt = { padding: "8px 10px", color: "#6b6358", fontWeight: 700, fontSize: 12.5, textAlign: "left", borderBottom: "2px solid #EFE7D6", position: "sticky", top: 0, background: "#fff" };
   const card = { flex: "1 1 110px", padding: "10px 12px", borderRadius: 10 };
 
@@ -5169,7 +5178,7 @@ function exportCloseDayExcel(day, dayTH, rows, meta, refPrices = {}) {
   const NF = 'mso-number-format:"\\#\\,\\#\\#0";';
   const data = rows.filter((r) => r.total > 0);
   const cols = [
-    { t: "สินค้า", w: 150, c: "left" }, { t: "ยกมา", w: 66, num: true }, { t: "รับเข้า", w: 66, num: true },
+    { t: "สินค้า", w: 150, c: "left" }, { t: "หน่วย", w: 52, c: "center" }, { t: "ยกมา", w: 66, num: true }, { t: "รับเข้า", w: 66, num: true },
     { t: "ขายรวม", w: 66, num: true }, { t: "ระบบคำนวณ", w: 84, num: true }, { t: "นับจริง", w: 74, num: true, hl: true },
     { t: "ส่วนต่าง", w: 74, num: true }, { t: "มูลค่า (บาท)", w: 90, num: true }, { t: "สาเหตุ", w: 110, c: "left" },
   ];
@@ -5177,14 +5186,15 @@ function exportCloseDayExcel(day, dayTH, rows, meta, refPrices = {}) {
   const td = (v, c, bg, extra) => `<td style="${bg || ""}${c.num ? NF : 'mso-number-format:"\\@";'}text-align:${c.num ? "right" : (c.c || "left")};border:1px solid #E2DAC9;padding:5px 8px;font-size:12px;${extra || ""}">${esc(v)}</td>`;
   const bodyRows = data.map((r, i) => {
     const val = Math.round(r.diff * priceOf(r.pid));
-    const cells = [r.name, r.opening, r.received, r.sold, r.computedRemain, r.remain, (r.diff > 0 ? "+" + r.diff : r.diff), (val === 0 ? "" : val), (reasons[r.pid] || "")];
+    const cells = [r.name, productUnit(r.pid), r.opening, r.received, r.sold, r.computedRemain, r.remain, (r.diff > 0 ? "+" + r.diff : r.diff), (val === 0 ? "" : val), (reasons[r.pid] || "")];
     const bg = i % 2 ? "background:#FBF7EF;" : "background:#ffffff;";
     return "<tr>" + cells.map((v, ci) => td(v, cols[ci], bg, cols[ci].hl ? "font-weight:bold;color:#15803D;" : "")).join("") + "</tr>";
   });
-  const sum = (f) => data.reduce((s, r) => s + f(r), 0);
-  const totLoss = Math.round(-sum((r) => r.diff < 0 ? r.diff * priceOf(r.pid) : 0));
+  // แถวรวม: แปลงหน่วยเป็นแผงก่อนบวก (ไข่ตอกนับเป็นแก้ว 1 แก้ว = 8 ฟอง) ไม่งั้นบวกข้ามหน่วยผิด
+  const sum = (f) => Math.round(data.reduce((s, r) => s + qtyToPrang(r.pid, f(r)), 0));
+  const totLoss = Math.round(-data.reduce((s, r) => s + (r.diff < 0 ? r.diff * priceOf(r.pid) : 0), 0));
   const totDiff = sum((r) => r.diff);
-  const totVals = ["รวม", sum((r) => r.opening), sum((r) => r.received), sum((r) => r.sold), sum((r) => r.computedRemain), sum((r) => r.remain), (totDiff > 0 ? "+" + totDiff : totDiff), totLoss, ""];
+  const totVals = ["รวม (แผง)", "แผง", sum((r) => r.opening), sum((r) => r.received), sum((r) => r.sold), sum((r) => r.computedRemain), sum((r) => r.remain), (totDiff > 0 ? "+" + totDiff : totDiff), totLoss, ""];
   const totalRow = "<tr>" + totVals.map((v, ci) => `<td style="background:#F5E6CE;font-weight:bold;color:#7A4F16;text-align:${cols[ci].num ? "right" : "left"};border:1px solid #D9B27A;padding:6px 8px;font-size:12px;${cols[ci].num ? NF : ""}">${esc(v)}</td>`).join("") + "</tr>";
   const colgroup = "<colgroup>" + cols.map((c) => `<col style="width:${c.w}px">`).join("") + "</colgroup>";
   const headerCells = "<tr>" + cols.map((c) => `<td style="background:#15803D;color:#fff;font-weight:bold;text-align:center;border:1px solid #0f6b30;padding:6px;font-size:12px;">${esc(c.t)}</td>`).join("") + "</tr>";
