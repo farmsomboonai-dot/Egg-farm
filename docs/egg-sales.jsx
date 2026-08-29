@@ -3272,7 +3272,7 @@ function BillDetail({ bill, payment, onBack, onCancel, onPay }) {
           <div style={{ margin: "10px 24px 0", padding: "10px 14px", background: "#FEF2F2", border: "2px solid #EF4444", borderRadius: 10, color: "#B91C1C" }}>
             <div style={{ fontSize: 18, fontWeight: 900, letterSpacing: 2 }}>✕ ยกเลิกแล้ว · CANCELLED</div>
             <div style={{ fontSize: 12.5, marginTop: 4, color: "#7F1D1D", lineHeight: 1.6 }}>
-              เหตุผล: <b>{b.cancelReason || "—"}</b><br />เวลา: {b.cancelAtStr || "—"} · โดย: <b>{b.cancelBy || "—"}</b>
+              เหตุผล: <b>{b.cancelReason || "—"}</b><br />เวลา: {b.cancelAtStr || "—"} · ผู้ทำผิดพลาด: <b>{b.cancelBy || "—"}</b>
             </div>
           </div>
         )}
@@ -3415,10 +3415,11 @@ function BillDetail({ bill, payment, onBack, onCancel, onPay }) {
             <label style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: INK, marginBottom: 4 }}>เหตุผลการยกเลิก *</label>
             <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} autoFocus placeholder="เช่น ลูกค้ายกเลิกออเดอร์ / ออกบิลผิด / คีย์ซ้ำ"
               style={{ width: "100%", padding: "9px 11px", border: "1.5px solid #e3ddd0", borderRadius: 9, fontSize: 14, fontFamily: "inherit", outline: "none", boxSizing: "border-box", resize: "vertical" }} />
-            <label style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: INK, margin: "10px 0 4px" }}>ชื่อผู้ยกเลิก *</label>
-            <input value={by} onChange={(e) => setBy(e.target.value)} placeholder="ชื่อผู้ทำรายการ"
+            {/* เก็บ "ผู้ทำผิดพลาด" แทน "ผู้ยกเลิก" — ยกเลิกได้เฉพาะเจ้าของอยู่แล้ว ชื่อคนยกเลิกจึงไม่มีประโยชน์ (เจ้าของสั่ง 29 ส.ค. 69) */}
+            <label style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: INK, margin: "10px 0 4px" }}>ผู้ทำผิดพลาด *</label>
+            <input value={by} onChange={(e) => setBy(e.target.value)} placeholder="ชื่อคนที่ออกบิลผิด / คีย์ผิด"
               style={{ width: "100%", padding: "9px 11px", border: "1.5px solid #e3ddd0", borderRadius: 9, fontSize: 14, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
-            <div style={{ fontSize: 12, color: "#9b8e78", margin: "8px 0 0" }}>⏱️ เวลายกเลิก = เวลาที่กดยืนยัน (บันทึกอัตโนมัติ)</div>
+            <div style={{ fontSize: 12, color: "#9b8e78", margin: "8px 0 0" }}>⏱️ เวลายกเลิก = เวลาที่กดยืนยัน (บันทึกอัตโนมัติ) · ยกเลิกได้เฉพาะเจ้าของฟาร์ม</div>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
               <button onClick={() => setShowCancel(false)} style={S.ghostBtn}>ไม่ยกเลิก</button>
               <button disabled={!reason.trim() || !by.trim()} onClick={() => { onCancel(b.no, reason, by); setShowCancel(false); onBack(); }}
