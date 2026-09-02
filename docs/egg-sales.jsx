@@ -6090,9 +6090,9 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
               <th colSpan={2} style={{ ...S.th, background: PROD_C.off }}>ไข่เปื้อน</th>
               <th rowSpan={2} style={{ ...S.th, background: PROD_C.off }}>รวม<br />(แผง)</th>
               <th rowSpan={2} style={{ ...S.th, background: "#C2410C", color: "#fff", fontSize: 13.5 }}>%ไข่<br />ตกเกรด</th>
-              <th colSpan={7} style={{ ...S.th, background: PROD_C.good }}>รายการไข่ดี (แผง)</th>
-              {activeKla.length > 0 && <th colSpan={activeKla.length} style={{ ...S.th, background: "#CFFAFE", color: "#155E75" }}>ไข่คละ (แผง)</th>}
-              <th rowSpan={2} style={{ ...S.th, background: PROD_C.sum }}>รวมไข่ไก่<br />{activeKla.length > 0 ? "(ดี+ตกเกรด+คละ)" : "(ดี+ตกเกรด)"}</th>
+              {/* ไข่ดี = ไข่เบอร์ + ไข่คละ (เจ้าของยืนยัน 29 ส.ค. 69) — คละอยู่ในกลุ่มไข่ดี ช่อง "รวม" บวกทั้งสองอย่าง */}
+              <th colSpan={BER_KEYS.length + activeKla.length + 1} style={{ ...S.th, background: PROD_C.good }}>รายการไข่ดี (แผง) <span style={{ fontWeight: 600, fontSize: 11.5, opacity: 0.85 }}>· <span style={{ color: "#15803D" }}>เบอร์</span> + <span style={{ color: "#0F5F55" }}>คละ</span></span></th>
+              <th rowSpan={2} style={{ ...S.th, background: PROD_C.sum }}>รวมไข่ไก่<br />(ดี+ตกเกรด)</th>
               <th rowSpan={2} style={{ ...S.th, background: PROD_C.sum }}>ยอดไก่<br />คงเหลือ</th>
               <th rowSpan={2} style={{ ...S.th, background: "#15803D", color: "#fff", fontSize: 14.5, fontFamily: "'Prompt', sans-serif", letterSpacing: 0.3 }}>%ไข่<br />รวม</th>
             </tr>
@@ -6100,8 +6100,8 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
               <th style={{ ...S.th, background: PROD_C.off }}>มาก</th>
               <th style={{ ...S.th, background: PROD_C.off }}>น้อย</th>
               {BER_KEYS.map((k) => <th key={k} style={{ ...S.th, background: "#DBF5E4", color: "#15803D" }}>เบอร์ {k}</th>)}
-              <th style={{ ...S.th, background: "#4FB477", color: "#fff" }}>รวม</th>
-              {activeKla.map((k) => <th key={k} style={{ ...S.th, background: "#ECFEFF", color: "#155E75" }}>{k}</th>)}
+              {activeKla.map((k) => <th key={k} style={{ ...S.th, background: "#B6EDDF", color: "#0F5F55" }}>คละ {k}</th>)}
+              <th style={{ ...S.th, background: "#4FB477", color: "#fff" }}>รวม<br /><span style={{ fontWeight: 600, fontSize: 10.5 }}>เบอร์+คละ</span></th>
             </tr>
           </thead>
           <tbody>
@@ -6130,8 +6130,8 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
                   <td style={{ ...S.td, fontWeight: 700 }}>{fmt(c.offgrade)}</td>
                   <td style={{ ...S.td, background: "#FFE8D2", fontWeight: 800, color: "#9A3412", fontSize: 14, ...flag(h.id, "rate:offpct") }}>{c.pctOff.toFixed(2)}%</td>
                   {BER_KEYS.map((k) => <td key={k} style={{ ...S.td, ...flag(h.id, "ber:" + k) }}>{fmt(Math.round((h.grade.เบอร์[k] || 0) / PER_PRADANG))}</td>)}
-                  <td style={{ ...S.td, fontWeight: 700, color: "#15803D", ...flag(h.id, "rate:good") }}>{fmt(Math.round(c.goodPrang))}</td>
-                  {activeKla.map((k) => <td key={k} style={{ ...S.td, fontWeight: 700, color: "#155E75", background: "#F0FDFF" }}>{(h.grade.คละ || {})[k] ? fmt(h.grade.คละ[k]) : "·"}</td>)}
+                  {activeKla.map((k) => <td key={k} style={{ ...S.td, fontWeight: 700, color: "#0F766E", background: "#E3F8F2" }}>{(h.grade.คละ || {})[k] ? fmt(h.grade.คละ[k]) : "·"}</td>)}
+                  <td style={{ ...S.td, fontWeight: 800, color: "#15803D", background: "#DBF5E4", ...flag(h.id, "rate:good") }}>{fmt(Math.round(c.goodPrang) + Math.round(c.klaPrang))}</td>
                   <td style={{ ...S.td, fontWeight: 600 }}>{fmt(c.totalFong)}</td>
                   <td style={S.td}>{fmt(h.chickens)}</td>
                   <td style={{ ...S.td, background: "#DCFCE7", fontWeight: 800, color: "#166534", fontSize: 14, ...flag(h.id, "rate:total") }}>{c.pctTotal.toFixed(2)}%</td>
@@ -6144,8 +6144,8 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
               <td style={{ ...S.td, ...S.tfoot }}>{fmt(grand.offPrang)}</td>
               <td style={{ ...S.td, ...S.tfoot, background: "#FED7AA", color: "#9A3412", fontSize: 14 }}>{grand.total ? ((grand.offFong / grand.total) * 100).toFixed(2) : 0}%</td>
               {BER_KEYS.map((k) => <td key={k} style={{ ...S.td, ...S.tfoot }}>{fmt(Math.round((grand.ber[k] || 0) / PER_PRADANG))}</td>)}
-              <td style={{ ...S.td, ...S.tfoot }}>{fmt(Math.round(grand.good / PER_PRADANG))}</td>
-              {activeKla.map((k) => <td key={k} style={{ ...S.td, ...S.tfoot, color: "#155E75" }}>{fmt(grand.klaByKey[k] || 0)}</td>)}
+              {activeKla.map((k) => <td key={k} style={{ ...S.td, ...S.tfoot, color: "#0F766E", background: "#D5F2EA" }}>{fmt(grand.klaByKey[k] || 0)}</td>)}
+              <td style={{ ...S.td, ...S.tfoot, background: "#DBF5E4", color: "#15803D" }}>{fmt(Math.round(grand.good / PER_PRADANG) + Math.round(grand.kla))}</td>
               <td style={{ ...S.td, ...S.tfoot }}>{fmt(grand.total)}</td>
               <td style={{ ...S.td, ...S.tfoot }}>{fmt(grand.chickens)}</td>
               <td style={{ ...S.td, ...S.tfoot, background: "#BBF7D0", color: "#166534", fontSize: 14 }}>{grand.chickens ? ((grand.total / grand.chickens) * 100).toFixed(2) : 0}%</td>
@@ -8039,17 +8039,34 @@ function TrialView({ medTrials = [], addMedTrial, deleteMedTrial, production = {
 
       {detected.length > 0 && (
         <div style={{ background: "#F0FDFA", border: "1px solid #99F6E4", borderRadius: 12, padding: "10px 12px", marginBottom: 12 }}>
-          <div style={{ fontWeight: 800, color: "#0F766E", fontSize: 13, marginBottom: 7 }}>💊 ตรวจพบจากบันทึกยารายวัน — กดเพื่อดูผลได้ทันที ไม่ต้องกรอกซ้ำ</div>
-          <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-            {detected.map((s, i) => (
-              <button key={i} onClick={() => {
-                const t = { id: "tr" + Date.now() + i, name: s.name, houseId: s.hid, startDate: s.from, endDate: s.to, note: `จากบันทึกรายวัน · ให้ ${s.days} วัน` };
-                addMedTrial(t); setViewTrial(t);
-              }} style={{ border: "1.5px solid #0D9488", background: "#fff", color: "#0F766E", borderRadius: 999, padding: "6px 13px", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
-                📊 {s.name} · {s.hid} · {toThaiDate(s.from, false)}{s.to !== s.from ? " – " + toThaiDate(s.to, false) : ""} ({s.days} วัน)
-              </button>
-            ))}
-          </div>
+          <div style={{ fontWeight: 800, color: "#0F766E", fontSize: 13, marginBottom: 9 }}>💊 ตรวจพบจากบันทึกยารายวัน — กดเพื่อดูผลได้ทันที ไม่ต้องกรอกซ้ำ</div>
+          {/* แยกเป็นหลังๆ + เรียงวันที่ใหม่สุดก่อน — เดิมปนกันทุกหลังในลิสต์เดียว อ่านยาก (เจ้าของสั่ง 2 ก.ย. 69) */}
+          {(() => {
+            const byHouse = {};
+            detected.forEach((s, i) => { (byHouse[s.hid] = byHouse[s.hid] || []).push({ ...s, _i: i }); });
+            const order = houseIds.filter((h) => byHouse[h]).concat(Object.keys(byHouse).filter((h) => !houseIds.includes(h)).sort());
+            return order.map((hid) => {
+              const list = [...byHouse[hid]].sort((a, b) => String(b.from).localeCompare(String(a.from)));
+              return (
+                <div key={hid} style={{ marginBottom: 9, background: "#fff", border: "1px solid #CCFBF1", borderRadius: 10, padding: "8px 10px 9px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <span style={{ background: "#0D9488", color: "#fff", fontWeight: 800, fontSize: 13, borderRadius: 8, padding: "3px 11px" }}>{hid}</span>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: "#5EAAA3" }}>{list.length} รายการ</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+                    {list.map((s) => (
+                      <button key={s._i} onClick={() => {
+                        const t = { id: "tr" + Date.now() + s._i, name: s.name, houseId: s.hid, startDate: s.from, endDate: s.to, note: `จากบันทึกรายวัน · ให้ ${s.days} วัน` };
+                        addMedTrial(t); setViewTrial(t);
+                      }} style={{ border: "1.5px solid #0D9488", background: "#fff", color: "#0F766E", borderRadius: 999, padding: "6px 13px", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
+                        📊 {s.name} <span style={{ fontWeight: 600, color: "#5EAAA3" }}>· {toThaiDate(s.from, false)}{s.to !== s.from ? " – " + toThaiDate(s.to, false) : ""} ({s.days} วัน)</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            });
+          })()}
         </div>
       )}
 
@@ -8813,6 +8830,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
             <span style={{ fontSize: 12, fontWeight: 700, color: "#9b8e78" }}>ดูข้อมูล:</span>
             <button style={chip(mode === "house")} onClick={() => setMode("house")} title="สมุดประวัติของโรงเรือนเดียว ไล่ทุกวัน (เหมือนสมุดฟอร์มกระดาษ)">📒 แยกรายหลัง</button>
             <button style={chip(mode === "day")} onClick={() => setMode("day")} title="สรุปทุกโรงเรือนของวันที่เลือกในแถบวันที่ เทียบกันแถวต่อแถว">📅 รวมทุกหลังในวันเดียว</button>
+            <button style={chip(mode === "vet")} onClick={() => setMode("vet")} title="เรียงคอลัมน์เหมือนสมุดฟอร์มกระดาษของฟาร์ม — ตาย · ไก่คงเหลือ · ไซโล 1/2 · อาหาร · น้ำ · มิเตอร์ · อายุ · แสง · %ผลผลิต · ยา">🩺 สมุดหมอ (เหมือนกระดาษ)</button>
           </div>
           <button onClick={() => setShowPlan(true)} title="วางแผนวัคซีน/ยา/วิตามินล่วงหน้ารายเดือน — ถึงกำหนดระบบเตือนให้"
             style={{ position: "relative", padding: "7px 14px", borderRadius: 999, border: "1.5px solid #7C3AED", background: "#fff", color: "#7C3AED", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
@@ -8837,6 +8855,119 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
       {planSoon.length > 0 && (
         <div style={{ background: "#FFF7EC", border: "1px solid #FBD9A8", borderRadius: 12, padding: "9px 14px", marginBottom: 12, fontSize: 12.5, color: "#92400E" }}>
           🗓️ ใกล้ถึงกำหนดใน 3 วัน: {planSoon.slice(0, 4).map((p) => `${toThaiDate(p.date, false)} · ${p.houseId} · ${p.type} ${p.name}`).join("  |  ")}{planSoon.length > 4 ? ` … อีก ${planSoon.length - 4}` : ""}
+        </div>
+      )}
+
+      {/* 🩺 สมุดหมอ — เรียงคอลัมน์ให้ตรงกับสมุดฟอร์มกระดาษของฟาร์ม (เจ้าของสั่ง 2 ก.ย. 69)
+          ลำดับ: วันที่ · ตาย · ไก่คงเหลือ · ไซโล1(รับ/เหลือ/ใช้) · ไซโล2(รับ/เหลือ/ใช้) · Feed Avg · Water Avg · Water Total
+                 · มิเตอร์ · อายุ · ชม.แสง · Lux · %ผลผลิต · %ตกเกรด · ไข่ดีรวม · ตกเกรดรวม · ยา/สารเสริม */}
+      {mode === "vet" && (
+        <div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+            {houseIds.map((h) => <button key={h} style={chip(selHouse === h)} onClick={() => setSelHouse(h)}>{h}</button>)}
+          </div>
+          {/* บรรทัด 1: ข้อมูลรุ่น (ตั้งครั้งเดียว ไม่เปลี่ยน) รวมไว้จุดเดียว เล็กๆ พอ */}
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 14, marginBottom: 8, background: "#F6F1E7", border: "1px solid #e6dfd0", borderRadius: 999, padding: "6px 16px", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#9b8e78" }}>รุ่นที่ / ฝูงที่ <b style={{ fontSize: 14, color: INK, marginLeft: 4 }}>{fl?.gen ? `${fl.gen}${fl.flock ? " / " + fl.flock : ""}` : "—"}</b></span>
+            <span style={{ color: "#d8cdb6" }}>│</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#9b8e78" }}>เริ่มเลี้ยง <b style={{ fontSize: 14, color: INK, marginLeft: 4 }}>{fl?.startCount ? fmt(fl.startCount) + " ตัว" : "—"}</b></span>
+          </div>
+          {/* บรรทัด 2: ตัวเลขที่หมอต้องดูตลอด — ใหญ่ เด่น (เจ้าของสั่ง 2 ก.ย. 69) */}
+          <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap", alignItems: "stretch" }}>
+            {statCard("อายุวันนี้", (() => { const a = flockAgeWk(fl, isoFromTs(Date.now())); return a != null ? a + " สัปดาห์" : "—"; })())}
+            {statCard("ตายสะสม", fmt(cumAll.dead) + (fl?.startCount ? ` (${((cumAll.dead / fl.startCount) * 100).toFixed(2)}%)` : ""), "#B91C1C")}
+            {statCard("ไก่คงเหลือ", fl?.startCount ? fmt(fl.startCount - cumAll.total) + " ตัว" : "—", "#15803D")}
+          </div>
+          {(() => {
+            const vTh = { padding: "6px 8px", fontSize: 11.5, fontWeight: 800, color: "#5d5341", background: "#F6F1E7", whiteSpace: "nowrap", lineHeight: 1.25, borderBottom: "2px solid #D9CDB4", textAlign: "center" };
+            const vTd = { padding: "5px 8px", fontSize: 12.5, textAlign: "center", whiteSpace: "nowrap", borderBottom: "1px solid #F0E9DA" };
+            const edge = { borderLeft: "2px solid #C0B296" };
+            // ผลผลิตไข่ของวันนั้น (จากหน้าผลผลิต) — ไข่ดี = เบอร์ + คละ · ตกเกรดแยก
+            const eggOf = (d) => {
+              const ph = (production[d] || []).find((x) => x && x.id === selHouse);
+              if (!ph) return null;
+              const goodFong = sumVals(ph.grade?.เบอร์ || {});
+              const klaPrang = sumVals(ph.grade?.คละ || {});
+              const offPrang = sumVals(ph.grade?.ตกเกรด || {});
+              const goodPrang = goodFong / PER_PRADANG + klaPrang;
+              const totalFong = goodFong + (klaPrang + offPrang) * PER_PRADANG;
+              const ch = nf(ph.chickens) || 0;
+              return { goodPrang, offPrang, totalFong,
+                pctHD: ch > 0 && totalFong > 0 ? (totalFong / ch) * 100 : null,
+                pctOff: totalFong > 0 ? ((offPrang * PER_PRADANG) / totalFong) * 100 : null };
+            };
+            // เรียงวันที่ล่าสุดไว้บนสุด — หมอเปิดมาเห็นวันปัจจุบันทันที ไม่ต้องเลื่อนลงล่าง (เจ้าของสั่ง 2 ก.ย. 69)
+            const rowsV = [...hDays].sort((a, b) => String(b).localeCompare(String(a))).map((d) => ({ ...calcDay(d), egg: eggOf(d) }));
+            return (
+              <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflow: "auto", maxHeight: "74vh" }}>
+                <table style={{ borderCollapse: "collapse", minWidth: 1500 }}>
+                  <thead>
+                    <tr>
+                      <th rowSpan={2} style={{ ...vTh, textAlign: "left", position: "sticky", left: 0, zIndex: 2 }}>ว/ด/ป</th>
+                      <th rowSpan={2} style={{ ...vTh, ...edge }}>ตาย</th>
+                      <th rowSpan={2} style={{ ...vTh, color: "#15803D" }}>ยอดไก่<br />คงเหลือ</th>
+                      <th colSpan={3} style={{ ...vTh, ...edge, background: "#FFF4E3", color: "#B45309" }}>ไซโล 1</th>
+                      <th colSpan={3} style={{ ...vTh, ...edge, background: "#FFF9F0", color: "#B45309" }}>ไซโล 2</th>
+                      <th rowSpan={2} style={{ ...vTh, ...edge, background: "#FFF4E3", color: "#B45309" }}>Feed Avg<br />(ก./ตัว)</th>
+                      <th colSpan={2} style={{ ...vTh, ...edge, background: "#EFF7FC", color: "#0369A1" }}>Water</th>
+                      <th rowSpan={2} style={{ ...vTh, background: "#EFF7FC", color: "#0369A1" }}>มิเตอร์<br />1 · 2 · 3</th>
+                      <th rowSpan={2} style={{ ...vTh, ...edge }}>Age<br />(สป.)</th>
+                      <th rowSpan={2} style={{ ...vTh, background: "#FDF4FF", color: "#86198F" }}>ชม.<br />แสง</th>
+                      <th rowSpan={2} style={{ ...vTh, background: "#FDF4FF", color: "#86198F" }}>Lux</th>
+                      <th colSpan={4} style={{ ...vTh, ...edge, background: "#F2FBF4", color: "#15803D" }}>ผลผลิตไข่</th>
+                      <th rowSpan={2} style={{ ...vTh, ...edge, textAlign: "left" }}>การให้ยา / สารเสริม</th>
+                    </tr>
+                    <tr>
+                      <th style={{ ...vTh, ...edge, background: "#FFF4E3" }}>รับเข้า</th>
+                      <th style={{ ...vTh, background: "#FFF4E3" }}>ใช้ไป</th>
+                      <th style={{ ...vTh, background: "#FFF4E3" }}>คงเหลือ</th>
+                      <th style={{ ...vTh, ...edge, background: "#FFF9F0" }}>รับเข้า</th>
+                      <th style={{ ...vTh, background: "#FFF9F0" }}>ใช้ไป</th>
+                      <th style={{ ...vTh, background: "#FFF9F0" }}>คงเหลือ</th>
+                      <th style={{ ...vTh, ...edge, background: "#EFF7FC" }}>Avg<br />(มล./ตัว)</th>
+                      <th style={{ ...vTh, background: "#EFF7FC" }}>Total<br />({waterUnitLabel(selHouse)})</th>
+                      <th style={{ ...vTh, ...edge, background: "#F2FBF4" }}>ไข่ดีรวม<br />(แผง)</th>
+                      <th style={{ ...vTh, background: "#F2FBF4" }}>ตกเกรดรวม<br />(แผง)</th>
+                      <th style={{ ...vTh, background: "#F2FBF4" }}>%ผลผลิต</th>
+                      <th style={{ ...vTh, background: "#F2FBF4" }}>%ตกเกรด</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rowsV.map((x, i) => (
+                      <tr key={x.d} style={{ background: i % 2 ? "#FDFAF3" : "#fff" }}>
+                        <td style={{ ...vTd, textAlign: "left", fontWeight: 700, position: "sticky", left: 0, background: i % 2 ? "#FDFAF3" : "#fff", zIndex: 1 }}>{toThaiDate(x.d, false)}</td>
+                        <td style={{ ...vTd, ...edge, fontWeight: 700, color: x.deadToday > 0 ? "#B91C1C" : undefined }}>{x.r ? fmt(x.deadToday) : "—"}</td>
+                        <td style={{ ...vTd, fontWeight: 800, color: "#15803D" }}>{x.remain != null ? fmt(x.remain) : "—"}</td>
+                        <td style={{ ...vTd, ...edge, background: "#FFFBF4" }}>{nf(x.r?.feed?.s1recv) ? fmt1(nf(x.r.feed.s1recv)) : "·"}</td>
+                        <td style={{ ...vTd, background: "#FFFBF4" }}>{nf(x.r?.feed?.s1used) ? fmt1(nf(x.r.feed.s1used)) : "·"}</td>
+                        <td style={{ ...vTd, background: "#FFFBF4", fontWeight: 700 }}>{fmt1(x.silo.s1)}</td>
+                        <td style={{ ...vTd, ...edge, background: "#FFFDF8" }}>{nf(x.r?.feed?.s2recv) ? fmt1(nf(x.r.feed.s2recv)) : "·"}</td>
+                        <td style={{ ...vTd, background: "#FFFDF8" }}>{nf(x.r?.feed?.s2used) ? fmt1(nf(x.r.feed.s2used)) : "·"}</td>
+                        <td style={{ ...vTd, background: "#FFFDF8", fontWeight: 700 }}>{fmt1(x.silo.s2)}</td>
+                        <td style={{ ...vTd, ...edge, background: "#FFF7EC", fontWeight: 700, color: "#B45309" }}>{x.gPerBird != null ? fmt1(x.gPerBird) : "—"}</td>
+                        <td style={{ ...vTd, ...edge, background: "#F5FAFD", fontWeight: 700, color: "#0369A1" }}>{x.mlPerBird != null ? fmt(Math.round(x.mlPerBird)) : "—"}</td>
+                        <td style={{ ...vTd, background: "#F5FAFD" }}>{x.water != null ? fmt1(x.water) : "—"}</td>
+                        <td style={{ ...vTd, background: "#F5FAFD", fontSize: 11.5, color: "#5d7f96" }}>
+                          {[1, 2, 3].map((n) => nf(x.r?.water?.["m" + n]) ? fmt1(nf(x.r.water["m" + n])) : "·").join(" · ")}
+                        </td>
+                        <td style={{ ...vTd, ...edge, fontWeight: 700 }}>{x.ageWk != null ? x.ageWk : "—"}</td>
+                        <td style={{ ...vTd, background: "#FEFAFF" }}>{x.r?.light?.hours || "—"}</td>
+                        <td style={{ ...vTd, background: "#FEFAFF" }}>{x.r?.light?.lux || "—"}</td>
+                        <td style={{ ...vTd, ...edge, background: "#F7FDF9", fontWeight: 800, color: "#15803D" }}>{x.egg ? fmt(Math.round(x.egg.goodPrang)) : "—"}</td>
+                        <td style={{ ...vTd, background: "#F7FDF9", fontWeight: 700, color: "#B45309" }}>{x.egg ? fmt(x.egg.offPrang) : "—"}</td>
+                        <td style={{ ...vTd, background: "#F7FDF9", fontWeight: 800, color: "#15803D" }}>{x.egg?.pctHD != null ? x.egg.pctHD.toFixed(2) + "%" : "—"}</td>
+                        <td style={{ ...vTd, background: "#F7FDF9", fontWeight: 700, color: "#9A3412" }}>{x.egg?.pctOff != null ? x.egg.pctOff.toFixed(2) + "%" : "—"}</td>
+                        <td style={{ ...vTd, ...edge, textAlign: "left", maxWidth: 240, whiteSpace: "normal", fontSize: 12 }} title={medsDetail(x.r) + (x.r?.note ? " · " + x.r.note : "")}>
+                          {medsSummary(x.r) || (x.r?.note ? "📝 " + x.r.note : "—")}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
+          <div style={S.hint}>เรียงคอลัมน์ตามสมุดฟอร์มกระดาษของฟาร์ม · <b>ไข่ดีรวม</b> = ไข่เบอร์ + ไข่คละ · <b>%ผลผลิต</b> = ไข่รวม (ดี+ตกเกรด) ÷ จำนวนไก่ · <b>%ตกเกรด</b> = ตกเกรด ÷ ไข่รวม · มิเตอร์ = เลขมิเตอร์น้ำ 3 ตัวแรกที่กรอกไว้</div>
         </div>
       )}
 
