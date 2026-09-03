@@ -37,7 +37,7 @@ const ACTIVITY_KEY_LABELS = {
   eggBills: "บิลขาย", eggPayments: "รับชำระเงิน", eggProduction: "ผลผลิตประจำวัน",
   eggRearing: "บันทึกการเลี้ยง", eggFlocks: "รุ่นการเลี้ยง", eggVaccines: "วัคซีน", eggLabTests: "ผลตรวจแล็บ",
   eggMedStock: "สต๊อกยา", eggMedReceipts: "รับยาเข้าสต๊อก", eggMedTrials: "ทดลอง·ติดตามผล",
-  eggFeedDeliveries: "รับอาหาร", eggFeedPrice: "ราคาอาหาร", eggStockCounts: "ปิดยอดสต๊อกไข่", eggCloseMeta: "ปิดยอดสิ้นวัน",
+  eggFeedDeliveries: "รับอาหาร", eggFeedPrice: "ราคาอาหาร", eggStockCounts: "ปิดยอดสต๊อกไข่", eggCloseMeta: "ปิดยอดสิ้นวัน", eggWashLogs: "ล้างไข่เปื้อน",
   eggExpenses: "ค่าใช้จ่าย/ต้นทุน", eggBookings: "จองออเดอร์", eggPlanEstimates: "วางแผนออเดอร์",
   eggTrayStock: "บัญชีแผงไข่", eggTrayRecords: "บัญชีแผงไข่", eggTrayEvents: "บัญชีแผงไข่",
   eggCustomers: "ข้อมูลลูกค้า", eggCustomerEdits: "แก้ข้อมูลลูกค้า", eggCustomerGroups: "กลุ่มลูกค้า",
@@ -896,6 +896,14 @@ const PRODUCTS = {
     { id: "g_tokdaeng", name: "ตอกแดงไม่แตก - กิโล", stock: 0 },
   ],
   พิเศษ: [
+    // 🚿 ไข่เปื้อนที่เอาเข้าเครื่องล้าง แล้วขายเป็น "ไข่คละล้าง" ราคาถูกกว่าคละปกติ
+    //    เจ้าของแจ้ง 3 ก.ย. 69: เดิมเสมียนคีย์เป็นคละปกติ → สต๊อกเปื้อนไม่ถูกหัก + สต๊อกคละติดลบ
+    { id: "w_wash", name: "ไข่คละล้าง (ไม่แยกเบอร์)", stock: 0 },
+    { id: "ww19", name: "คละล้าง 19+", stock: 0 },
+    { id: "ww20", name: "คละล้าง 20+", stock: 0 },
+    { id: "ww21", name: "คละล้าง 21+", stock: 0 },
+    { id: "ww22", name: "คละล้าง 22+", stock: 0 },
+    { id: "ww23", name: "คละล้าง 23+", stock: 0 },
     { id: "s_jumbo", name: "จัมโบ้ + แฝด", stock: 23 },
     { id: "s_papertray", name: "แผงไข่กระดาษ", stock: 0, noTray: true },   // บรรจุภัณฑ์ (ลูกค้าเก็บไป) — ไม่นับเป็นแผงดำมัดจำ/คืน
   ],
@@ -917,12 +925,13 @@ const STOCK_ORDER = [
   "g_jiw", "s_white", "g_nuan", "g_sand", "g_pueanmak", "g_pueannoi", "g_bub",
   "s_jumbo",
   "w17", "w18", "w19", "w20", "w21", "w22", "w23",
+  "ww19", "ww20", "ww21", "ww22", "ww23", "w_wash",
   "g_tok", "g_toklew", "g_tokdaeng",
 ];
 // ป้ายชื่อเฉพาะหน้ารายงานคลัง (ชื่อสินค้าจริงในบิล/หน้าขายคงเดิม — เปลี่ยนเฉพาะหัวข้อรายงานตามชีท)
 const STOCK_LABEL = {
   s_white: "ขาว", g_tok: "ตอก (แก้ว)", g_toklew: "ไข่เหลว", s_jumbo: "จัมโบ้+แฝด",
-  w17: "17++", w18: "18++", w19: "19++", w20: "20++", w21: "21++", w22: "22++", w23: "23++",
+  w17: "17++", w18: "18++", w19: "19++", w20: "20++", w21: "21++", w22: "22++", w23: "23++", w_wash: "คละล้าง (รวม)", ww19: "ล้าง 19++", ww20: "ล้าง 20++", ww21: "ล้าง 21++", ww22: "ล้าง 22++", ww23: "ล้าง 23++",
 };
 
 // ---------- ราคาล่าสุด แยกตามลูกค้า+สินค้า ----------
@@ -937,7 +946,7 @@ const LAST_PRICES = {
 };
 
 // ราคาอ้างอิงต่อแผง (fallback) — ใช้ตีมูลค่า "ส่วนต่าง" ตอนปิดยอด ถ้าไม่มีราคาจากบิลจริง
-const REF_PRICE_FALLBACK = { n0: 130, n1: 120, n2: 110, n3: 100, n4: 90, n5: 85, s_white: 75, g_nuan: 60, g_sand: 55, g_pueanmak: 45, g_pueannoi: 50, g_bub: 70, g_jiw: 65, g_tok: 20, g_toklew: 20, g_tokdaeng: 25, s_jumbo: 140 };
+const REF_PRICE_FALLBACK = { n0: 130, n1: 120, n2: 110, n3: 100, n4: 90, n5: 85, s_white: 75, g_nuan: 60, g_sand: 55, g_pueanmak: 45, g_pueannoi: 50, g_bub: 70, g_jiw: 65, g_tok: 20, g_toklew: 20, g_tokdaeng: 25, s_jumbo: 140, w_wash: 39, ww19: 36, ww20: 39, ww21: 42, ww22: 45, ww23: 48 };   // คละล้าง = คละปกติเบอร์นั้น − 6 บาท
 // หน่วยขายต่อสินค้า — ปกติขายเป็น "แผง" · ไข่ตอกแก้ว ขายเป็น "แก้ว" (เจ้าของสั่ง 16 ส.ค. 69)
 const PRODUCT_UNIT = { g_tok: "แก้ว" };
 const productUnit = (pid) => PRODUCT_UNIT[pid] || "แผง";
@@ -972,6 +981,12 @@ const MED_STOCK_SEED = [
   { id: "md01", name: "ทันใจ 100 ซอง/กล่อง", desc: "ยาแก้ปวด ลดไข้", unit: "กล่อง", opening: 130, price: 154, company: "อินเตอร์เวชภัณฑ์", mfg: "13/1/25", expiry: "13/1/27", since: MED_STOCK_SINCE },
   { id: "md02", name: "Acetin (อาซิติน)", desc: "ยาละลายเสมหะ", unit: "หน่วย", opening: 300, price: 154, company: "อินเตอร์เวชภัณฑ์", mfg: "02/2026", expiry: "02/2029", since: MED_STOCK_SINCE },
   { id: "md03", name: "ทาร์โลชิน 1 กก", desc: "ยารักษาระบบทางเดินหายใจ", unit: "กก.", opening: 69, price: 1700, company: "บิ๊คเคมีคอล", mfg: "20/3/26", expiry: "20/3/28", since: MED_STOCK_SINCE },
+  // 🌾 ยาผสมอาหาร — เดิมไม่มีในสต๊อก พิมพ์เป็นข้อความอิสระ ทำให้ไม่ถูกคิดต้นทุน/ไม่ตัดสต๊อก และสะกด 12 แบบ
+  //    (เจ้าของแจ้ง 3 ก.ย. 69) · ยอดยกมา+ราคา ให้เจ้าของกรอกเองในหน้า "สต๊อกยาและวิตามิน"
+  { id: "mdf01", name: "Amoxy 50% (ผสมอาหาร)", desc: "ยาปฏิชีวนะผสมอาหาร แก้อักเสบติดเชื้อ", unit: "กก.", opening: 0, price: null, company: "", mfg: "", expiry: "", since: MED_STOCK_SINCE, route: "feed" },
+  { id: "mdf02", name: "Colistin 40% (ผสมอาหาร)", desc: "ยาปฏิชีวนะผสมอาหาร ทางเดินอาหาร · ยาสำรองสุดท้าย ใช้เท่าที่จำเป็น", unit: "กก.", opening: 0, price: null, company: "", mfg: "", expiry: "", since: MED_STOCK_SINCE, route: "feed" },
+  { id: "mdf03", name: "BMD (ผสมอาหาร)", desc: "ยาปฏิชีวนะผสมอาหาร ป้องกันลำไส้อักเสบ", unit: "กก.", opening: 0, price: null, company: "", mfg: "", expiry: "", since: MED_STOCK_SINCE, route: "feed" },
+  { id: "mdf04", name: "Ivermectin (ผสมอาหาร)", desc: "ยาถ่ายพยาธิ/กำจัดไร ผสมอาหาร", unit: "กก.", opening: 0, price: null, company: "", mfg: "", expiry: "", since: MED_STOCK_SINCE, route: "feed" },
   { id: "md04", name: "โคลิเคียว 40% (500 กรัม/ถุง)", desc: "ยารักษาระบบทางเดินอาหาร", unit: "ถุง", opening: 418, price: 160, company: "บิ๊คเคมีคอล", mfg: "18/5/26", expiry: "18/5/29", since: MED_STOCK_SINCE },
   { id: "md05", name: "ด็อกซิเคียว-50", desc: "ยารักษาระบบทางเดินหายใจ", unit: "หน่วย", opening: 272, price: 1000, company: "บิ๊คเคมีคอล", mfg: "23/2/26", expiry: "23/2/28", since: MED_STOCK_SINCE },
   { id: "md06", name: "ม็อกซี่การ์ด 50% เอส 1 กก", desc: "ยารักษา แก้อักเสบติดเชื้อ หลอดลม/กล่องเสียงอักเสบ", unit: "กก.", opening: 1, price: 660, company: "บิ๊คเคมีคอล", mfg: "26/5/26", expiry: "26/5/29", since: MED_STOCK_SINCE },
@@ -1017,7 +1032,11 @@ const STOCK_RECEIVED = {
 };
 // ตกเกรด (ชื่อในตารางผลผลิต) → รหัสสินค้าในคลัง (ใช้ตอนดึงรับเข้าจากผลผลิต)
 const OFF_TO_PID = { จัมโบ้: "s_jumbo", บุบ: "g_bub", ตอก: "g_tok", จิ๋ว: "g_jiw", เปลือกขาว: "s_white", หัวทราย: "g_sand", นวล: "g_nuan", เปื้อนมาก: "g_pueanmak", เปื้อนน้อย: "g_pueannoi" };
-const KLA_TO_PID = { "18+": "w18", "19+": "w19", "20+": "w20", "21+": "w21", "22+": "w22", "23+": "w23" };   // ไข่คละตามน้ำหนัก (กรอกเป็นแผง)
+const KLA_TO_PID = { "18+": "w18", "19+": "w19", "20+": "w20", "21+": "w21", "22+": "w22", "23+": "w23" };
+/* 🚿 ไข่คละล้าง แยกเบอร์ — ล้างแล้วยังมีน้ำหนักต่างกัน ขายตามเบอร์ได้ (เจ้าของถาม 3 ก.ย. 69)
+   ราคาถูกกว่าคละปกติเบอร์เดียวกัน ~6 บาท */
+const WASH_TO_PID = { "19+": "ww19", "20+": "ww20", "21+": "ww21", "22+": "ww22", "23+": "ww23" };
+const WASH_KEYS = Object.keys(WASH_TO_PID);   // ไข่คละตามน้ำหนัก (กรอกเป็นแผง)
 // ป้ายน้ำหนักไข่ที่ชั่งขายในบิล — รองรับหลายก้อน (เช่น 19+20 กก) และบิลเก่าที่เก็บ weight ค่าเดียว
 function billWtLabel(i) {
   const ws = Array.isArray(i.weights) ? i.weights.filter((w) => (parseFloat(w) || 0) > 0) : [];
@@ -1176,17 +1195,44 @@ function productionToStock(houses) {
 
 // ยกมาของวันหนึ่ง = คงเหลือ(นับจริง)ของวันก่อนหน้า ; วันแรกสุด = STOCK_OPENING ; ถ้าวันก่อนไม่มีนับจริง → ยกมา+ผลิต (rolling)
 // counts = ยอดนับจริงต่อวัน (ปิดยอดแล้ว) ; default = seed ในโค้ด ; แอปส่ง state ที่พนักงานกรอกเข้ามาแทน
-function openingForDay(date, prodByDate, counts) {
+function openingForDay(date, prodByDate, counts, washLogs) {
   // ยกมาของวัน date ใดก็ได้ตามปฏิทิน: หา "วันหลักฐานล่าสุดก่อนหน้า" (วันที่มีผลิตหรือมีปิดยอด)
   const closed = counts || STOCK_REMAIN_BY_DATE;
   const anchors = [...new Set([...Object.keys(prodByDate || {}), ...Object.keys(closed)])].sort().filter((d) => d < date);
   if (!anchors.length) return STOCK_OPENING;                 // ไม่มีวันก่อนหน้า → ยกมาตั้งต้น 2/7
   const prev = anchors[anchors.length - 1];
   if (closed[prev]) return closed[prev];                     // วันก่อนปิดยอดแล้ว → ใช้คงเหลือจริง
-  const po = openingForDay(prev, prodByDate, counts);        // วันก่อนยังไม่ปิด → ยกมา + ผลิต (ยังไม่หักขายอดีต)
+  const po = openingForDay(prev, prodByDate, counts, washLogs);   // วันก่อนยังไม่ปิด → ยกมา + ผลิต (ยังไม่หักขายอดีต)
   const pp = productionToStock(prodByDate[prev] || []);
-  const r = {}; ALL_PRODUCTS.forEach((p) => r[p.id] = (po[p.id] || 0) + (pp[p.id] || 0));
+  const pw = washToStock(washLogs, prev);                    // 🚿 ผลของการล้างไข่วันก่อน (หักเปื้อน + เพิ่มคละล้าง)
+  const r = {}; ALL_PRODUCTS.forEach((p) => r[p.id] = (po[p.id] || 0) + (pp[p.id] || 0) + (pw[p.id] || 0));
   return r;
+}
+
+/* 🚿 ล้างไข่ — เอาไข่เปื้อนเข้าเครื่องล้าง แล้วขายเป็น "ไข่คละล้าง"
+   ผลต่อสต๊อก: หักเปื้อนมาก/เปื้อนน้อยออก + เพิ่มคละล้างเข้า (จำนวนเข้า = จำนวนออก ตามที่เจ้าของสั่ง)
+   เดิมไม่มีการบันทึกขั้นนี้ → สต๊อกเปื้อนไม่ลด และคละติดลบ (3 ก.ย. 69 ขายคละ 3,800 แต่ผลิตได้ 1,274) */
+function washToStock(logs, dateISO) {
+  const w = {};
+  (logs || []).filter((x) => x && x.date === dateISO).forEach((x) => {
+    const mak = nf(x.mak), noi = nf(x.noi);
+    if (mak) w.g_pueanmak = (w.g_pueanmak || 0) - mak;
+    if (noi) w.g_pueannoi = (w.g_pueannoi || 0) - noi;
+    // ได้ออกมา: ถ้ากรอกแยกเบอร์ไว้ → เข้าสต๊อกตามเบอร์นั้น (คละล้างแยกเบอร์)
+    //           ถ้าไม่กรอก → เข้า "ไข่คละล้าง" รวมก้อนเดียว = จำนวนที่เอาเข้าล้าง
+    const outByKey = x.out || {};
+    const outSum = sumVals(outByKey);
+    if (outSum > 0) {
+      Object.entries(outByKey).forEach(([k, v]) => {
+        const pid = WASH_TO_PID[k]; const q = nf(v);
+        if (pid && q) w[pid] = (w[pid] || 0) + q;
+      });
+    } else {
+      const inSum = mak + noi;
+      if (inSum) w.w_wash = (w.w_wash || 0) + inSum;
+    }
+  });
+  return w;
 }
 
 // วันทำงานของสต็อก/คลังรายวัน (ยกมา 2/7 → ผลิต 3/7) — ผลผลิตวันนี้เข้าสต็อกอัตโนมัติ
@@ -1580,6 +1626,12 @@ export default function App() {
     catch { return { ...STOCK_REMAIN_BY_DATE }; }
   });
   useEffect(() => { try { localStorage.setItem("eggStockCounts", JSON.stringify(stockCounts)); } catch {} }, [stockCounts]);
+  /* 🚿 บันทึกล้างไข่เปื้อน → ขายเป็น "ไข่คละล้าง" — [{id, date, mak, noi, by, note}]
+     เจ้าของแจ้ง 3 ก.ย. 69: เดิมไม่มีขั้นนี้ เสมียนคีย์ขายเป็นคละปกติ → สต๊อกเปื้อนไม่ลด คละติดลบ */
+  const [washLogs, setWashLogs] = useState(() => { try { return JSON.parse(localStorage.getItem("eggWashLogs") || "[]"); } catch { return []; } });
+  useEffect(() => { try { localStorage.setItem("eggWashLogs", JSON.stringify(washLogs)); } catch {} }, [washLogs]);
+  const addWash = (rec) => setWashLogs((p) => [...p.filter((x) => x.id !== rec.id), rec]);
+  const delWash = (id) => setWashLogs((p) => p.filter((x) => x.id !== id));
   // ข้อมูลกำกับการปิดยอดต่อวัน: { by(ผู้ปิด), at(เวลา ts), note, reasons:{pid:สาเหตุ} } — แยกจาก stockCounts เพื่อไม่กระทบสูตร rolling
   const [closeMeta, setCloseMeta] = useState(() => { try { return JSON.parse(localStorage.getItem("eggCloseMeta") || "{}"); } catch { return {}; } });
   useEffect(() => { try { localStorage.setItem("eggCloseMeta", JSON.stringify(closeMeta)); } catch {} }, [closeMeta]);
@@ -1787,6 +1839,7 @@ export default function App() {
       const rd = (k, fb) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? fb : v; } catch { return fb; } };
       setProductionByDate(rd("eggProduction", {}));
       setStockCounts(rd("eggStockCounts", {}));
+      setWashLogs(rd("eggWashLogs", []));
       setCloseMeta(rd("eggCloseMeta", {}));
       setRearingByDate(rd("eggRearing", {}));
       setFlocks(rd("eggFlocks", {}));
@@ -1986,7 +2039,7 @@ export default function App() {
       {view === "account" && <AccountView bills={activeBills} payments={payments} recordPayment={recordPayment} isOwner={currentRole === "owner"} />}
       {view === "dash" && <DashboardView bills={activeBills} payments={payments} production={productionByDate} rearingByDate={rearingByDate} flocks={flocks} />}
       {view === "manage" && <ManageDashView production={productionByDate} rearingByDate={rearingByDate} flocks={flocks} />}
-      {view === "stock" && <StockView salesByDay={salesByDay} productionByDate={productionByDate} defaultDay={isoFromTs(Date.now())} stockCounts={stockCounts} closeMeta={closeMeta} refPrices={refPrices} onCloseDay={closeDay} onReopenDay={reopenDay} />}
+      {view === "stock" && <StockView salesByDay={salesByDay} productionByDate={productionByDate} defaultDay={isoFromTs(Date.now())} stockCounts={stockCounts} closeMeta={closeMeta} refPrices={refPrices} washLogs={washLogs} addWash={addWash} delWash={delWash} canWash={currentRole === "owner" || currentRole === "office"} onCloseDay={closeDay} onReopenDay={reopenDay} />}
       {view === "production" && <ProductionView houses={houses} setHouses={setHouses} prodDate={prodDate} setProdDate={setProdDate} production={productionByDate} flocks={flocks} readOnly={roleObj.id === "farm"} dayClosed={stockCounts[prodDate] != null} isOwner={roleObj.id === "owner"} />}
       {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={saveRearing} flocks={flocks} saveFlock={saveFlock} production={productionByDate} medTrials={medTrials} medStock={medStock} medInfo={medInfo} vaccines={vaccines} addVaccine={addVaccine} deleteVaccine={deleteVaccine} labTests={labTests} addLabTest={addLabTest} deleteLabTest={deleteLabTest} />}
       {view === "feed" && <FeedView rearingByDate={rearingByDate} flocks={flocks} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} feedPrice={feedPrice} setFeedPrice={setFeedPrice} feedUseByMonth={feedUseByMonth} feedCostByMonth={feedCostByMonth} />}
@@ -4015,6 +4068,18 @@ function DashboardView({ bills, payments, production = {}, rearingByDate = {}, f
    กระจายเบอร์ไข่เทียบค่าเฉลี่ยฟาร์ม · วิเคราะห์สาเหตุ → ส่งผู้บริหาร
 ============================================================ */
 const sumVals = (o) => Object.values(o || {}).reduce((s, v) => s + (nf(v) || 0), 0);
+/* 📅 วันล่าสุดที่ "มีข้อมูลจริง" — กันข้อมูลผีทำให้ทุกหน้าเปิดมาผิดวัน
+   ที่ฟาร์มเจอจริง 3 ก.ย. 69: มีคีย์ว่าง "" และคีย์วันอนาคต "2026-09-27" ที่มีแต่ยอดไก่ ไข่เป็น 0
+   ทำให้แดชบอร์ด/หน้าสุขภาพ/หน้าสต๊อก เปิดมาเจอ 27 กันยา ตัวเลข 0 ทุกวัน */
+function isRealProdDate(d, production) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(d || ""))) return false;      // คีย์ต้องเป็นวันที่จริง
+  if (d > isoFromTs(Date.now())) return false;                          // ไม่เอาวันอนาคต
+  return (production[d] || []).some((h) => sumVals(h?.grade?.เบอร์) > 0 || sumVals(h?.grade?.ตกเกรด) > 0 || sumVals(h?.grade?.คละ) > 0);
+}
+function latestRealProdDate(production, fallback) {
+  const ds = Object.keys(production || {}).sort().filter((d) => isRealProdDate(d, production));
+  return ds[ds.length - 1] || fallback || isoFromTs(Date.now());
+}
 const WATER_METERS = ["m1", "m2", "m3", "m4", "m5", "m6"];
 function waterUsedFromMeters(cur, prev) {
   // มิเตอร์น้ำรีเซ็ตเป็น 0 ทุกวัน — เลขที่จด = น้ำที่ไก่กินจริงวันนั้นเลย (รวม 6 ตัว) ไม่ต้องลบกับวันก่อน
@@ -4245,7 +4310,10 @@ function MonthlyProdChart({ production = {} }) {
 
 function ManageDashView({ production = {}, rearingByDate = {}, flocks = {} }) {
   const prodDates = useMemo(() => Object.keys(production).sort(), [production]);
-  const [date, setDate] = useState(() => prodDates[prodDates.length - 1] || isoFromTs(Date.now()));
+  /* วันเริ่มต้น: วันล่าสุดที่ "มีไข่จริง" และไม่เกินวันนี้
+     เดิมใช้ Object.keys ตัวสุดท้ายเฉยๆ → ไปติดข้อมูลผี (คีย์ว่าง "" และวันอนาคต 27/9/69 ที่มีแต่ยอดไก่ ไข่เป็น 0)
+     ทำให้แดชบอร์ดเปิดมาเจอ 27 กันยายน ตัวเลขไข่ 0 ทุกวัน (เจ้าของแจ้ง 3 ก.ย. 69) */
+  const [date, setDate] = useState(() => latestRealProdDate(production));
   const [copied, setCopied] = useState(false);
   const [sendState, setSendState] = useState("");
   const lineOn = !!LINE_FN;
@@ -4766,9 +4834,84 @@ function PrevDayWarn({ prevISO, what, onGo }) {
   );
 }
 
-function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCounts = {}, closeMeta = {}, refPrices = {}, onCloseDay, onReopenDay }) {
+/* 🚿 Modal: บันทึกล้างไข่เปื้อน → ไข่คละล้าง */
+function WashModal({ dateISO, existing, onSave, onDelete, onClose }) {
+  const e0 = existing || {};
+  const [mak, setMak] = useState(e0.mak != null ? String(e0.mak) : "");
+  const [noi, setNoi] = useState(e0.noi != null ? String(e0.noi) : "");
+  const [by, setBy] = useState(e0.by || "");
+  const [note, setNote] = useState(e0.note || "");
+  // ได้ออกมาเป็นคละล้างเบอร์ไหนบ้าง (แผง) — เว้นว่างได้ ถ้าไม่แยกเบอร์
+  const [outBy, setOutBy] = useState(() => { const src = e0.out || {}; const o = {}; WASH_KEYS.forEach((k) => o[k] = src[k] != null ? String(src[k]) : ""); return o; });
+  const inSum = (parseInt(mak) || 0) + (parseInt(noi) || 0);
+  const outSum = WASH_KEYS.reduce((t, k) => t + (parseInt(outBy[k]) || 0), 0);
+  const out = outSum > 0 ? outSum : inSum;
+  const loss = outSum > 0 ? inSum - outSum : 0;
+  const valid = inSum > 0 && by.trim();
+  const inp = { width: "100%", padding: "9px 11px", border: "1.5px solid #BFDBFE", borderRadius: 9, fontSize: 15, fontFamily: "inherit", textAlign: "right", outline: "none", boxSizing: "border-box" };
+  const lbl = { display: "block", fontSize: 11.5, fontWeight: 700, color: "#0369A1", marginBottom: 3, textAlign: "left" };
+  const num = (v) => v.replace(/[^0-9]/g, "");
+  return (
+    <div style={S.modalOverlay} onClick={onClose}>
+      <div style={{ ...S.modal, maxWidth: 460 }} onClick={(ev) => ev.stopPropagation()}>
+        <div style={S.modalHead}>
+          <div>
+            <div style={S.modalTitle}>🚿 ล้างไข่เปื้อน · {toThaiDate(dateISO)}</div>
+            <div style={S.modalSub}>ไข่เปื้อนที่เอาเข้าเครื่องล้าง แล้วขายเป็น "ไข่คละล้าง" — ระบบจะหักสต๊อกเปื้อนและเพิ่มสต๊อกคละล้างให้</div>
+          </div>
+          <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+          <div><label style={lbl}>เปื้อนมาก (แผง)</label><input style={inp} inputMode="numeric" placeholder="0" value={mak} onChange={(e) => setMak(num(e.target.value))} autoFocus /></div>
+          <div><label style={lbl}>เปื้อนน้อย (แผง)</label><input style={inp} inputMode="numeric" placeholder="0" value={noi} onChange={(e) => setNoi(num(e.target.value))} /></div>
+        </div>
+        {/* ได้ออกมาเป็นเบอร์อะไรบ้าง — กรอกแยกเบอร์ได้ ถ้าไม่แยกเว้นว่างไว้ */}
+        <div style={{ background: "#F0FDFA", border: "1.5px solid #99F6E4", borderRadius: 10, padding: "9px 11px", marginBottom: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: "#0F766E", marginBottom: 2, textAlign: "left" }}>ล้างแล้วได้เป็นคละล้างเบอร์ไหน (แผง)</div>
+          <div style={{ fontSize: 11, color: "#5EAAA3", marginBottom: 7, textAlign: "left", lineHeight: 1.5 }}>
+            คัดตามน้ำหนักเหมือนคละปกติ · <b>ไม่แยกเบอร์ก็เว้นว่างไว้</b> ระบบจะลงเป็น "คละล้าง (รวม)" ให้เท่ากับจำนวนที่เอาเข้าล้าง
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 7 }}>
+            {WASH_KEYS.map((k) => (
+              <div key={k}>
+                <label style={{ ...lbl, color: "#0F766E", fontSize: 11 }}>{k}</label>
+                <input style={{ ...inp, borderColor: "#99F6E4", padding: "7px 9px", fontSize: 14 }} inputMode="numeric" placeholder="0"
+                  value={outBy[k]} onChange={(e) => setOutBy((prev) => ({ ...prev, [k]: num(e.target.value) }))} />
+              </div>
+            ))}
+          </div>
+        </div>
+        {inSum > 0 && (
+          <div style={{ background: "#E0F2FE", border: "1.5px solid #7DD3FC", borderRadius: 9, padding: "9px 12px", fontSize: 13, fontWeight: 700, color: "#0369A1", marginBottom: 10, lineHeight: 1.7 }}>
+            หักออกจากสต๊อก: เปื้อนมาก −{fmt(parseInt(mak) || 0)} · เปื้อนน้อย −{fmt(parseInt(noi) || 0)} แผง
+            <br />เพิ่มเข้าสต๊อก:{" "}
+            {outSum > 0
+              ? <b>{WASH_KEYS.filter((k) => parseInt(outBy[k]) > 0).map((k) => `ล้าง ${k} +${fmt(parseInt(outBy[k]))}`).join(" · ")} = {fmt(outSum)} แผง</b>
+              : <b>คละล้าง (รวม) +{fmt(inSum)} แผง</b>}
+            {loss !== 0 && (
+              <div style={{ marginTop: 3, fontWeight: 700, color: loss > 0 ? "#B45309" : "#B91C1C" }}>
+                {loss > 0 ? `แตกเสียระหว่างล้าง ${fmt(loss)} แผง (${((loss / inSum) * 100).toFixed(1)}%)` : `ได้ออกมามากกว่าที่เอาเข้า ${fmt(-loss)} แผง — เช็คตัวเลขอีกที`}
+              </div>
+            )}
+          </div>
+        )}
+        <div style={{ marginBottom: 10 }}><label style={lbl}>ผู้บันทึก *</label><input style={{ ...inp, textAlign: "left" }} placeholder="ชื่อผู้ทำรายการ" value={by} onChange={(e) => setBy(e.target.value)} /></div>
+        <div style={{ marginBottom: 12 }}><label style={lbl}>หมายเหตุ</label><input style={{ ...inp, textAlign: "left" }} placeholder="เช่น ล้างรอบเช้า · ขายให้ลูกค้ารายไหน" value={note} onChange={(e) => setNote(e.target.value)} /></div>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          {existing && onDelete && <button onClick={() => { if (window.confirm("ลบบันทึกล้างไข่นี้?")) { onDelete(existing.id); onClose(); } }} style={{ ...S.ghostBtn, color: "#dc2626", borderColor: "#FCA5A5", marginRight: "auto" }}>🗑 ลบ</button>}
+          <button onClick={onClose} style={S.ghostBtn}>ยกเลิก</button>
+          <button disabled={!valid} onClick={() => { onSave({ id: e0.id || "wsh" + Date.now(), date: dateISO, mak: parseInt(mak) || 0, noi: parseInt(noi) || 0, out: (() => { const o = {}; WASH_KEYS.forEach((k) => { const v = parseInt(outBy[k]) || 0; if (v) o[k] = v; }); return o; })(), by: by.trim(), note: note.trim(), at: Date.now() }); onClose(); }}
+            style={{ ...S.primarySmBtn, background: "#0369A1", opacity: valid ? 1 : 0.5 }}>บันทึก</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCounts = {}, closeMeta = {}, refPrices = {}, washLogs = [], addWash, delWash, canWash = false, onCloseDay, onReopenDay }) {
+  const [washEdit, setWashEdit] = useState(null);   // null = ปิด · {} = เพิ่มใหม่ · record = แก้ไข
   const dates = Object.keys(productionByDate).sort();
-  const [day, setDay] = useState(defaultDay || dates[dates.length - 1] || STOCK_DAY);
+  const [day, setDay] = useState(defaultDay || latestRealProdDate(productionByDate, STOCK_DAY));   // ไม่เอาข้อมูลผี
   const [showClose, setShowClose] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const dIdx = dates.indexOf(day);
@@ -4836,26 +4979,30 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
   };
   const rowTone = (name) => EGG_TONE[name] || (String(name).startsWith("คละ") || /\+\+$/.test(String(name)) ? ["#ECFEFF", "#CFFAFE", "#155E75"] : ["#FAFAF9", "#E7E5E4", "#57534E"]);
 
-  const opening = openingForDay(day, productionByDate, stockCounts);    // ยกมา = คงเหลือจริงของเมื่อวาน (rolling)
+  const opening = openingForDay(day, productionByDate, stockCounts, washLogs);    // ยกมา = คงเหลือจริงของเมื่อวาน (rolling)
   const production = useMemo(() => productionToStock(productionByDate[day] || []), [productionByDate, day]);  // รับเข้า = ผลผลิตวันนั้น (สด)
+  const wash = useMemo(() => washToStock(washLogs, day), [washLogs, day]);   // 🚿 ล้างไข่วันนี้: เปื้อน −, คละล้าง +
+  const washToday = (washLogs || []).filter((x) => x && x.date === day);
+  const hasWash = Object.keys(wash).length > 0;
   const hasBills = Object.keys(salesLog).length > 0;   // มีบิลของวันนี้ → เชื่อยอดขายได้ จึงเทียบ "ส่วนต่าง" (ของขาด/เกิน) ได้
   const showDiff = reconciled && hasBills;             // วันปิดยอดที่ไม่มีบิล (เช่น seed 3/7) → ใช้ back-calc เดิม ไม่โชว์ส่วนต่าง (กันตัวเลขหลอน)
   // จำนวนคอลัมน์ทั้งหมด: ชื่อ + ยกมา + รับเข้า + รวม + ลูกค้า + ขายรวม + [คงเหลือระบบ] + คงเหลือ + [ส่วนต่าง] + ประมาณการ
-  const colCount = 7 + activeCustomers.length + (reconciled ? 1 : 0) + (showDiff ? 1 : 0);   // +1 = คอลัมน์ชื่อไข่ที่ซ้ำท้ายขวา
+  const colCount = 7 + activeCustomers.length + (reconciled ? 1 : 0) + (showDiff ? 1 : 0) + (hasWash ? 1 : 0);   // +1 = คอลัมน์ชื่อไข่ที่ซ้ำท้ายขวา · +1 ถ้ามีล้างไข่
 
   const rows = STOCK_ORDER.map((pid) => {
     const op = opening[pid] || 0;
     const rec = production[pid] || 0;
+    const wa = wash[pid] || 0;                                                        // 🚿 ล้างไข่ (เปื้อน = ติดลบ · คละล้าง = บวก)
     const perCust = salesLog[pid] || {};
     const recordedSold = Object.values(perCust).reduce((s, q) => s + (q || 0), 0);   // ขายจริงจากบิล
-    const computedRemain = op + rec - recordedSold;                                   // คงเหลือที่ระบบคำนวณ
+    const computedRemain = op + rec + wa - recordedSold;                              // คงเหลือที่ระบบคำนวณ
     let sold, remain, diff;
     if (reconciled) {
       remain = physical[pid] || 0;
       if (hasBills) { sold = recordedSold; diff = remain - computedRemain; }          // มีบิล → ส่วนต่าง = ของขาด/เกินจริง
       else { sold = op + rec - remain; diff = 0; }                                    // ไม่มีบิล → ถือว่าส่วนที่หายไปคือขาย (back-calc เดิม)
     } else { sold = recordedSold; remain = computedRemain; diff = 0; }
-    return { pid, name: STOCK_LABEL[pid] || PRODUCT_BY_ID[pid]?.name || pid, opening: op, received: rec, total: op + rec, perCust, sold, computedRemain, remain, diff };
+    return { pid, name: STOCK_LABEL[pid] || PRODUCT_BY_ID[pid]?.name || pid, opening: op, received: rec, wash: wa, total: op + rec + wa, perCust, sold, computedRemain, remain, diff };
   });
 
   // 🥛 แยกไข่แก้ว/ไข่เหลว (หน่วยแก้ว·กิโล) ออกไปไว้ท้ายตาราง — ไม่รวมในยอด "รวม (แผง)"
@@ -4886,9 +5033,9 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
   const negSwap = negAll.filter((r) => { const g = sellGroupOf(r.pid); return g && groupAgg[g.key] && groupAgg[g.key].computedRemain >= 0; });
   // แถว "รวม" นับเฉพาะรายการที่เป็นแผงจริง
   const totals = mainRows.reduce((t, r) => ({
-    opening: t.opening + r.opening, received: t.received + r.received,
+    opening: t.opening + r.opening, received: t.received + r.received, wash: t.wash + r.wash,
     total: t.total + r.total, sold: t.sold + r.sold, remain: t.remain + r.remain, diff: t.diff + r.diff,
-  }), { opening: 0, received: 0, total: 0, sold: 0, remain: 0, diff: 0 });
+  }), { opening: 0, received: 0, wash: 0, total: 0, sold: 0, remain: 0, diff: 0 });
 
   const hasStock = totals.total > 0;
   const meta = closeMeta[day] || null;                 // ข้อมูลผู้ปิดยอด/เวลา/หมายเหตุ ของวันนี้
@@ -4912,6 +5059,11 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
             </>
           ) : (
             <button onClick={() => setShowClose(true)} disabled={!hasStock} title={hasStock ? "" : "ยังไม่มีผลผลิต/สต็อกของวันนี้"} style={{ padding: "7px 14px", border: "none", background: hasStock ? "#15803D" : "#cbd5c9", color: "#fff", borderRadius: 8, fontSize: 13, fontWeight: 800, cursor: hasStock ? "pointer" : "default" }}>🔒 ปิดยอดสิ้นวัน</button>
+          )}
+          {canWash && (
+            <button onClick={() => setWashEdit({})} disabled={reconciled}
+              title={reconciled ? "วันนี้ปิดยอดแล้ว — กด \"↩ ยกเลิกปิดยอด\" ก่อนถ้าต้องการบันทึกการล้างไข่ย้อนหลัง" : "บันทึกไข่เปื้อนที่เอาเข้าเครื่องล้าง แล้วขายเป็นไข่คละล้าง — ระบบหักสต๊อกเปื้อน + เพิ่มคละล้างให้"}
+              style={{ padding: "7px 12px", border: `1.5px solid ${reconciled ? "#cbd5e1" : "#0369A1"}`, background: "#fff", color: reconciled ? "#94a3b8" : "#0369A1", borderRadius: 8, fontSize: 13, fontWeight: 800, cursor: reconciled ? "not-allowed" : "pointer" }}>🚿 ล้างไข่</button>
           )}
           <button onClick={() => setShowHistory(true)} title="ประวัติ/สรุปการปิดยอด" style={{ padding: "7px 12px", border: `1px solid ${ACCENT}`, background: "#fff", color: ACCENT_DK, borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>📋 ประวัติ</button>
           <button onClick={() => goDay(-1)} title="วันก่อนหน้า" style={{ padding: "6px 11px", border: `1px solid ${ACCENT}`, background: "#fff", color: ACCENT_DK, borderRadius: 8, fontSize: 15, fontWeight: 800, cursor: "pointer" }}>‹</button>
@@ -4939,6 +5091,22 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
       )}
 
       {/* 🟡 ติดลบเฉพาะรายการ แต่ยอดรวมกลุ่มยังพอ = เสมียนคีย์สลับกันในกลุ่มที่ขายราคาเดียวกัน ไม่ใช่ของหาย */}
+      {/* 🚿 สรุปการล้างไข่ของวันนี้ */}
+      {washToday.length > 0 && (
+        <div style={{ margin: "0 0 10px", padding: "10px 13px", borderRadius: 10, background: "#F0F9FF", border: "2px solid #7DD3FC", color: "#0369A1", fontSize: 13, lineHeight: 1.7 }}>
+          <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 3 }}>🚿 ล้างไข่วันนี้ {washToday.length} รอบ</div>
+          {washToday.map((w) => (
+            <div key={w.id} style={{ marginTop: 2 }}>
+              • เปื้อนมาก {fmt(nf(w.mak))} + เปื้อนน้อย {fmt(nf(w.noi))} → {sumVals(w.out || {}) > 0
+                ? <b>{Object.entries(w.out).map(([k, v]) => `ล้าง ${k} ${fmt(nf(v))}`).join(" · ")} = {fmt(sumVals(w.out))} แผง</b>
+                : <b>คละล้าง (รวม) {fmt(nf(w.mak) + nf(w.noi))} แผง</b>}
+              <span style={{ color: "#3E7FA8", fontWeight: 600 }}> · โดย {w.by || "—"}{w.note ? " · " + w.note : ""}</span>
+              {canWash && !reconciled && <button onClick={() => setWashEdit(w)} style={{ marginLeft: 7, border: "1px solid #7DD3FC", background: "#fff", color: "#0369A1", borderRadius: 6, padding: "1px 8px", fontSize: 11, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>แก้</button>}
+            </div>
+          ))}
+        </div>
+      )}
+
       {negSwap.length > 0 && (
         <div style={{ margin: "0 0 10px", padding: "11px 15px", borderRadius: 10, background: "#FFFBEB", border: "2px solid #F59E0B", color: "#B45309", fontSize: 13.5, lineHeight: 1.7 }}>
           <div style={{ fontWeight: 800, fontSize: 14.5, marginBottom: 4 }}>
@@ -4982,6 +5150,7 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
               <th style={{ ...thX, ...S.thSticky, textAlign: "left" }}>ไข่เบอร์</th>
               <th style={{ ...thX, ...zEdge }}>ยกมา</th>
               <th style={thX}>รับเข้า</th>
+              {hasWash && <th style={{ ...thX, background: "#E0F2FE", color: "#0369A1" }}>🚿 ล้างไข่</th>}
               <th style={{ ...thX, background: "#F5EFE3" }}>รวม</th>
               {activeCustomers.map((c, ci) => <th key={c.id} style={{ ...thCustX, ...(ci === 0 ? zEdge : null) }}>{c.name}</th>)}
               <th style={{ ...thX, background: "#FBEFDD", ...zEdge }}>ขายรวม</th>
@@ -5002,6 +5171,7 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
                   </td>
                   <td style={{ ...tdBig, background: lite, ...zEdge }}>{fmt(r.opening)}</td>
                   <td style={{ ...tdBig, background: lite }}>{fmt(r.received)}</td>
+                  {hasWash && <td style={{ ...tdBig, background: "#F0F9FF", fontWeight: 700, color: r.wash < 0 ? "#B91C1C" : r.wash > 0 ? "#0369A1" : "#c9c0ad" }}>{r.wash ? (r.wash > 0 ? "+" : "") + fmt(r.wash) : "·"}</td>}
                   <td style={{ ...tdBig, background: "#FAF6EE", fontWeight: 700 }}>{fmt(r.total)}</td>
                   {activeCustomers.map((c, ci) => (
                     <td key={c.id} style={{ ...tdX, background: lite, color: r.perCust[c.id] ? "#1f2937" : "#c8c2b6", ...(ci === 0 ? zEdge : null) }}>
@@ -5042,6 +5212,7 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
               <td style={{ ...tdBig, ...S.tdSticky, ...S.tfoot, textAlign: "left" }}>รวม <span style={{ fontSize: 10.5, fontWeight: 600, color: "#8a8170" }}>(แผง)</span></td>
               <td style={{ ...tdBig, ...S.tfoot, ...zEdge }}>{fmt(totals.opening)}</td>
               <td style={{ ...tdBig, ...S.tfoot }}>{fmt(totals.received)}</td>
+              {hasWash && <td style={{ ...tdBig, ...S.tfoot, color: "#0369A1" }}>{totals.wash ? (totals.wash > 0 ? "+" : "") + fmt(totals.wash) : "·"}</td>}
               <td style={{ ...tdBig, ...S.tfoot }}>{fmt(totals.total)}</td>
               {activeCustomers.map((c, ci) => {
                 const cs = mainRows.reduce((s, r) => s + (r.perCust[c.id] || 0), 0);
@@ -5074,6 +5245,7 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
                     </td>
                     <td style={{ ...tdBig, background: "#FFF1F2", ...zEdge }}>{fmt(r.opening)}</td>
                     <td style={{ ...tdBig, background: "#FFF1F2" }}>{fmt(r.received)}</td>
+                    {hasWash && <td style={{ ...tdBig, background: "#FFF1F2", color: "#c9c0ad" }}>·</td>}
                     <td style={{ ...tdBig, background: "#FFE9EB", fontWeight: 700 }}>{fmt(r.total)}</td>
                     {activeCustomers.map((c, ci) => (
                       <td key={c.id} style={{ ...tdX, background: "#FFF1F2", color: r.perCust[c.id] ? "#1f2937" : "#d8b4bb", ...(ci === 0 ? zEdge : null) }}>
@@ -5102,6 +5274,7 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
                     <td style={{ ...tdBig, ...S.tdSticky, textAlign: "left", background: "#FECDD3", color: "#9F1239", fontWeight: 800 }}>รวม <span style={{ fontSize: 10.5, fontWeight: 600 }}>({u})</span></td>
                     <td style={{ ...tdBig, background: "#FECDD3", fontWeight: 800, color: "#9F1239", ...zEdge }}>{fmt(sg((r) => r.opening))}</td>
                     <td style={{ ...tdBig, background: "#FECDD3", fontWeight: 800, color: "#9F1239" }}>{fmt(sg((r) => r.received))}</td>
+                    {hasWash && <td style={{ ...tdBig, background: "#FECDD3", color: "#9F1239" }}>·</td>}
                     <td style={{ ...tdBig, background: "#FECDD3", fontWeight: 800, color: "#9F1239" }}>{fmt(sg((r) => r.total))}</td>
                     {activeCustomers.map((c, ci) => <td key={c.id} style={{ ...tdX, background: "#FECDD3", fontWeight: 800, color: "#9F1239", ...(ci === 0 ? zEdge : null) }}>{fmt(sg((r) => r.perCust[c.id] || 0))}</td>)}
                     <td style={{ ...tdBig, background: "#FECDD3", fontWeight: 800, color: "#9F1239", ...zEdge }}>{fmt(sg((r) => r.sold))}</td>
@@ -5120,6 +5293,7 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
               <th style={{ ...thX, ...S.thSticky, textAlign: "left", borderTop: "3px solid #D9CDB4" }}>ไข่เบอร์</th>
               <th style={{ ...thX, borderTop: "3px solid #D9CDB4", ...zEdge }}>ยกมา</th>
               <th style={{ ...thX, borderTop: "3px solid #D9CDB4" }}>รับเข้า</th>
+              {hasWash && <th style={{ ...thX, background: "#E0F2FE", color: "#0369A1", borderTop: "3px solid #D9CDB4" }}>🚿 ล้างไข่</th>}
               <th style={{ ...thX, background: "#F5EFE3", borderTop: "3px solid #D9CDB4" }}>รวม</th>
               {activeCustomers.map((c, ci) => <th key={c.id} style={{ ...thCustX, borderTop: "3px solid #D9CDB4", ...(ci === 0 ? zEdge : null) }}>{c.name}</th>)}
               <th style={{ ...thX, background: "#FBEFDD", borderTop: "3px solid #D9CDB4", ...zEdge }}>ขายรวม</th>
@@ -5138,6 +5312,8 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
           : <span>ยกมา = คงเหลือจริงของเมื่อวาน · รับเข้า = ผลผลิตวันนี้ (อัตโนมัติ) · ขายรวม = ยอดขายจริงจากบิล · <b style={{ color: "#15803D" }}>คงเหลือ (17:00) = ยกมา + รับเข้า − ขาย</b> · เลิกงานกด <b style={{ color: "#15803D" }}>"🔒 ปิดยอดสิ้นวัน"</b> เพื่อกรอกยอดนับจริง แล้วยกไปเป็นต้นวันของพรุ่งนี้</span>}
       </div>
 
+      {washEdit && <WashModal dateISO={day} existing={washEdit.id ? washEdit : null}
+        onSave={(rec) => addWash && addWash(rec)} onDelete={(id) => delWash && delWash(id)} onClose={() => setWashEdit(null)} />}
       {showClose && (
         <CloseDayModal
           dayTH={dayTH}
@@ -5420,6 +5596,9 @@ function exportCloseDayExcel(day, dayTH, rows, meta, refPrices = {}) {
 ============================================================ */
 // ข้อมูลจริง 1/7/69 (เบอร์ 0-5 กระจายตามสัดส่วน ให้ผลรวม = "รายการไข่ดี" ในรายงาน ; ตกเกรดหน่วยแผง)
 const OFF_KEYS = ["จัมโบ้", "บุบ", "ตอก", "จิ๋ว", "เปลือกขาว", "หัวทราย", "นวล", "เปื้อนมาก", "เปื้อนน้อย"];
+/* 🖐️ ชนิดที่ฟาร์มเก็บมือ "หลังเครื่องคัด" จริง (จากรายงานหลัง 4 · เจ้าของแจ้ง 3 ก.ย. 69)
+   หัวทราย · นวล · เปื้อนน้อย · เปื้อนมาก · บุบ — เก็บแยกจากตกเกรดในเล้า เพราะต้องหักออกจากไข่ดี */
+const PICKBACK_KEYS = ["หัวทราย", "นวล", "เปื้อนน้อย", "เปื้อนมาก", "บุบ"];
 const BER_KEYS = [0, 1, 2, 3, 4, 5];
 // สีหมวดหมู่ในตารางผลผลิต: ตกเกรด(ส้ม) · ไข่ดี(เขียว) · สรุป(ฟ้า) — D = เข้มขึ้นสำหรับช่อง %
 const PROD_C = { off: "#F7C57C", offD: "#FBE1C2", good: "#93E1AC", sum: "#95BAF6", sumD: "#D2E1FB" };
@@ -5445,7 +5624,7 @@ const HOUSES_4_7 = [
 // โรงเรือนทั้งหมดของฟาร์ม — เพิ่มหลังใหม่ที่นี่ที่เดียว ทุกหน้า (ผลผลิต/เลี้ยง/อาหาร/ยา/ต้นทุน) เห็นเอง
 // H7 เริ่มเข้าไก่ 8/7/69 (ยังไม่มีผลผลิตย้อนหลัง — วันเก่าไม่โชว์ H7 ตามจริง)
 const HOUSE_IDS = ["H2", "H3", "H4", "H5", "H6", "H7"];
-const emptyHouseDay = (id, date) => ({ id, date, chickens: 0, grade: { เบอร์: { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }, ตกเกรด: { จัมโบ้: 0, บุบ: 0, ตอก: 0, จิ๋ว: 0, เปลือกขาว: 0, หัวทราย: 0, นวล: 0, เปื้อนมาก: 0, เปื้อนน้อย: 0 } } });
+const emptyHouseDay = (id, date) => ({ id, date, chickens: 0, pickBack: {}, grade: { เบอร์: { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }, ตกเกรด: { จัมโบ้: 0, บุบ: 0, ตอก: 0, จิ๋ว: 0, เปลือกขาว: 0, หัวทราย: 0, นวล: 0, เปื้อนมาก: 0, เปื้อนน้อย: 0 } } });
 
 // ---------- สมุดวัคซีนประจำหลัง ----------
 // ข้อมูลอ้างอิงที่มาของรุ่น (โชว์หัวสมุด) — H7 = ใบบันทึกวัคซีนจากฟาร์มอนุบาล (ไก่เข้าฟาร์มเรา 8/7/69)
@@ -5943,13 +6122,13 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
   };
   // โชว์ครบทุกหลังตาม HOUSE_IDS แม้วันนั้นยังไม่มีข้อมูล (เช่น H7 เพิ่งเข้าไก่) — แถวศูนย์ ยังไม่ถูกบันทึกจนกว่าจะกดแก้จริง
   const housesAll = useMemo(() => [...houses, ...HOUSE_IDS.filter((id) => !houses.some((h) => h.id === id)).map((id) => emptyHouseDay(id, prodDate))], [houses, prodDate]);
-  const saveHouse = (id, grade, chickens, date, inspect) => {
+  const saveHouse = (id, grade, chickens, date, inspect, pickBack) => {
     if (readOnly || lockClosed) return;   // 👁 ดูอย่างเดียว / 🔒 วันปิดยอดแล้ว — กันไว้อีกชั้นแม้ปุ่มแก้ถูกซ่อน (เจ้าของแก้ได้)
     const cur = houses.find((h) => h.id === id);
     if (cur) setUndoStack((s) => [...s, { id, house: cur }]);   // จำค่าก่อนแก้ไว้ย้อนกลับ (house object เดิม ไม่ถูก mutate)
     if (setHouses) setHouses((prev) => prev.some((h) => h.id === id)
-      ? prev.map((h) => h.id === id ? { ...h, chickens, grade, date, inspect } : h)
-      : [...prev, { id, chickens, grade, date, inspect }]);   // หลังใหม่ที่ยังไม่มีในวันนั้น (H7) → บันทึกครั้งแรกค่อยเพิ่มเข้าไป
+      ? prev.map((h) => h.id === id ? { ...h, chickens, grade, date, inspect, pickBack: pickBack || {} } : h)
+      : [...prev, { id, chickens, grade, date, inspect, pickBack: pickBack || {} }]);   // หลังใหม่ที่ยังไม่มีในวันนั้น (H7) → บันทึกครั้งแรกค่อยเพิ่มเข้าไป
     setEditHouse(null);
   };
   const undoEdit = () => {   // ย้อนการแก้ครั้งล่าสุด → คืนค่าหลังนั้นเป็นค่าเดิม
@@ -5959,6 +6138,26 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
     setUndoStack((s) => s.slice(0, -1));
   };
 
+  /* 📊 %ไข่รวมของหลังนั้นในวันที่ระบุ — ใช้เทียบกับเมื่อวาน (เจ้าของสั่ง 3 ก.ย. 69) */
+  const pctTotalOn = (dateISO, hid) => {
+    const ph = (production[dateISO] || []).find((x) => x && x.id === hid);
+    if (!ph) return null;
+    const ch = nf(ph.chickens);
+    if (!ch) return null;
+    const goodFong = sumVals(ph.grade?.เบอร์);
+    const klaFong = sumVals(ph.grade?.คละ) * PER_PRADANG;
+    const offPrang = sumVals(ph.grade?.ตกเกรด);
+    const pbPrang = sumVals(ph.pickBack || {});
+    const goodNet = Math.max(0, goodFong + klaFong - pbPrang * PER_PRADANG);
+    const total = goodNet + (offPrang + pbPrang) * PER_PRADANG;
+    return total > 0 ? (total / ch) * 100 : null;
+  };
+  // วันก่อนหน้าที่มีข้อมูลของหลังนั้นจริง (ข้ามวันที่ไม่ได้ลง/ข้อมูลผี)
+  const prevDayWithData = (hid) => {
+    const ds = Object.keys(production).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && d < prodDate).sort();
+    for (let i = ds.length - 1; i >= 0; i--) { if (pctTotalOn(ds[i], hid) != null) return ds[i]; }
+    return null;
+  };
   const calc = (h) => {
     const goodFong = Object.values(h.grade.เบอร์).reduce((s, v) => s + v, 0);
     const goodPrang = goodFong / PER_PRADANG;
@@ -5966,10 +6165,21 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
     const offFong = offgrade * PER_PRADANG;
     const klaPrang = Object.values(h.grade.คละ || {}).reduce((s, v) => s + (v || 0), 0); // ไข่คละ (แผง)
     const klaFong = klaPrang * PER_PRADANG;
-    const totalFong = goodFong + offFong + klaFong;   // ไข่รวม = ดี + ตกเกรด + คละ
-    const pctOff = totalFong ? (offFong / totalFong) * 100 : 0;
+    /* 🖐️ เก็บมือหลังเครื่องคัด (แผง) — ไข่ตกเกรดที่คนหยิบออก "หลังผ่านเครื่องคัดแล้ว"
+       ไข่พวกนี้เครื่องนับเป็นไข่ดี (เบอร์ 0-5) ไปแล้ว พอหยิบออกมารวมกับตกเกรด จึงถูกนับ 2 ครั้ง
+       → ต้องหักออกจากไข่ดีด้วย (เจ้าของแจ้ง 3 ก.ย. 69 · 2 ก.ย. เพี้ยน 3,827 ฟอง = 1.46%)
+       หมายเหตุ: "เก็บมือ" ในเล้า (ก่อนเข้าเครื่อง) ไม่ต้องหัก เพราะเครื่องไม่เคยนับ */
+    const pickBackPrang = sumVals(h.pickBack || {});
+    const pickBackFong = pickBackPrang * PER_PRADANG;
+    const offAllPrang = offgrade + pickBackPrang;                   // ตกเกรดรวม = เก็บมือในเล้า + หลังเครื่อง
+    const offAllFong = offAllPrang * PER_PRADANG;
+    const goodGrossFong = goodFong + klaFong;                       // ไข่ดีที่เครื่องนับได้ (เบอร์ + คละ)
+    const goodNetFong = Math.max(0, goodGrossFong - pickBackFong);  // ไข่ดีคงเหลือ = เข้าคลังจริง
+    const totalFong = goodNetFong + offAllFong;                     // ไข่รวม (ไม่นับซ้ำ)
+    const pctOff = totalFong ? (offAllFong / totalFong) * 100 : 0;
     const pctTotal = h.chickens ? (totalFong / h.chickens) * 100 : 0;
-    return { goodFong, goodPrang, offgrade, offFong, klaPrang, klaFong, totalFong, pctOff, pctTotal };
+    return { goodFong, goodPrang, offgrade, offFong, klaPrang, klaFong,
+             pickBackPrang, pickBackFong, offAllPrang, offAllFong, goodGrossFong, goodNetFong, totalFong, pctOff, pctTotal };
   };
 
   const grand = houses.reduce((t, h) => {
@@ -5977,9 +6187,10 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
     OFF_KEYS.forEach((k) => t.off[k] = (t.off[k] || 0) + (h.grade.ตกเกรด[k] || 0));
     BER_KEYS.forEach((k) => t.ber[k] = (t.ber[k] || 0) + (h.grade.เบอร์[k] || 0));
     Object.keys(KLA_TO_PID).forEach((k) => t.klaByKey[k] = (t.klaByKey[k] || 0) + ((h.grade.คละ || {})[k] || 0));
-    t.good += c.goodFong; t.offPrang += c.offgrade; t.offFong += c.offFong; t.kla += c.klaPrang; t.total += c.totalFong; t.chickens += h.chickens;
+    t.good += c.goodFong; t.offPrang += c.offAllPrang; t.offFong += c.offAllFong; t.kla += c.klaPrang; t.pickBack += c.pickBackPrang; t.goodNet += c.goodNetFong; t.total += c.totalFong; t.chickens += h.chickens;
+    OFF_KEYS.forEach((k) => t.pbByKey[k] = (t.pbByKey[k] || 0) + ((h.pickBack || {})[k] || 0));
     return t;
-  }, { off: {}, ber: {}, good: 0, offPrang: 0, offFong: 0, kla: 0, klaByKey: {}, total: 0, chickens: 0 });
+  }, { off: {}, ber: {}, good: 0, offPrang: 0, offFong: 0, kla: 0, klaByKey: {}, pickBack: 0, pbByKey: {}, goodNet: 0, total: 0, chickens: 0 });
 
   // คอลัมน์ไข่คละ: โชว์เฉพาะน้ำหนักที่มีการลงยอดวันนั้น (มีคละแค่ 2-3 วัน/สัปดาห์ — วันอื่นไม่ให้เกะกะตาราง)
   const activeKla = Object.keys(KLA_TO_PID).filter((k) => housesAll.some((h) => ((h.grade.คละ || {})[k] || 0) > 0));
@@ -6092,9 +6303,13 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
               <th rowSpan={2} style={{ ...S.th, background: "#C2410C", color: "#fff", fontSize: 13.5 }}>%ไข่<br />ตกเกรด</th>
               {/* ไข่ดี = ไข่เบอร์ + ไข่คละ (เจ้าของยืนยัน 29 ส.ค. 69) — คละอยู่ในกลุ่มไข่ดี ช่อง "รวม" บวกทั้งสองอย่าง */}
               <th colSpan={BER_KEYS.length + activeKla.length + 1} style={{ ...S.th, background: PROD_C.good }}>รายการไข่ดี (แผง) <span style={{ fontWeight: 600, fontSize: 11.5, opacity: 0.85 }}>· <span style={{ color: "#15803D" }}>เบอร์</span> + <span style={{ color: "#0F5F55" }}>คละ</span></span></th>
+              <th rowSpan={2} style={{ ...S.th, background: "#DBEAFE", color: "#1D4ED8" }}>เก็บมือ<br />หลังเครื่อง (ฟอง)</th>
+              <th rowSpan={2} style={{ ...S.th, background: "#DBEAFE", color: "#1D4ED8" }}>ไข่ดี<br />คงเหลือ (ฟอง)</th>
               <th rowSpan={2} style={{ ...S.th, background: PROD_C.sum }}>รวมไข่ไก่<br />(ดี+ตกเกรด)</th>
               <th rowSpan={2} style={{ ...S.th, background: PROD_C.sum }}>ยอดไก่<br />คงเหลือ</th>
               <th rowSpan={2} style={{ ...S.th, background: "#15803D", color: "#fff", fontSize: 14.5, fontFamily: "'Prompt', sans-serif", letterSpacing: 0.3 }}>%ไข่<br />รวม</th>
+              <th rowSpan={2} style={{ ...S.th, background: "#8C7B5E", color: "#fff", fontSize: 13 }}>%มฐ<br />Hy-Line</th>
+              <th rowSpan={2} style={{ ...S.th, background: "#EDE9FE", color: "#5B21B6", fontSize: 13 }}>เทียบ<br />เมื่อวาน</th>
             </tr>
             <tr>
               <th style={{ ...S.th, background: PROD_C.off }}>มาก</th>
@@ -6132,9 +6347,39 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
                   {BER_KEYS.map((k) => <td key={k} style={{ ...S.td, ...flag(h.id, "ber:" + k) }}>{fmt(Math.round((h.grade.เบอร์[k] || 0) / PER_PRADANG))}</td>)}
                   {activeKla.map((k) => <td key={k} style={{ ...S.td, fontWeight: 700, color: "#0F766E", background: "#E3F8F2" }}>{(h.grade.คละ || {})[k] ? fmt(h.grade.คละ[k]) : "·"}</td>)}
                   <td style={{ ...S.td, fontWeight: 800, color: "#15803D", background: "#DBF5E4", ...flag(h.id, "rate:good") }}>{fmt(Math.round(c.goodPrang) + Math.round(c.klaPrang))}</td>
+                  <td style={{ ...S.td, background: "#EFF5FE", fontWeight: 700, color: c.pickBackFong > 0 ? "#1D4ED8" : "#c9c0ad" }}>{c.pickBackFong > 0 ? "−" + fmt(c.pickBackFong) : "·"}</td>
+                  <td style={{ ...S.td, background: "#EFF5FE", fontWeight: 800, color: "#1D4ED8" }}>{fmt(c.goodNetFong)}</td>
                   <td style={{ ...S.td, fontWeight: 600 }}>{fmt(c.totalFong)}</td>
                   <td style={S.td}>{fmt(h.chickens)}</td>
                   <td style={{ ...S.td, background: "#DCFCE7", fontWeight: 800, color: "#166534", fontSize: 14, ...flag(h.id, "rate:total") }}>{c.pctTotal.toFixed(2)}%</td>
+                  {(() => {
+                    const wk = flockAgeWk(flocks[h.id], prodDate);
+                    const std = hylineHD(wk);
+                    const vs = (std != null && c.pctTotal > 0) ? (c.pctTotal / std) * 100 : null;
+                    return (
+                      <td style={{ ...S.td, background: "#F5F0E4", color: "#6b6250", fontWeight: 700 }}>
+                        {std != null ? std.toFixed(1) + "%" : "—"}
+                        <div style={{ fontSize: 10, fontWeight: 600, color: "#9b8e78" }}>
+                          {wk != null ? wk + " สป." : "ตั้งรุ่นก่อน"}{vs != null ? ` · ${vs.toFixed(0)}%` : ""}
+                        </div>
+                      </td>
+                    );
+                  })()}
+                  {(() => {
+                    const pd = prevDayWithData(h.id);
+                    const prev = pd ? pctTotalOn(pd, h.id) : null;
+                    if (prev == null || !(c.pctTotal > 0)) return <td style={{ ...S.td, background: "#F8F6FE", color: "#c9c0ad" }}>—</td>;
+                    const d = c.pctTotal - prev;
+                    const up = d > 0.05, down = d < -0.05;
+                    const col = up ? "#15803D" : down ? "#B91C1C" : "#7a6f5c";
+                    return (
+                      <td style={{ ...S.td, background: up ? "#F0FDF4" : down ? "#FEF2F2" : "#F8F6FE", fontWeight: 800, color: col }}>
+                        {up ? "▲ ดีขึ้น" : down ? "▼ แย่ลง" : "= เท่าเดิม"}
+                        <div style={{ fontSize: 10.5, fontWeight: 700, color: col }}>{(d >= 0 ? "+" : "") + d.toFixed(2)} จุด</div>
+                        <div style={{ fontSize: 9.5, fontWeight: 600, color: "#9b8e78" }}>เทียบ {toThaiDate(pd, false)}</div>
+                      </td>
+                    );
+                  })()}
                 </tr>
               );
             })}
@@ -6146,9 +6391,47 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
               {BER_KEYS.map((k) => <td key={k} style={{ ...S.td, ...S.tfoot }}>{fmt(Math.round((grand.ber[k] || 0) / PER_PRADANG))}</td>)}
               {activeKla.map((k) => <td key={k} style={{ ...S.td, ...S.tfoot, color: "#0F766E", background: "#D5F2EA" }}>{fmt(grand.klaByKey[k] || 0)}</td>)}
               <td style={{ ...S.td, ...S.tfoot, background: "#DBF5E4", color: "#15803D" }}>{fmt(Math.round(grand.good / PER_PRADANG) + Math.round(grand.kla))}</td>
+              <td style={{ ...S.td, ...S.tfoot, color: "#1D4ED8" }}>{grand.pickBack > 0 ? "−" + fmt(grand.pickBack * PER_PRADANG) : "·"}</td>
+              <td style={{ ...S.td, ...S.tfoot, color: "#1D4ED8" }}>{fmt(grand.goodNet)}</td>
               <td style={{ ...S.td, ...S.tfoot }}>{fmt(grand.total)}</td>
               <td style={{ ...S.td, ...S.tfoot }}>{fmt(grand.chickens)}</td>
               <td style={{ ...S.td, ...S.tfoot, background: "#BBF7D0", color: "#166534", fontSize: 14 }}>{grand.chickens ? ((grand.total / grand.chickens) * 100).toFixed(2) : 0}%</td>
+              {(() => {
+                // มฐ รวมฟาร์ม = เฉลี่ยถ่วงน้ำหนักตามจำนวนไก่ของแต่ละหลัง (หลังอายุต่างกัน มฐ ต่างกัน)
+                let wSum = 0, chSum = 0;
+                houses.forEach((h) => { const std = hylineHD(flockAgeWk(flocks[h.id], prodDate)); const ch = nf(h.chickens); if (std != null && ch > 0) { wSum += std * ch; chSum += ch; } });
+                const std = chSum > 0 ? wSum / chSum : null;
+                const act = grand.chickens ? (grand.total / grand.chickens) * 100 : 0;
+                const vs = (std != null && act > 0) ? (act / std) * 100 : null;
+                return (
+                  <td style={{ ...S.td, ...S.tfoot, background: "#E6DFCE", color: "#6b6250" }}>
+                    {std != null ? std.toFixed(1) + "%" : "—"}
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "#8a8170" }}>{vs != null ? vs.toFixed(0) + "% ของมฐ" : ""}</div>
+                  </td>
+                );
+              })()}
+              {(() => {
+                // เทียบเมื่อวานทั้งฟาร์ม — ใช้วันก่อนหน้าที่มีข้อมูลจริง
+                const ds = Object.keys(production).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && d < prodDate).sort();
+                let pd = null, prevAct = null;
+                for (let i = ds.length - 1; i >= 0 && pd == null; i--) {
+                  const hs = production[ds[i]] || [];
+                  let t = 0, ch = 0;
+                  hs.forEach((x) => { const v = pctTotalOn(ds[i], x.id); if (v != null) { t += v * nf(x.chickens); ch += nf(x.chickens); } });
+                  if (ch > 0) { pd = ds[i]; prevAct = t / ch; }
+                }
+                const act = grand.chickens ? (grand.total / grand.chickens) * 100 : 0;
+                if (prevAct == null || !(act > 0)) return <td style={{ ...S.td, ...S.tfoot, background: "#EDE9FE", color: "#c9c0ad" }}>—</td>;
+                const d = act - prevAct;
+                const up = d > 0.05, down = d < -0.05;
+                const col = up ? "#15803D" : down ? "#B91C1C" : "#5B21B6";
+                return (
+                  <td style={{ ...S.td, ...S.tfoot, background: up ? "#DCFCE7" : down ? "#FEE2E2" : "#EDE9FE", color: col }}>
+                    {up ? "▲ ดีขึ้น" : down ? "▼ แย่ลง" : "= เท่าเดิม"}
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: col }}>{(d >= 0 ? "+" : "") + d.toFixed(2)} จุด</div>
+                  </td>
+                );
+              })()}
             </tr>
           </tbody>
         </table>
@@ -6185,6 +6468,10 @@ function HouseEditModal({ house, defaultDate, onClose, onSave }) {
   const [off, setOff] = useState(() => { const o = {}; Object.keys(house.grade.ตกเกรด).forEach((k) => o[k] = String(house.grade.ตกเกรด[k] ?? "")); return o; });
   // ไข่คละตามน้ำหนัก (แผง) — ข้อมูลเก่าไม่มีหมวดนี้ → เริ่มว่าง
   const [kla, setKla] = useState(() => { const src = house.grade.คละ || {}; const o = {}; Object.keys(KLA_TO_PID).forEach((k) => o[k] = src[k] != null ? String(src[k]) : ""); return o; });
+  /* 🖐️ เก็บมือหลังเครื่องคัด (แผง) — ชนิดที่ฟาร์มเก็บจริงหลังเครื่อง (เจ้าของแจ้ง 3 ก.ย. 69)
+     ต้องแยกจาก "ตกเกรด" ข้างบน เพราะไข่พวกนี้เครื่องนับเป็นไข่ดีไปแล้ว ต้องหักออกจากไข่ดี ไม่งั้นนับซ้ำ */
+  const [pb, setPb] = useState(() => { const src = house.pickBack || {}; const o = {}; PICKBACK_KEYS.forEach((k) => o[k] = src[k] != null ? String(src[k]) : ""); return o; });
+  const pbPrang = Object.values(pb).reduce((s, v) => s + (parseInt(v) || 0), 0);
   const [date, setDate] = useState(house.date || defaultDate || "");
   const insp0 = house.inspect || {};
   const [inspN, setInspN] = useState(insp0.count != null ? String(insp0.count) : "4");   // สุ่มตรวจ: ตอกไข่ วันละ 4 ฟอง/หลัง (ค่าเริ่มต้น)
@@ -6201,7 +6488,8 @@ function HouseEditModal({ house, defaultDate, onClose, onSave }) {
     const eB = {}; Object.keys(ber).forEach((k) => eB[k] = (parseInt(ber[k]) || 0) * PER_PRADANG);   // แผงที่กรอก → เก็บเป็นฟอง
     const eO = {}; Object.keys(off).forEach((k) => eO[k] = parseInt(off[k]) || 0);
     const eK = {}; Object.keys(kla).forEach((k) => eK[k] = parseInt(kla[k]) || 0);                    // ไข่คละ (แผง)
-    onSave(house.id, { เบอร์: eB, ตกเกรด: eO, คละ: eK }, parseInt(chickens) || 0, date, { count: parseInt(inspN) || 0, result: inspResult.trim() });
+    const eP = {}; PICKBACK_KEYS.forEach((k) => { const v = parseInt(pb[k]) || 0; if (v) eP[k] = v; });  // เก็บมือหลังเครื่อง (แผง)
+    onSave(house.id, { เบอร์: eB, ตกเกรด: eO, คละ: eK }, parseInt(chickens) || 0, date, { count: parseInt(inspN) || 0, result: inspResult.trim() }, eP);
   };
   // กด Enter → ไปช่องถัดไป ; ช่องสุดท้าย → โฟกัสปุ่มบันทึก (Enter ซ้ำ = บันทึก)
   const onKey = (idx) => (e) => {
@@ -6255,6 +6543,24 @@ function HouseEditModal({ house, defaultDate, onClose, onSave }) {
           </div>
         </div>
 
+        {/* 🖐️ เก็บมือหลังเครื่องคัด — ต้องหักออกจากไข่ดี กันนับซ้ำ */}
+        <div style={section("#EFF6FF", "#BFDBFE", "#1D4ED8")}>
+          <div style={{ fontWeight: 800, color: "#1D4ED8", fontSize: 13, marginBottom: 3 }}>🖐️ เก็บมือหลังเครื่องคัด (แผง)</div>
+          <div style={{ fontSize: 11.5, color: "#3B6FC4", marginBottom: 8, textAlign: "left", lineHeight: 1.5 }}>
+            ไข่ตกเกรดที่หยิบออก <b>หลังผ่านเครื่องคัดแล้ว</b> — เครื่องนับเป็นไข่ดีไปแล้ว ระบบจะ<b>หักออกจากไข่ดีให้อัตโนมัติ</b> กันยอดเพี้ยน
+            <br /><span style={{ color: "#7a8ba8" }}>ส่วน "ตกเกรด" ข้างบน = เก็บมือในเล้า (ก่อนเข้าเครื่อง) ไม่ต้องหัก</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 7 }}>
+            {PICKBACK_KEYS.map((k, i) => fieldWrap("pb" + k, k, <input {...regInput(offBase + offKeys.length + i, "pfPb", { padding: "6px 8px", fontSize: 13.5 })} value={withCommas(pb[k])} onChange={stripSet((v) => setPb((p) => ({ ...p, [k]: v })))} />, "#1D4ED8", 11.5))}
+          </div>
+          {pbPrang > 0 && (
+            <div style={{ marginTop: 8, background: "#DBEAFE", border: "1.5px solid #93C5FD", borderRadius: 9, padding: "7px 11px", fontSize: 12.5, fontWeight: 700, color: "#1D4ED8", textAlign: "left", lineHeight: 1.6 }}>
+              เก็บมือหลังเครื่อง <b>{fmt(pbPrang)} แผง = {fmt(pbPrang * PER_PRADANG)} ฟอง</b>
+              <br />→ ตกเกรดรวมเป็น {fmt(offPrang + pbPrang)} แผง · ไข่ดีคงเหลือ {fmt(Math.max(0, (goodPrang + klaPrang) * PER_PRADANG - pbPrang * PER_PRADANG))} ฟอง
+            </div>
+          )}
+        </div>
+
         <div style={section("#ECFEFF", "#A5F3FC", "#0891B2")}>
           <div style={{ fontWeight: 800, color: "#155E75", fontSize: 13, marginBottom: 8 }}>🥚 ไข่คละ (แผง) · ตามน้ำหนัก</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 7 }}>
@@ -6295,7 +6601,80 @@ function HouseEditModal({ house, defaultDate, onClose, onSave }) {
 ============================================================ */
 const nf = (v) => { const n = parseFloat(String(v ?? "").replace(/,/g, "")); return isNaN(n) ? 0 : n; };
 const shiftDayISO = (iso, delta) => { const [y, m, d] = iso.split("-").map(Number); const dt = new Date(y, m - 1, d + delta); return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`; };
-const emptyRearing = () => ({ loss: { cull: "", deadAm: "", deadPm: "", deadWtAm: "", deadWtPm: "", deadWt: "" }, feed: { no: "", medInFeed: "", s1open: "", s1recv: "", s1used: "", s2open: "", s2recv: "", s2used: "" }, water: { m1: "", m2: "", m3: "", m4: "", m5: "", m6: "" }, light: { hours: "", lux: "" }, bw: { avg: "", uni: "", n: "" }, meds: "", medsList: [], note: "" });   // deadWtAm/Pm = นน.ไก่ตายชั่งแยกเช้า/บ่าย (กก.) · deadWt = ข้อมูลเก่าที่ชั่งรวม (คงไว้ให้อ่านย้อนหลังได้) · sNopen = อาหารยกมาจากวันก่อน · medsList = ยา/สารเสริมหลายรายการ [{name,period,qty,water,time}]
+/* 💊⚠️ ตรวจ "ตัวยาซ้อน" — ให้ยาตัวเดียวกันทั้งในอาหารและในน้ำวันเดียวกัน ไก่ได้รับเกินที่ตั้งใจ
+   ที่มา: ตรวจบันทึก H2 25–31 ส.ค. 69 เจอ Amoxy+Colistin ให้ซ้อน 2 ทาง 7 วันติด (เจ้าของสั่งทำหน้าเตือน 3 ก.ย. 69)
+   จับคู่ด้วย "ตัวยาสำคัญ" ไม่ใช่ชื่อการค้า เพราะชื่อการค้าต่างกันแต่ตัวยาเดียวกัน (ม็อกซี่การ์ด = Amoxy) */
+const DRUG_INGREDIENT = [
+  { key: "amoxicillin", label: "Amoxicillin", pats: ["amoxy", "amoxi", "among", "ม็อกซี่การ์ด", "มอกซี่การ์ด", "โนวามื็อกซิน", "โนวาม็อกซิน", "amoxicillin"] },   // "among" = พิมพ์ผิดของ Amoxy ที่เจอจริงในบันทึก 21 ก.ค. 69
+  { key: "colistin", label: "Colistin", pats: ["colistin", "โคลิเคียว", "โคลิสติน"], critical: true },
+  { key: "tylosin", label: "Tylosin", pats: ["tylosin", "ทาร์โลชิน", "ทาโลซิน", "ไทโลซิน"] },
+  { key: "doxycycline", label: "Doxycycline", pats: ["doxy", "ด็อกซิเคียว", "ดอกซิเคียว"] },
+  { key: "enrofloxacin", label: "Enrofloxacin", pats: ["enro", "เอ็นโรการ์ด", "เอนโรการ์ด"], critical: true },
+  { key: "bacitracin", label: "Bacitracin (BMD)", pats: ["bmd", "bacitracin"] },
+  { key: "tiamulin", label: "Tiamulin", pats: ["tiamulin", "ไทอามูลิน"] },
+  { key: "sulfa", label: "Sulfa", pats: ["sulfa", "ซัลฟา", "trimethoprim"] },
+];
+const drugIngredients = (txt) => {
+  const t = String(txt || "").toLowerCase();
+  if (!t.trim()) return [];
+  return DRUG_INGREDIENT.filter((d) => d.pats.some((x) => t.includes(x.toLowerCase())));
+};
+/* คืนรายการตัวยาที่ให้ซ้อนกัน จากบันทึกการเลี้ยง 1 วัน (r)
+   ซ้อนได้ 2 แบบ: (ก) อยู่ทั้งในอาหารและในน้ำ  (ข) อยู่ในน้ำ 2 รายการที่ตัวยาเดียวกัน */
+/* ตรวจ ppm ที่น่าจะพิมพ์เกินหลัก — ยาผสมอาหารปกติอยู่ราว 20–600 ppm
+   เจอจริง: "Amoxy 400ppm/Colistin 3000ppm" (24 ก.ค. 69) ซึ่งควรเป็น 300ppm */
+function ppmSuspects(txt) {
+  const out = [];
+  String(txt || "").replace(/(\d[\d,]*)\s*ppm/gi, (m, num) => {
+    const v = parseInt(String(num).replace(/,/g, ""), 10);
+    if (v > 1000) out.push({ raw: m.trim(), value: v });
+    return m;
+  });
+  return out;
+}
+function medOverlaps(r) {
+  if (!r) return [];
+  const inFeed = {}; drugIngredients(r.feed?.medInFeed).forEach((d) => { inFeed[d.key] = d; });
+  const inWater = {};
+  (r.medsList || []).forEach((m) => {
+    drugIngredients(m?.name).forEach((d) => {
+      inWater[d.key] = inWater[d.key] || { ...d, names: [] };
+      inWater[d.key].names.push(String(m.name || "").trim());
+    });
+  });
+  const out = [];
+  Object.keys(inWater).forEach((k) => {
+    const w = inWater[k];
+    if (inFeed[k]) out.push({ ...w, how: "feed+water", feedTxt: String(r.feed.medInFeed || "").trim() });
+    else if (w.names.length > 1) out.push({ ...w, how: "water2" });
+  });
+  return out;
+}
+
+/* 🌾 สูตรยาผสมอาหารมาตรฐาน — กดเลือกแทนพิมพ์มือ (เจ้าของแจ้ง 3 ก.ย. 69 ว่าสะกดกันหลายแบบ 12 แบบใน 3 เดือน)
+   ตั้งชื่อให้ตรงกันทุกครั้ง จะได้รวมยอด/เทียบย้อนหลัง/คิดต้นทุนได้ · ยังพิมพ์เองได้ถ้าเป็นสูตรใหม่ */
+const FEED_MED_PRESETS = [
+  "Amoxy 50% 400ppm + Colistin 40% 300ppm",
+  "Amoxy 50% 500ppm + Colistin 40% 300ppm",
+  "BMD 100ppm",
+  "Ivermectin 3ppm",
+];
+/* รวมสูตรที่สะกดต่างกันให้เป็นตัวเดียว เพื่อนับ/เทียบย้อนหลัง (ไม่ได้แก้ข้อมูลเดิม แค่ใช้ตอนสรุป) */
+function normFeedMed(txt) {
+  let t = String(txt || "").toLowerCase().replace(/\s+/g, "").replace(/among/g, "amoxy");
+  if (!t) return "";
+  const parts = [];
+  const m1 = t.match(/amoxy[^+/]*?(\d{2,4})ppm/); if (m1) parts.push("Amoxy " + m1[1] + "ppm");
+  const m2 = t.match(/colistin[^+/]*?(\d{2,4})ppm/); if (m2) parts.push("Colistin " + m2[1] + "ppm");
+  const m3 = t.match(/bmd[^+/]*?(\d{2,4})ppm/); if (m3) parts.push("BMD " + m3[1] + "ppm");
+  const m4 = t.match(/ivermectin[^+/]*?(\d{1,3})ppm/); if (m4) parts.push("Ivermectin " + m4[1] + "ppm");
+  if (parts.length) return parts.join(" + ");
+  if (t.includes("amoxy") && t.includes("colistin")) return "Amoxy + Colistin (ไม่ระบุ ppm)";
+  if (t.includes("bmd")) return "BMD (ไม่ระบุ ppm)";
+  return String(txt || "").trim();
+}
+
+const emptyRearing = () => ({ loss: { cull: "", deadAm: "", deadPm: "", deadWtAm: "", deadWtPm: "", deadWt: "" }, feed: { no: "", medInFeed: "", s1open: "", s1recv: "", s1used: "", s2open: "", s2recv: "", s2used: "" }, water: { m1: "", m2: "", m3: "", m4: "", m5: "", m6: "" }, light: { hours: "", lux: "" }, bw: { avg: "", uni: "", n: "" }, necro: { n: "", findings: "" }, meds: "", medsList: [], note: "" });   // necro = ผลการผ่าซาก: n=จำนวนตัวที่ผ่า findings=รอยโรคที่พบ (รูปเก็บใน loss.photos สูงสุด 5 รูป · เจ้าของสั่ง 3 ก.ย. 69)   // deadWtAm/Pm = นน.ไก่ตายชั่งแยกเช้า/บ่าย (กก.) · deadWt = ข้อมูลเก่าที่ชั่งรวม (คงไว้ให้อ่านย้อนหลังได้) · sNopen = อาหารยกมาจากวันก่อน · medsList = ยา/สารเสริมหลายรายการ [{name,period,qty,water,time}]
 // นน.ไก่ตายรวมของวัน (กก.) — รวมเช้า+บ่าย และบวกค่าเก่าแบบชั่งรวม (บันทึกก่อนแยกช่อง) ให้รายงานเก่าไม่เพี้ยน
 const deadWtOf = (loss) => nf(loss?.deadWtAm) + nf(loss?.deadWtPm) + nf(loss?.deadWt);
 // สรุปยา/สารเสริมสั้น ๆ สำหรับตาราง เช่น "Enro 13 ขวด · Calcium 2 ขวด" (ข้อมูลเก่าใช้ข้อความ meds เดิม)
@@ -6904,14 +7283,21 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = n
   const rmMed = (i) => setMedsList((p) => p.filter((_, j) => j !== i));
   const [note, setNote] = useState(d0.note || "");
   const [photoBusy, setPhotoBusy] = useState("");   // สถานะอัพรูปผ่าซาก ("" = ว่าง)
+  const [necro, setNecro] = useState({ ...emptyRearing().necro, ...(d0.necro || {}) });   // ผลการผ่าซาก
+  const MAX_NECRO_PHOTOS = 5;
   // แนบรูปผ่าซากไก่ตาย → ย่อรูป → อัพขึ้น Supabase Storage (bucket: necropsy) → เก็บ URL ไว้ใน loss.photos
   const addNecropsyPhotos = async (e) => {
     const files = [...(e.target.files || [])]; e.target.value = "";
     if (!files.length) return;
     if (!supabase) { alert("โหมดทดลอง (ยังไม่เชื่อมคลาวด์) — อัพรูปไม่ได้"); return; }
+    const already = (loss.photos || []).length;
+    if (already >= MAX_NECRO_PHOTOS) { alert(`แนบรูปได้สูงสุด ${MAX_NECRO_PHOTOS} รูปต่อวัน — ลบรูปเก่าออกก่อนถ้าต้องการเพิ่ม`); return; }
+    const room = MAX_NECRO_PHOTOS - already;
+    const use = files.slice(0, room);
+    if (files.length > room) alert(`แนบได้อีกแค่ ${room} รูป (สูงสุด ${MAX_NECRO_PHOTOS} รูปต่อวัน) — จะอัพให้ ${room} รูปแรก`);
     setPhotoBusy("⏳ กำลังอัพโหลดรูป...");
     try {
-      for (const f of files) {
+      for (const f of use) {
         if (!f.type.startsWith("image/")) continue;
         const blob = await shrinkImage(f);
         const path = `${dateISO}/${houseId}/${Date.now()}-${Math.random().toString(36).slice(2, 6)}.jpg`;
@@ -6955,7 +7341,7 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = n
   const waterMlPerBird = waterUnitUsed != null && birdsLive ? (waterUnitUsed * waterUnitToMl(houseId)) / birdsLive : null;   // H2-H3 มิเตอร์ลิตร · H4-H7 คิว → มล. ÷ ไก่
   const stdWaterMl = stdFeedG != null ? stdFeedG * 2.0 : null;
   const waterLow = waterMlPerBird != null && stdWaterMl != null && waterMlPerBird < stdWaterMl * 0.9;
-  const dataOut = (draft) => ({ loss, feed, water, light, bw, meds: "", medsList: medsList.filter((m) => (m.name || "").trim()), note: note.trim(), draft });
+  const dataOut = (draft) => ({ loss, feed, water, light, bw, necro, meds: "", medsList: medsList.filter((m) => (m.name || "").trim()), note: note.trim(), draft });
   return (
     <div style={S.modalOverlay} onClick={onClose}>
       <div style={{ ...S.modal, maxWidth: 500, maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
@@ -7043,23 +7429,46 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = n
               </>;
             })()}
           </div>
-          {/* รูปผ่าซากไก่ตาย — อัพขึ้นคลาวด์ ผูกกับวัน/โรงเรือน ไว้ให้วิเคราะห์สาเหตุการตาย */}
-          <div style={{ borderTop: "1px dashed #FECACA", paddingTop: 8, marginTop: 4, marginBottom: 6 }}>
-            <div style={{ fontSize: 11.5, fontWeight: 700, color: "#B91C1C", marginBottom: 6, textAlign: "left" }}>📷 รูปผ่าซากไก่ตาย (ถ้ามี — แนบได้หลายรูป เก็บขึ้นคลาวด์)</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-              {(loss.photos || []).map((ph, i) => (
-                <div key={ph.path || i} style={{ position: "relative" }}>
-                  <SlipThumb src={ph.url} size={54} />
-                  <button onClick={() => rmNecropsyPhoto(i)} title="ลบรูปนี้ออกจากบันทึก"
-                    style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: "50%", border: "none", background: "#DC2626", color: "#fff", fontSize: 11, fontWeight: 800, lineHeight: 1, cursor: "pointer", padding: 0 }}>✕</button>
-                </div>
-              ))}
-              <label style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", border: "1.5px dashed #FCA5A5", borderRadius: 9, background: "#fff", color: "#B91C1C", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+        </div>
+
+        {/* 🔬 ผลการผ่าซาก — บันทึกรอยโรคที่พบ + แนบรูปได้สูงสุด 5 รูป (เจ้าของสั่ง 3 ก.ย. 69) */}
+        <div style={section("#F7F0FF", "#DDCBF5", "#7C3AED")}>
+          <div style={{ fontWeight: 800, color: "#6D28D9", fontSize: 13, marginBottom: 8 }}>
+            🔬 ผลการผ่าซาก <span style={{ fontWeight: 600, color: "#9b8e78", fontSize: 11.5 }}>· วันไหนไม่ได้ผ่า เว้นว่างไว้</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 9, alignItems: "start", marginBottom: 9 }}>
+            <div style={{ width: 120 }}>
+              <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: "#6D28D9", marginBottom: 3, textAlign: "left" }}>ผ่ากี่ตัว</label>
+              <input className="prodInput pfNecro" type="text" inputMode="numeric" placeholder="0" style={cell}
+                value={necro.n} onChange={(e) => setNecro((p) => ({ ...p, n: int_(e.target.value) }))} />
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: "#6D28D9", marginBottom: 3, textAlign: "left" }}>รอยโรค / สิ่งที่พบ</label>
+              <textarea rows={3} value={necro.findings} onChange={(e) => setNecro((p) => ({ ...p, findings: e.target.value }))}
+                placeholder="เช่น ท่อไข่อักเสบ · ตับบวมมีจุดขาว · ลำไส้อักเสบเรื้อรัง · พบรอยโรคสะสมมานาน · ไม่พบรอยโรค"
+                style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #DDCBF5", borderRadius: 9, fontSize: 14, fontFamily: "inherit", outline: "none", boxSizing: "border-box", resize: "vertical", textAlign: "left" }} />
+            </div>
+          </div>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: "#6D28D9", marginBottom: 6, textAlign: "left" }}>
+            📷 รูปผ่าซาก <span style={{ fontWeight: 600, color: "#9b8e78" }}>· {(loss.photos || []).length}/{MAX_NECRO_PHOTOS} รูป · เก็บขึ้นคลาวด์ ดูย้อนหลังได้</span>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+            {(loss.photos || []).map((ph, i) => (
+              <div key={ph.path || i} style={{ position: "relative" }}>
+                <a href={ph.url} target="_blank" rel="noreferrer" title="กดเพื่อดูรูปเต็ม"><SlipThumb src={ph.url} size={62} /></a>
+                <button onClick={() => rmNecropsyPhoto(i)} title="ลบรูปนี้ออกจากบันทึก"
+                  style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: "50%", border: "none", background: "#DC2626", color: "#fff", fontSize: 11, fontWeight: 800, lineHeight: 1, cursor: "pointer", padding: 0 }}>✕</button>
+              </div>
+            ))}
+            {(loss.photos || []).length < MAX_NECRO_PHOTOS ? (
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 13px", border: "1.5px dashed #A78BFA", borderRadius: 9, background: "#fff", color: "#6D28D9", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
                 📷 ถ่าย / แนบรูป
                 <input type="file" accept="image/*" multiple style={{ display: "none" }} onChange={addNecropsyPhotos} />
               </label>
-              {photoBusy && <span style={{ fontSize: 12, color: "#B45309", fontWeight: 700 }}>{photoBusy}</span>}
-            </div>
+            ) : (
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#9b8e78" }}>ครบ {MAX_NECRO_PHOTOS} รูปแล้ว — ลบรูปเก่าออกก่อนถ้าจะเพิ่ม</span>
+            )}
+            {photoBusy && <span style={{ fontSize: 12, color: "#B45309", fontWeight: 700 }}>{photoBusy}</span>}
           </div>
         </div>
 
@@ -7067,7 +7476,46 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = n
           <div style={{ fontWeight: 800, color: "#B45309", fontSize: 13, marginBottom: 8 }}>🌾 อาหาร (กก.)</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9, marginBottom: 8 }}>
             {fw("fno", "เบอร์อาหาร", <input ref={(el) => { refs.current[7] = el; }} onKeyDown={onKey(7)} onFocus={(e) => e.target.select()} className="prodInput pfFeed" type="text" placeholder="เช่น 324" style={{ ...cell, textAlign: "left" }} value={feed.no} onChange={(e) => setFeed((p) => ({ ...p, no: e.target.value }))} />, "#B45309")}
-            {fw("fmed", "สูตรยาในอาหาร", <input onFocus={(e) => e.target.select()} className="prodInput pfFeed" type="text" placeholder="เช่น อะม็อกซี่ / วิตามิน (เว้นว่างถ้าไม่มี)" style={{ ...cell, textAlign: "left", gridColumn: "span 1" }} value={feed.medInFeed || ""} onChange={(e) => setFeed((p) => ({ ...p, medInFeed: e.target.value }))} />, "#B45309")}
+            {fw("fmed", "สูตรยาในอาหาร", (
+              <>
+                <input list="feedMedList" onFocus={(e) => e.target.select()} className="prodInput pfFeed" type="text"
+                  placeholder="กดเลือกจากรายการ หรือพิมพ์สูตรใหม่ (เว้นว่างถ้าไม่มี)"
+                  style={{ ...cell, textAlign: "left", gridColumn: "span 1" }}
+                  value={feed.medInFeed || ""} onChange={(e) => setFeed((p) => ({ ...p, medInFeed: e.target.value }))} />
+                <datalist id="feedMedList">
+                  {FEED_MED_PRESETS.map((x) => <option key={x} value={x} />)}
+                  {medStock.filter((m) => m.route === "feed").map((m) => <option key={m.id} value={m.name} />)}
+                </datalist>
+                {/* ปุ่มลัดสูตรที่ใช้บ่อย — กดทีเดียว ไม่ต้องพิมพ์ กันสะกดหลายแบบ */}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 5 }}>
+                  {FEED_MED_PRESETS.map((x) => (
+                    <button key={x} type="button" onClick={() => setFeed((p) => ({ ...p, medInFeed: x }))}
+                      style={{ border: `1.5px solid ${feed.medInFeed === x ? "#B45309" : "#F0D5A8"}`, background: feed.medInFeed === x ? "#B45309" : "#fff", color: feed.medInFeed === x ? "#fff" : "#B45309", borderRadius: 999, padding: "3px 9px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                      {x.replace(/ 50% | 40% /g, " ").replace(/Amoxy (\d+)ppm \+ Colistin (\d+)ppm/, "Amoxy $1 + Coli $2")}
+                    </button>
+                  ))}
+                  {feed.medInFeed ? (
+                    <button type="button" onClick={() => setFeed((p) => ({ ...p, medInFeed: "" }))}
+                      style={{ border: "1.5px solid #d8cdb6", background: "#fff", color: "#7a6f5c", borderRadius: 999, padding: "3px 9px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>✕ ล้าง</button>
+                  ) : null}
+                </div>
+                {/* เตือนถ้าพิมพ์สูตรที่ไม่ตรงกับมาตรฐาน — กันสะกดใหม่ซ้ำซ้อน */}
+                {(() => {
+                  const t = String(feed.medInFeed || "").trim();
+                  if (!t || FEED_MED_PRESETS.includes(t)) return null;
+                  const n = normFeedMed(t);
+                  const match = FEED_MED_PRESETS.find((x) => normFeedMed(x) === n);
+                  if (!match) return null;
+                  return (
+                    <div style={{ marginTop: 5, fontSize: 11.5, fontWeight: 700, color: "#B45309", background: "#FFFBF2", border: "1px solid #F0D5A8", borderRadius: 7, padding: "5px 8px", textAlign: "left" }}>
+                      สูตรนี้ตรงกับ <b>{match}</b> —{" "}
+                      <button type="button" onClick={() => setFeed((p) => ({ ...p, medInFeed: match }))}
+                        style={{ border: "none", background: "#B45309", color: "#fff", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>ใช้ชื่อมาตรฐาน</button>
+                    </div>
+                  );
+                })()}
+              </>
+            ), "#B45309")}
             <div />
             {fw("s1o", "ไซโล 1 · ยกมาจากวันก่อน", <input {...numProps(8, "pfFeed")} placeholder={fmt1(siloRemain.s1)} title="เว้นว่าง = ใช้ยอดทดต่อจากระบบ (คงเหลือเมื่อวาน) · กรอก = ตั้งยอดตามที่เช็คจริง" value={feed.s1open} onChange={(e) => setFeed((p) => ({ ...p, s1open: dec(e.target.value) }))} />, "#B45309")}
             {fw("s1r", "ไซโล 1 · รับเข้า", <input {...numProps(9, "pfFeed")} value={feed.s1recv} onChange={(e) => setFeed((p) => ({ ...p, s1recv: dec(e.target.value) }))} />, "#B45309")}
@@ -7106,6 +7554,34 @@ function RearingEditModal({ houseId, dateISO, data, siloRemain, birds, flock = n
 
         <div style={section("#F0FDFA", "#99F6E4", "#0D9488")}>
           <div style={{ fontWeight: 800, color: "#0F766E", fontSize: 13, marginBottom: 8 }}>💊 ยา / สารเสริม / วัคซีน · บันทึกได้หลายรายการต่อวัน · เลือกจากสต๊อก = ตัดสต๊อก+คิดต้นทุนอัตโนมัติ</div>
+          {/* ⚠️ เตือนสดตอนพิมพ์: ตัวยาเดียวกันให้ซ้อน 2 ทาง (อาหาร+น้ำ) ไก่ได้รับเกินที่ตั้งใจ */}
+          {(() => {
+            const ov = medOverlaps({ feed, medsList });
+            const ppmBad = ppmSuspects(feed.medInFeed);
+            if (!ov.length && !ppmBad.length) return null;
+            return (
+              <div style={{ background: "#FEF2F2", border: "2px solid #EF4444", borderRadius: 10, padding: "10px 12px", marginBottom: 10, color: "#B91C1C", fontSize: 13, lineHeight: 1.65 }}>
+                {ppmBad.length > 0 && (
+                  <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 4 }}>
+                    ⚠️ ตัวเลข ppm สูงผิดปกติ: {ppmBad.map((x) => x.raw).join(" · ")}
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "#7F1D1D" }}>ยาผสมอาหารปกติอยู่ราว 20–600 ppm — เช็คว่าพิมพ์เกินหลักหรือเปล่า (เช่น 3000 ที่ควรเป็น 300)</div>
+                  </div>
+                )}
+                {ov.length > 0 && <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 3 }}>⚠️ ตัวยาซ้อนกัน {ov.length} ตัว — ไก่จะได้รับเกินที่ตั้งใจ</div>}
+                {ov.map((d) => (
+                  <div key={d.key} style={{ marginTop: 2 }}>
+                    • <b>{d.label}</b>{d.critical ? <span style={{ background: "#B91C1C", color: "#fff", fontSize: 10.5, fontWeight: 800, borderRadius: 5, padding: "1px 6px", marginLeft: 5 }}>ยาสำรองสุดท้าย</span> : null}
+                    {d.how === "feed+water"
+                      ? <> — อยู่ในอาหาร (<i>{d.feedTxt}</i>) และในน้ำ (<i>{d.names.join(" · ")}</i>) พร้อมกัน</>
+                      : <> — อยู่ในน้ำ {d.names.length} รายการที่เป็นตัวยาเดียวกัน (<i>{d.names.join(" · ")}</i>)</>}
+                  </div>
+                ))}
+                <div style={{ marginTop: 6, fontSize: 12, fontWeight: 600, color: "#7F1D1D" }}>
+                  ถ้าตั้งใจให้ซ้อนตามที่หมอสั่ง บันทึกต่อได้เลย — แถบนี้เตือนให้เช็คก่อน ไม่ได้ห้ามบันทึก
+                </div>
+              </div>
+            );
+          })()}
           {medsList.map((m, i) => (
             <div key={i} style={{ background: "#fff", border: "1px solid #99F6E4", borderRadius: 10, padding: "8px 8px 4px", marginBottom: 7 }}>
               <div style={{ display: "grid", gridTemplateColumns: "1.9fr 0.9fr auto", gap: 6, marginBottom: 6 }}>
@@ -7891,7 +8367,7 @@ function HealthHubView({ production = {}, flocks = {}, vaccines = {}, addVaccine
   const [openAdvice, setOpenAdvice] = useState(false);
   const [vacHouse, setVacHouse] = useState(null);
   const prodDates = Object.keys(production).sort();
-  const latestDate = prodDates[prodDates.length - 1] || isoFromTs(Date.now());
+  const latestDate = latestRealProdDate(production);   // ไม่เอาข้อมูลผี (คีย์ว่าง/วันอนาคตที่ไข่เป็น 0)
   const dayHouses = production[latestDate] || [];
   const alertCfg = useMemo(() => { try { const st = localStorage.getItem(ALERT_STORE_KEY); return normAlertCfg(st ? JSON.parse(st) : DEFAULT_ALERT_CFG); } catch { return normAlertCfg(DEFAULT_ALERT_CFG); } }, []);
   const housesAll = [...dayHouses, ...HOUSE_IDS.filter((id) => !dayHouses.some((h) => h.id === id)).map((id) => emptyHouseDay(id, latestDate))];
@@ -8898,7 +9374,23 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
             };
             // เรียงวันที่ล่าสุดไว้บนสุด — หมอเปิดมาเห็นวันปัจจุบันทันที ไม่ต้องเลื่อนลงล่าง (เจ้าของสั่ง 2 ก.ย. 69)
             const rowsV = [...hDays].sort((a, b) => String(b).localeCompare(String(a))).map((d) => ({ ...calcDay(d), egg: eggOf(d) }));
+            // สรุปวันที่ให้ยาซ้อน 2 ทาง (90 วันล่าสุด) — ไว้เตือนหมอบนหัวตาราง
+            const ovDays = rowsV.slice(0, 90).map((x) => ({ d: x.d, ov: medOverlaps(x.r) })).filter((x) => x.ov.length);
+            const ovByDrug = {};
+            ovDays.forEach((x) => x.ov.forEach((d) => { ovByDrug[d.label] = (ovByDrug[d.label] || 0) + 1; }));
             return (
+              <>
+              {ovDays.length > 0 && (
+                <div style={{ background: "#FEF2F2", border: "2px solid #EF4444", borderRadius: 10, padding: "10px 13px", marginBottom: 10, color: "#B91C1C", fontSize: 13, lineHeight: 1.7 }}>
+                  <div style={{ fontWeight: 800, fontSize: 14.5, marginBottom: 3 }}>
+                    ⚠️ พบการให้ยาซ้อน 2 ทาง {ovDays.length} วัน (จาก 90 วันล่าสุด)
+                  </div>
+                  <div>{Object.entries(ovByDrug).map(([k, v]) => <span key={k} style={{ display: "inline-block", background: "#fff", border: "1px solid #FCA5A5", borderRadius: 999, padding: "2px 10px", marginRight: 6, fontWeight: 700 }}>{k} · {v} วัน</span>)}</div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#7F1D1D", marginTop: 5 }}>
+                    วันล่าสุดที่ซ้อน: {ovDays.slice(0, 5).map((x) => toThaiDate(x.d, false)).join(" · ")}{ovDays.length > 5 ? ` และอีก ${ovDays.length - 5} วัน` : ""} — ดูแถวที่พื้นแดงในคอลัมน์ "การให้ยา"
+                  </div>
+                </div>
+              )}
               <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflow: "auto", maxHeight: "74vh" }}>
                 <table style={{ borderCollapse: "collapse", minWidth: 1500 }}>
                   <thead>
@@ -8915,6 +9407,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                       <th rowSpan={2} style={{ ...vTh, background: "#FDF4FF", color: "#86198F" }}>ชม.<br />แสง</th>
                       <th rowSpan={2} style={{ ...vTh, background: "#FDF4FF", color: "#86198F" }}>Lux</th>
                       <th colSpan={4} style={{ ...vTh, ...edge, background: "#F2FBF4", color: "#15803D" }}>ผลผลิตไข่</th>
+                      <th rowSpan={2} style={{ ...vTh, ...edge, background: "#F7F0FF", color: "#6D28D9", textAlign: "left" }}>🔬 ผลการผ่าซาก</th>
                       <th rowSpan={2} style={{ ...vTh, ...edge, textAlign: "left" }}>การให้ยา / สารเสริม</th>
                     </tr>
                     <tr>
@@ -8957,14 +9450,39 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                         <td style={{ ...vTd, background: "#F7FDF9", fontWeight: 700, color: "#B45309" }}>{x.egg ? fmt(x.egg.offPrang) : "—"}</td>
                         <td style={{ ...vTd, background: "#F7FDF9", fontWeight: 800, color: "#15803D" }}>{x.egg?.pctHD != null ? x.egg.pctHD.toFixed(2) + "%" : "—"}</td>
                         <td style={{ ...vTd, background: "#F7FDF9", fontWeight: 700, color: "#9A3412" }}>{x.egg?.pctOff != null ? x.egg.pctOff.toFixed(2) + "%" : "—"}</td>
-                        <td style={{ ...vTd, ...edge, textAlign: "left", maxWidth: 240, whiteSpace: "normal", fontSize: 12 }} title={medsDetail(x.r) + (x.r?.note ? " · " + x.r.note : "")}>
-                          {medsSummary(x.r) || (x.r?.note ? "📝 " + x.r.note : "—")}
+                        <td style={{ ...vTd, ...edge, background: "#FCFAFF", textAlign: "left", maxWidth: 260, whiteSpace: "normal", fontSize: 12 }}>
+                          {(() => {
+                            const nc = x.r?.necro || {}, phs = x.r?.loss?.photos || [];
+                            if (!String(nc.findings || "").trim() && !nf(nc.n) && !phs.length) return <span style={{ color: "#c9c0ad" }}>—</span>;
+                            return (
+                              <div>
+                                {nf(nc.n) ? <div style={{ fontWeight: 800, color: "#6D28D9" }}>ผ่า {fmt(nf(nc.n))} ตัว</div> : null}
+                                {nc.findings ? <div style={{ color: "#4C1D95", lineHeight: 1.5 }}>{nc.findings}</div> : null}
+                                {phs.length ? (
+                                  <div style={{ display: "flex", gap: 4, marginTop: 4, flexWrap: "wrap" }}>
+                                    {phs.map((ph, k) => <a key={ph.path || k} href={ph.url} target="_blank" rel="noreferrer" title="กดดูรูปเต็ม"><SlipThumb src={ph.url} size={38} /></a>)}
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })()}
+                        </td>
+                        <td style={{ ...vTd, ...edge, textAlign: "left", maxWidth: 240, whiteSpace: "normal", fontSize: 12, background: (medOverlaps(x.r).length ? "#FEF2F2" : undefined) }} title={medsDetail(x.r) + (x.r?.note ? " · " + x.r.note : "")}>
+                          {(() => {
+                            const ov = medOverlaps(x.r);
+                            return (<>
+                              {ov.length ? <div style={{ fontWeight: 800, color: "#B91C1C", marginBottom: 2 }} title={ov.map((d) => d.label + (d.how === "feed+water" ? " (อาหาร+น้ำ)" : " (น้ำ 2 รายการ)")).join(" · ")}>⚠️ ซ้อน: {ov.map((d) => d.label).join(" · ")}</div> : null}
+                              {x.r?.feed?.medInFeed ? <div style={{ color: "#B45309", fontWeight: 700 }}>ในอาหาร: {x.r.feed.medInFeed}</div> : null}
+                              <div>{medsSummary(x.r) || (x.r?.note ? "📝 " + x.r.note : "—")}</div>
+                            </>);
+                          })()}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+              </>
             );
           })()}
           <div style={S.hint}>เรียงคอลัมน์ตามสมุดฟอร์มกระดาษของฟาร์ม · <b>ไข่ดีรวม</b> = ไข่เบอร์ + ไข่คละ · <b>%ผลผลิต</b> = ไข่รวม (ดี+ตกเกรด) ÷ จำนวนไก่ · <b>%ตกเกรด</b> = ตกเกรด ÷ ไข่รวม · มิเตอร์ = เลขมิเตอร์น้ำ 3 ตัวแรกที่กรอกไว้</div>
