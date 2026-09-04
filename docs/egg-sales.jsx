@@ -1291,13 +1291,17 @@ const DEFAULT_ROLES = [
   // บทบาทร้านค้าภายนอก — เข้าได้แค่ "จองออเดอร์" และเห็นเฉพาะลูกค้า/ใบจองของกลุ่มตัวเอง (custGroup)
   { id: "retail_shop", name: "ร้านค้าขายปลีก (ฉันจะกินไข่สดทุกวัน)", emoji: "🛍️", pin: "", topics: ["booking"], custGroup: "retail" },
   { id: "branch_shop", name: "ร้านฟาร์มสมบูรณ์", emoji: "🏪", pin: "", topics: ["booking"], custGroup: "branch" },
+  /* 👀 แขกของฟาร์ม — ที่ปรึกษา/ผู้มาเยี่ยมที่ช่วยดูสุขภาพไก่กับผลผลิต
+     viewOnly: true = ดูได้อย่างเดียว แก้ไม่ได้เลยทุกหน้า (เจ้าของสั่ง 4 ก.ย. 69)
+     ไม่ให้เห็นหัวข้อเงิน (บิล/ลูกหนี้/ต้นทุน) และรายชื่อลูกค้า */
+  { id: "guest", name: "แขกของฟาร์ม (ดูอย่างเดียว)", emoji: "👀", pin: "", topics: ["production", "rear", "health", "med", "trial", "manage"], viewOnly: true },
 ];
 
 // บทบาทผูกกับบัญชีล็อกอิน (ชั้นเดียว) — อยากได้มุมไหนต้องล็อกอินบัญชีนั้น ไม่มี PIN ชั้นสอง
 // ต้องตรงกับ ACCOUNTS ใน LoginScreen · farm/office = บัญชีรวมยุคเก่า (เครื่องที่ล็อกอินค้างยังใช้ได้ แต่หน้าล็อกอินไม่มีการ์ดแล้ว)
-const AUTH_ROLE_BY_USER = { owner: "owner", office: "sales", farm: "farm", acct: "acct", medclerk: "medclerk", retail: "retail_shop", branch: "branch_shop", mai: "farm", beam: "farm", nes: "farm", meaw: "sales", fai: "sales", orn: "sales", lek: "sales" };
+const AUTH_ROLE_BY_USER = { owner: "owner", office: "sales", farm: "farm", acct: "acct", medclerk: "medclerk", retail: "retail_shop", branch: "branch_shop", mai: "farm", beam: "farm", nes: "farm", meaw: "sales", fai: "sales", orn: "sales", lek: "sales", guest: "guest" };
 // ชื่อจริงของแต่ละบัญชี — โชว์ในบันทึกกิจกรรม "ใครแก้อะไร" ให้รู้ตัวคน
-const ACCOUNT_LABELS = { mai: "หมอใหม่", beam: "หมอบีม", nes: "หมอเนส", meaw: "ส.เหมียว", fai: "ส.ฝ้าย", orn: "ส.อร", lek: "ส.เล็ก", farm: "บัญชีรวม(เก่า)", office: "บัญชีรวม(เก่า)" };
+const ACCOUNT_LABELS = { mai: "หมอใหม่", beam: "หมอบีม", nes: "หมอเนส", meaw: "ส.เหมียว", fai: "ส.ฝ้าย", orn: "ส.อร", lek: "ส.เล็ก", guest: "แขกของฟาร์ม", farm: "บัญชีรวม(เก่า)", office: "บัญชีรวม(เก่า)" };
 
 /* ============================================================
    👥 บัญชีผู้ใช้ฟาร์ม (ตาราง app_accounts บนคลาวด์)
@@ -1587,6 +1591,10 @@ export default function App() {
   const [showRoleSettings, setShowRoleSettings] = useState(false);
   const [openNav, setOpenNav] = useState(null);   // กลุ่มเมนูที่กำลังเปิด dropdown (null = ปิดหมด)
   const roleObj = roles.find((r) => r.id === currentRole) || roles[0];
+  /* 👀 บัญชีแขก — ดูอย่างเดียว ห้ามแก้ทุกอย่าง (เจ้าของสั่ง 4 ก.ย. 69)
+     ยึดจาก DEFAULT_ROLES เสมอ ไม่เอาจาก localStorage กันคนแก้ eggRoles ในเครื่องเพื่อปลดล็อก */
+  const viewOnly = (DEFAULT_ROLES.find((r) => r.id === currentRole) || {}).viewOnly === true;
+  const guard = (fn) => (viewOnly ? undefined : fn);   // แขก → ส่ง undefined แทนฟังก์ชันบันทึก ปุ่มจะหายไปเอง
   const allowedTopics = roleObj.id === "owner" ? ALL_TOPIC_IDS : (roleObj.topics || []);
   const roleCustGroup = roleObj.id === "owner" ? null : (roleObj.custGroup || null);   // บทบาทร้านค้า → จำกัดให้เห็นเฉพาะกลุ่มลูกค้านี้
   const pickRole = (rid) => { const r = roles.find((x) => x.id === rid); if (!r) return; setCurrentRole(rid); setShowRolePicker(false); setAccessLog((prev) => [{ id: rid, name: r.name, emoji: r.emoji, at: new Date().toLocaleString("th-TH") }, ...prev].slice(0, 50)); };
@@ -1648,8 +1656,9 @@ export default function App() {
   useEffect(() => { try { localStorage.setItem("eggRearing", JSON.stringify(rearingByDate)); } catch {} }, [rearingByDate]);
   const [flocks, setFlocks] = useState(() => { try { return JSON.parse(localStorage.getItem("eggFlocks") || "{}"); } catch { return {}; } });
   useEffect(() => { try { localStorage.setItem("eggFlocks", JSON.stringify(flocks)); } catch {} }, [flocks]);
-  const saveFlock = (houseId, f) => setFlocks((prev) => ({ ...prev, [houseId]: f }));
+  const saveFlock = (houseId, f) => { if (viewOnly) return; setFlocks((prev) => ({ ...prev, [houseId]: f })); };   // 👀 แขกห้ามแก้
   const saveRearing = (date, houseId, data) => {
+    if (viewOnly) return;   // 👀 แขกห้ามแก้
     setRearingByDate((prev) => {
       const next = { ...prev, [date]: { ...(prev[date] || {}), [houseId]: data } };
       // ไก่คงเหลือ (เริ่มเลี้ยง − คัดสะสม − ตายสะสม) → อัปเดตยอดไก่ในหน้าผลผลิตของวันเดียวกันอัตโนมัติ
@@ -1675,7 +1684,7 @@ export default function App() {
   // 🧪 การทดลองยา/สารเสริม [{id,name,houseId,startDate,endDate,note}]
   const [medTrials, setMedTrials] = useState(() => { try { return JSON.parse(localStorage.getItem("eggMedTrials") || "[]"); } catch { return []; } });
   useEffect(() => { try { localStorage.setItem("eggMedTrials", JSON.stringify(medTrials)); } catch {} }, [medTrials]);
-  const addMedTrial = (t) => setMedTrials((prev) => [...prev, t]);
+  const addMedTrial = (t) => { if (viewOnly) return; setMedTrials((prev) => [...prev, t]); };   // 👀 แขกห้ามแก้
   const deleteMedTrial = (id) => setMedTrials((prev) => prev.filter((x) => x.id !== id));
   // 💰 บัญชีต้นทุน — ค่าใช้จ่าย 6 หมวด [{id, date, cat, houseId("" = ทั้งฟาร์ม), amount, note, ts}]
   const [expenses, setExpenses] = useState(() => { try { return JSON.parse(localStorage.getItem("eggExpenses") || "[]"); } catch { return []; } });
@@ -1697,12 +1706,12 @@ export default function App() {
     catch { return VACCINE_SEED; }
   });
   useEffect(() => { try { localStorage.setItem("eggVaccines", JSON.stringify(vaccines)); } catch {} }, [vaccines]);
-  const addVaccine = (hid, row) => setVaccines((p) => ({ ...p, [hid]: [...(p[hid] || []), { ...row, id: "VC" + Date.now(), src: "ฟาร์มเรา" }] }));   // รายการที่ฟาร์มเราทำเอง (seed = ฟาร์มต้นทาง)
+  const addVaccine = (hid, row) => { if (viewOnly) return; setVaccines((p) => ({ ...p, [hid]: [...(p[hid] || []), { ...row, id: "VC" + Date.now(), src: "ฟาร์มเรา" }] })); };   // 👀 แขกห้ามแก้   // รายการที่ฟาร์มเราทำเอง (seed = ฟาร์มต้นทาง)
   const deleteVaccine = (hid, id) => setVaccines((p) => ({ ...p, [hid]: (p[hid] || []).filter((r) => r.id !== id) }));
   // สมุดผลตรวจแล็บประจำหลัง {houseId: [rows]} — เจาะเลือด (serology) / เก็บซาก (necropsy) ส่งตรวจ
   const [labTests, setLabTests] = useState(() => { try { return JSON.parse(localStorage.getItem("eggLabTests") || "{}"); } catch { return {}; } });
   useEffect(() => { try { localStorage.setItem("eggLabTests", JSON.stringify(labTests)); } catch {} }, [labTests]);
-  const addLabTest = (hid, row) => setLabTests((p) => ({ ...p, [hid]: [...(p[hid] || []), { ...row, id: "LT" + Date.now() }] }));
+  const addLabTest = (hid, row) => { if (viewOnly) return; setLabTests((p) => ({ ...p, [hid]: [...(p[hid] || []), { ...row, id: "LT" + Date.now() }] })); };   // 👀 แขกห้ามแก้
   const deleteLabTest = (hid, id) => setLabTests((p) => ({ ...p, [hid]: (p[hid] || []).filter((r) => r.id !== id) }));
   // ใบจองไข่ล่วงหน้า (ลูกค้าจอง / เราวางแผน) [{id, customerId, date(ISO วันส่ง), items:{pid:qty}, note, ts}]
   const [bookings, setBookings] = useState(() => { try { return JSON.parse(localStorage.getItem("eggBookings") || "[]"); } catch { return []; } });
@@ -2040,12 +2049,12 @@ export default function App() {
       {view === "dash" && <DashboardView bills={activeBills} payments={payments} production={productionByDate} rearingByDate={rearingByDate} flocks={flocks} />}
       {view === "manage" && <ManageDashView production={productionByDate} rearingByDate={rearingByDate} flocks={flocks} />}
       {view === "stock" && <StockView salesByDay={salesByDay} productionByDate={productionByDate} defaultDay={isoFromTs(Date.now())} stockCounts={stockCounts} closeMeta={closeMeta} refPrices={refPrices} washLogs={washLogs} addWash={addWash} delWash={delWash} canWash={currentRole === "owner" || currentRole === "office"} onCloseDay={closeDay} onReopenDay={reopenDay} />}
-      {view === "production" && <ProductionView houses={houses} setHouses={setHouses} prodDate={prodDate} setProdDate={setProdDate} production={productionByDate} flocks={flocks} readOnly={roleObj.id === "farm"} dayClosed={stockCounts[prodDate] != null} isOwner={roleObj.id === "owner"} />}
-      {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={saveRearing} flocks={flocks} saveFlock={saveFlock} production={productionByDate} medTrials={medTrials} medStock={medStock} medInfo={medInfo} vaccines={vaccines} addVaccine={addVaccine} deleteVaccine={deleteVaccine} labTests={labTests} addLabTest={addLabTest} deleteLabTest={deleteLabTest} />}
+      {view === "production" && <ProductionView houses={houses} setHouses={setHouses} prodDate={prodDate} setProdDate={setProdDate} production={productionByDate} flocks={flocks} readOnly={viewOnly || roleObj.id === "farm"} dayClosed={stockCounts[prodDate] != null} isOwner={roleObj.id === "owner"} />}
+      {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={guard(saveRearing)} flocks={flocks} saveFlock={guard(saveFlock)} production={productionByDate} medTrials={medTrials} medStock={medStock} medInfo={medInfo} vaccines={vaccines} addVaccine={guard(addVaccine)} deleteVaccine={guard(deleteVaccine)} labTests={labTests} addLabTest={guard(addLabTest)} deleteLabTest={guard(deleteLabTest)} viewOnly={viewOnly} />}
       {view === "feed" && <FeedView rearingByDate={rearingByDate} flocks={flocks} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} feedPrice={feedPrice} setFeedPrice={setFeedPrice} feedUseByMonth={feedUseByMonth} feedCostByMonth={feedCostByMonth} />}
-      {view === "med" && <MedView production={productionByDate} medStock={medStock} medInfo={medInfo} medReceipts={medReceipts} addMedItem={addMedItem} updateMedItem={updateMedItem} addMedReceipt={addMedReceipt} medCostByMonth={medCostByMonth} canManage={currentRole === "owner" || currentRole === "medclerk"} />}
-      {view === "trial" && <TrialView medTrials={medTrials} addMedTrial={addMedTrial} deleteMedTrial={deleteMedTrial} production={productionByDate} rearingByDate={rearingByDate} />}
-      {view === "health" && <HealthHubView production={productionByDate} flocks={flocks} vaccines={vaccines} addVaccine={addVaccine} deleteVaccine={deleteVaccine} />}
+      {view === "med" && <MedView production={productionByDate} medStock={medStock} medInfo={medInfo} medReceipts={medReceipts} addMedItem={guard(addMedItem)} updateMedItem={guard(updateMedItem)} addMedReceipt={guard(addMedReceipt)} medCostByMonth={medCostByMonth} canManage={!viewOnly && (currentRole === "owner" || currentRole === "medclerk")} />}
+      {view === "trial" && <TrialView medTrials={medTrials} addMedTrial={guard(addMedTrial)} deleteMedTrial={guard(deleteMedTrial)} production={productionByDate} rearingByDate={rearingByDate} />}
+      {view === "health" && <HealthHubView production={productionByDate} flocks={flocks} vaccines={vaccines} addVaccine={guard(addVaccine)} deleteVaccine={guard(deleteVaccine)} />}
       {view === "cost" && <CostView expenses={expenses} addExpense={addExpense} deleteExpense={deleteExpense} production={productionByDate} medCostByMonth={medCostByMonth} feedCostByMonth={feedCostByMonth} feedPrice={feedPrice} bills={activeBills} />}
       {view === "houseecon" && <HouseEconView production={productionByDate} flocks={flocks} expenses={expenses} medCostByMonth={medCostByMonth} feedCostByMonth={feedCostByMonth} feedUseByMonth={feedUseByMonth} feedPrice={feedPrice} refPrices={refPrices} bills={activeBills} />}
       {view === "activity" && <ActivityLogView roles={roles} />}
@@ -5598,7 +5607,7 @@ function exportCloseDayExcel(day, dayTH, rows, meta, refPrices = {}) {
 const OFF_KEYS = ["จัมโบ้", "บุบ", "ตอก", "จิ๋ว", "เปลือกขาว", "หัวทราย", "นวล", "เปื้อนมาก", "เปื้อนน้อย"];
 /* 🖐️ ชนิดที่ฟาร์มเก็บมือ "หลังเครื่องคัด" จริง (จากรายงานหลัง 4 · เจ้าของแจ้ง 3 ก.ย. 69)
    หัวทราย · นวล · เปื้อนน้อย · เปื้อนมาก · บุบ — เก็บแยกจากตกเกรดในเล้า เพราะต้องหักออกจากไข่ดี */
-const PICKBACK_KEYS = ["หัวทราย", "นวล", "เปื้อนน้อย", "เปื้อนมาก", "บุบ"];
+const PICKBACK_KEYS = ["บุบ", "หัวทราย", "นวล", "เปื้อนมาก", "เปื้อนน้อย"];   // เรียงตามลำดับตารางรายงานผลผลิต
 const BER_KEYS = [0, 1, 2, 3, 4, 5];
 // สีหมวดหมู่ในตารางผลผลิต: ตกเกรด(ส้ม) · ไข่ดี(เขียว) · สรุป(ฟ้า) — D = เข้มขึ้นสำหรับช่อง %
 const PROD_C = { off: "#F7C57C", offD: "#FBE1C2", good: "#93E1AC", sum: "#95BAF6", sumD: "#D2E1FB" };
@@ -6476,7 +6485,12 @@ function HouseEditModal({ house, defaultDate, onClose, onSave }) {
   const insp0 = house.inspect || {};
   const [inspN, setInspN] = useState(insp0.count != null ? String(insp0.count) : "4");   // สุ่มตรวจ: ตอกไข่ วันละ 4 ฟอง/หลัง (ค่าเริ่มต้น)
   const [inspResult, setInspResult] = useState(insp0.result || "");
-  const berKeys = Object.keys(ber), offKeys = Object.keys(off), klaKeys = Object.keys(kla);
+  const berKeys = Object.keys(ber);
+  /* เรียงช่องตกเกรดให้ตรงกับ "ลำดับในตารางรายงานผลผลิต" (เจ้าของสั่ง 4 ก.ย. 69)
+     เดิมใช้ Object.keys(off) ซึ่งเรียงตามลำดับที่ข้อมูลถูกสร้าง → แต่ละหลัง/แต่ละวันสลับกันมั่ว
+     ต่อท้ายด้วยชนิดแปลกที่อาจมีในข้อมูลเก่าแต่ไม่อยู่ใน OFF_KEYS จะได้ไม่หายไป */
+  const offKeys = [...OFF_KEYS.filter((k) => k in off), ...Object.keys(off).filter((k) => !OFF_KEYS.includes(k))];
+  const klaKeys = Object.keys(kla);
   const goodPrang = Object.values(ber).reduce((s, v) => s + (parseInt(v) || 0), 0);   // แผง (ตามที่กรอก)
   const offPrang = Object.values(off).reduce((s, v) => s + (parseInt(v) || 0), 0);
   const klaPrang = Object.values(kla).reduce((s, v) => s + (parseInt(v) || 0), 0);
@@ -9139,7 +9153,7 @@ function CostView({ expenses = [], addExpense, deleteExpense, production = {}, m
   );
 }
 
-function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, production = {}, medTrials = [], medStock = [], medInfo = {}, vaccines = {}, addVaccine, deleteVaccine, labTests = {}, addLabTest, deleteLabTest }) {
+function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, production = {}, medTrials = [], medStock = [], medInfo = {}, vaccines = {}, addVaccine, deleteVaccine, labTests = {}, addLabTest, deleteLabTest, viewOnly = false }) {
   const sbSafe = useSbSafe();   // ⛔ เครื่องยังไม่เชื่อมคลาวด์ → โชว์แถบเตือน + ห้ามบันทึก (กันข้อมูลหายเงียบ)
   const prodDates = Object.keys(production).sort();
   const houseIds = [...new Set([...(production[prodDates[prodDates.length - 1]] || []).map((h) => h.id), ...HOUSE_IDS])];   // รวมหลังใหม่ที่ยังไม่มีผลผลิต (เช่น H7)
@@ -9298,10 +9312,16 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
             <button onClick={() => setDay(todayISO)} title="กลับมาวันนี้"
               style={{ padding: "6px 12px", borderRadius: 999, border: `1.5px solid ${ACCENT_DK}`, background: "#FFF7EC", color: ACCENT_DK, fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>↩ วันนี้</button>
           )}
+          {viewOnly ? (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 999, background: "#EEF2FF", border: "1.5px solid #C7D2FE", color: "#3730A3", fontSize: 13, fontWeight: 800 }}>
+              👀 บัญชีแขก · ดูอย่างเดียว แก้ไขไม่ได้
+            </span>
+          ) : (
           <button onClick={startRound} title="เปิดฟอร์มกรอกทีละโรงเรือน H2→H7 ต่อเนื่องจนครบ ไม่ต้องสลับหน้าเอง"
             style={{ padding: "8px 16px", borderRadius: 999, border: `1.5px solid ${day === todayISO ? "#15803D" : "#92400E"}`, background: day === todayISO ? "#16A34A" : "#D97706", color: "#fff", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
             ✏️ ลงข้อมูล{day === todayISO ? "วันนี้" : `ย้อนหลัง ${toThaiDate(day, false)}`} · ทีละหลังจนครบ ▸
           </button>
+          )}
           <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#F6F1E7", border: "1px solid #e6dfd0", borderRadius: 999, padding: "3px 5px 3px 12px" }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: "#9b8e78" }}>ดูข้อมูล:</span>
             <button style={chip(mode === "house")} onClick={() => setMode("house")} title="สมุดประวัติของโรงเรือนเดียว ไล่ทุกวัน (เหมือนสมุดฟอร์มกระดาษ)">📒 แยกรายหลัง</button>
@@ -9794,7 +9814,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
               <tr key={x.hid} style={{ background: x.r ? "#fff" : "#FDFAF3" }}>
                 <td style={{ ...td, textAlign: "left", fontWeight: 800 }}>
                   {x.hid}
-                  <button onClick={() => setEditHouse({ hid: x.hid, date: day })} title="กรอก/แก้ไขการเลี้ยงวันนี้" style={{ marginLeft: 6, border: "1px solid #E8943A55", background: "#FFF7EC", color: ACCENT_DK, borderRadius: 7, padding: "2px 7px", cursor: "pointer" }}><Pencil size={12} /></button>
+                  {!viewOnly && <button onClick={() => setEditHouse({ hid: x.hid, date: day })} title="กรอก/แก้ไขการเลี้ยงวันนี้" style={{ marginLeft: 6, border: "1px solid #E8943A55", background: "#FFF7EC", color: ACCENT_DK, borderRadius: 7, padding: "2px 7px", cursor: "pointer" }}><Pencil size={12} /></button>}
                   <button onClick={() => setFlockHouse(x.hid)} title="ตั้งค่ารุ่นการเลี้ยง" style={{ marginLeft: 4, border: "1px solid #d8cdb6", background: "#fff", color: "#7a6f5c", borderRadius: 7, padding: "2px 7px", cursor: "pointer", fontSize: 11.5, fontWeight: 700 }}>รุ่น</button>
                   <button onClick={() => setVacHouse(x.hid)} title="สมุดวัคซีนของหลังนี้" style={{ marginLeft: 3, border: "1px solid #d8cdb6", background: "#fff", color: "#7a6f5c", borderRadius: 7, padding: "2px 7px", cursor: "pointer", fontSize: 11.5, fontWeight: 700 }}>💉</button>
                   <button onClick={() => setLabHouse(x.hid)} title="สมุดผลตรวจแล็บของหลังนี้" style={{ marginLeft: 3, border: "1px solid #d8cdb6", background: "#fff", color: "#7a6f5c", borderRadius: 7, padding: "2px 7px", cursor: "pointer", fontSize: 11.5, fontWeight: 700 }}>🧪</button>
@@ -11790,6 +11810,7 @@ function LoginScreen({ onDone }) {
     { username: "nes",      label: "หมอเนส · สัตวบาล",                    descr: "ผลผลิต · การเลี้ยง · ยา",    emoji: "🐔", role: "farm" },
     { username: "acct",     label: "บัญชี",                                descr: "บิล · ลูกหนี้ · ต้นทุน",     emoji: "💰", role: "acct" },
     { username: "medclerk", label: "เสมียนห้องสต๊อคยา",                    descr: "สต็อคยาและวิตามิน",          emoji: "💊", role: "medclerk" },
+    { username: "guest",    label: "แขกของฟาร์ม",                          descr: "ดูสุขภาพไก่ · ผลผลิต (ดูอย่างเดียว)", emoji: "👀", role: "guest" },
     { username: "retail",   label: "ร้านค้าขายปลีก (ฉันจะกินไข่สดทุกวัน)", descr: "จองออเดอร์ร้านขายปลีก",      emoji: "🛍️", role: "retail_shop" },
     { username: "branch",   label: "ร้านฟาร์มสมบูรณ์",                     descr: "จองออเดอร์ร้านสาขา",         emoji: "🏪", role: "branch_shop" },
   ];
