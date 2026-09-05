@@ -889,6 +889,7 @@ const PRODUCTS = {
     { id: "g_sand", name: "หัวทราย", stock: 45, wt: true },
     { id: "g_pueanmak", name: "เปื้อนมาก", stock: 275, wt: true },
     { id: "g_pueannoi", name: "เปื้อนน้อย", stock: 480, wt: true },
+    { id: "g_pueankai", name: "เปื้อนไข่ (ป.ไข่)", stock: 0, wt: true },   // ระดับเปื้อนที่ 3 ตามรายงานฟาร์ม (เจ้าของสั่ง 4 ก.ย. 69)
     { id: "g_bub", name: "บุบ", stock: 62, wt: true },
     { id: "g_jiw", name: "จิ๋ว", stock: 16 },
     { id: "g_tok", name: "ตอก - แก้ว", stock: 0 },
@@ -922,7 +923,7 @@ const SMALL_TRAY_IDS = new Set(["n2", "n3", "n4", "n5"]);
 // 🥛 ไข่แก้ว/ไข่เหลว (g_tok · g_toklew · g_tokdaeng) ย้ายไปท้ายสุด — คนละหน่วย แยกจากยอดแผง (เจ้าของสั่ง 27 ส.ค. 69)
 const STOCK_ORDER = [
   "n0", "n1", "n2", "n3", "n4", "n5",
-  "g_jiw", "s_white", "g_nuan", "g_sand", "g_pueanmak", "g_pueannoi", "g_bub",
+  "g_jiw", "s_white", "g_nuan", "g_sand", "g_pueanmak", "g_pueannoi", "g_pueankai", "g_bub",
   "s_jumbo",
   "w17", "w18", "w19", "w20", "w21", "w22", "w23",
   "ww19", "ww20", "ww21", "ww22", "ww23", "w_wash",
@@ -930,7 +931,7 @@ const STOCK_ORDER = [
 ];
 // ป้ายชื่อเฉพาะหน้ารายงานคลัง (ชื่อสินค้าจริงในบิล/หน้าขายคงเดิม — เปลี่ยนเฉพาะหัวข้อรายงานตามชีท)
 const STOCK_LABEL = {
-  s_white: "ขาว", g_tok: "ตอก (แก้ว)", g_toklew: "ไข่เหลว", s_jumbo: "จัมโบ้+แฝด",
+  s_white: "ขาว", g_pueankai: "ป.ไข่", g_tok: "ตอก (แก้ว)", g_toklew: "ไข่เหลว", s_jumbo: "จัมโบ้+แฝด",
   w17: "17++", w18: "18++", w19: "19++", w20: "20++", w21: "21++", w22: "22++", w23: "23++", w_wash: "คละล้าง (รวม)", ww19: "ล้าง 19++", ww20: "ล้าง 20++", ww21: "ล้าง 21++", ww22: "ล้าง 22++", ww23: "ล้าง 23++",
 };
 
@@ -946,7 +947,7 @@ const LAST_PRICES = {
 };
 
 // ราคาอ้างอิงต่อแผง (fallback) — ใช้ตีมูลค่า "ส่วนต่าง" ตอนปิดยอด ถ้าไม่มีราคาจากบิลจริง
-const REF_PRICE_FALLBACK = { n0: 130, n1: 120, n2: 110, n3: 100, n4: 90, n5: 85, s_white: 75, g_nuan: 60, g_sand: 55, g_pueanmak: 45, g_pueannoi: 50, g_bub: 70, g_jiw: 65, g_tok: 20, g_toklew: 20, g_tokdaeng: 25, s_jumbo: 140, w_wash: 39, ww19: 36, ww20: 39, ww21: 42, ww22: 45, ww23: 48 };   // คละล้าง = คละปกติเบอร์นั้น − 6 บาท
+const REF_PRICE_FALLBACK = { n0: 130, n1: 120, n2: 110, n3: 100, n4: 90, n5: 85, s_white: 75, g_nuan: 60, g_sand: 55, g_pueanmak: 45, g_pueannoi: 50, g_pueankai: 48, g_bub: 70, g_jiw: 65, g_tok: 20, g_toklew: 20, g_tokdaeng: 25, s_jumbo: 140, w_wash: 39, ww19: 36, ww20: 39, ww21: 42, ww22: 45, ww23: 48 };   // คละล้าง = คละปกติเบอร์นั้น − 6 บาท
 // หน่วยขายต่อสินค้า — ปกติขายเป็น "แผง" · ไข่ตอกแก้ว ขายเป็น "แก้ว" (เจ้าของสั่ง 16 ส.ค. 69)
 const PRODUCT_UNIT = { g_tok: "แก้ว" };
 const productUnit = (pid) => PRODUCT_UNIT[pid] || "แผง";
@@ -1031,7 +1032,9 @@ const STOCK_RECEIVED = {
   g_jiw: 15, g_pueanmak: 155, g_pueannoi: 324, g_bub: 157, g_tok: 60, g_sand: 0, g_nuan: 0,
 };
 // ตกเกรด (ชื่อในตารางผลผลิต) → รหัสสินค้าในคลัง (ใช้ตอนดึงรับเข้าจากผลผลิต)
-const OFF_TO_PID = { จัมโบ้: "s_jumbo", บุบ: "g_bub", ตอก: "g_tok", จิ๋ว: "g_jiw", เปลือกขาว: "s_white", หัวทราย: "g_sand", นวล: "g_nuan", เปื้อนมาก: "g_pueanmak", เปื้อนน้อย: "g_pueannoi" };
+/* ตกเกรด → สินค้าในสต๊อก · ตัว "จิ๋ว" เข้าสต๊อกเดียวกับตัวใหญ่ (ขายรวมกัน แยกแค่ตอนนับผลผลิต)
+   ถ้าวันไหนขายแยกราคา บอกได้ ผมแยกสินค้าให้ */
+const OFF_TO_PID = { จัมโบ้: "s_jumbo", บุบ: "g_bub", ตอก: "g_tok", จิ๋ว: "g_jiw", เปลือกขาว: "s_white", ขาวจิ๋ว: "s_white", หัวทราย: "g_sand", ทรายจิ๋ว: "g_sand", นวล: "g_nuan", นวลจิ๋ว: "g_nuan", เปื้อนมาก: "g_pueanmak", เปื้อนน้อย: "g_pueannoi", เปื้อนไข่: "g_pueankai" };
 const KLA_TO_PID = { "18+": "w18", "19+": "w19", "20+": "w20", "21+": "w21", "22+": "w22", "23+": "w23" };
 /* 🚿 ไข่คละล้าง แยกเบอร์ — ล้างแล้วยังมีน้ำหนักต่างกัน ขายตามเบอร์ได้ (เจ้าของถาม 3 ก.ย. 69)
    ราคาถูกกว่าคละปกติเบอร์เดียวกัน ~6 บาท */
@@ -4578,19 +4581,42 @@ function houseEconData(production, flocks, expenses, medCostByMonth, feedCostByM
     const eggsPerHen = avgCh > 0 ? totalPrang * PER_PRADANG / avgCh : null;   // ฟอง/แม่/เดือน
     const age = flockAgeWk(flocks[hid], lastDay);
     const stdHD = hylineHD(age);
-    // คำแนะนำปลดไก่
+    /* 📉 %ผลผลิต 30 วันล่าสุด — ใช้ "ตัดสิน" ปลด/เฝ้าระวัง แทนค่าเฉลี่ยรายเดือน (เจ้าของเลือก 4 ก.ย. 69)
+       เหตุผล: ต้นเดือนมีข้อมูลไม่กี่วัน ค่าเฉลี่ยรายเดือนจะกระโดด แล้วเตือนผิด
+       (3 ก.ย. H2 ได้ 51% เพราะมีข้อมูล 3 วัน ทั้งที่ ส.ค. เต็มเดือนทำได้ 78%)
+       ตัวเลขรายเดือน (hendayPct) ยังเป็นตัวหลักที่โชว์เหมือนเดิม ไม่เปลี่ยนความหมาย */
+    const roll30 = (() => {
+      const start = shiftDayISO(lastDay, -29);
+      let fong = 0, ch = 0, days = 0;
+      Object.keys(production).forEach((d) => {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || d < start || d > lastDay) return;
+        const x = (production[d] || []).find((v) => v && v.id === hid);
+        if (!x) return;
+        const c = nf(x.chickens); if (!c) return;
+        const good = sumVals(x.grade?.เบอร์);
+        const off = sumVals(x.grade?.ตกเกรด);
+        const kla = sumVals(x.grade?.คละ);
+        const pb = sumVals(x.pickBack || {});
+        const goodNet = Math.max(0, good + kla * PER_PRADANG - pb * PER_PRADANG);
+        const t = goodNet + (off + pb) * PER_PRADANG;
+        if (t > 0) { fong += t; ch += c; days++; }
+      });
+      return { pct: ch > 0 ? (fong / ch) * 100 : null, days };
+    })();
+    const decidePct = roll30.pct != null ? roll30.pct : hendayPct;   // มีข้อมูล 30 วัน → ใช้ตัวนั้นตัดสิน
+    // คำแนะนำปลดไก่ — ตัดสินด้วย decidePct (30 วันล่าสุด) แต่ข้อความอ้างอิงบอกทั้งสองค่า
     const reasons = [];
     if (profit < 0) reasons.push("ขาดทุนเดือนนี้");
     if (age != null && age >= 95) reasons.push(`อายุมากแล้ว (${age} สป.)`);
     else if (age != null && age >= 80) reasons.push(`อายุใกล้ปลด (${age} สป.)`);
-    if (hendayPct != null && hendayPct < 60) reasons.push(`ผลผลิตต่ำ (${hendayPct.toFixed(0)}%)`);
-    else if (stdHD != null && hendayPct != null && hendayPct < stdHD - 15) reasons.push(`ต่ำกว่ามาตรฐานอายุมาก (${hendayPct.toFixed(0)}% เทียบ ~${stdHD.toFixed(0)}%)`);
+    if (decidePct != null && decidePct < 60) reasons.push(`ผลผลิตต่ำ (${decidePct.toFixed(0)}% เฉลี่ย ${roll30.days} วันล่าสุด)`);
+    else if (stdHD != null && decidePct != null && decidePct < stdHD - 15) reasons.push(`ต่ำกว่ามาตรฐานอายุมาก (${decidePct.toFixed(0)}% เทียบ ~${stdHD.toFixed(0)}%)`);
     let rec;
-    if ((profit < 0 && age != null && age >= 70) || (age != null && age >= 95) || (hendayPct != null && hendayPct < 55 && age != null && age >= 75)) rec = { level: "cull", label: "🔴 ควรพิจารณาปลด" };
-    else if (profit < 0 || (age != null && age >= 80) || (stdHD != null && hendayPct != null && hendayPct < stdHD - 12)) rec = { level: "watch", label: "🟠 เฝ้าระวัง" };
+    if ((profit < 0 && age != null && age >= 70) || (age != null && age >= 95) || (decidePct != null && decidePct < 55 && age != null && age >= 75)) rec = { level: "cull", label: "🔴 ควรพิจารณาปลด" };
+    else if (profit < 0 || (age != null && age >= 80) || (stdHD != null && decidePct != null && decidePct < stdHD - 12)) rec = { level: "watch", label: "🟠 เฝ้าระวัง" };
     else rec = { level: "ok", label: "🟢 คุ้มค่า" };
     rec.reasons = reasons;
-    return { hid, days: ph.days, avgCh, eggsFong, goodPrang, totalPrang, hendayPct, revenue, feedCost, feedKg, medCost, breedCost, depreCost, directManual, allocFarm, totalCost, profit, profitPerBird, costPerPrang, revPerPrang, feedKgPerPrang, eggsPerHen, age, stdHD, rec };
+    return { hid, days: ph.days, avgCh, eggsFong, goodPrang, totalPrang, hendayPct, roll30Pct: roll30.pct, roll30Days: roll30.days, revenue, feedCost, feedKg, medCost, breedCost, depreCost, directManual, allocFarm, totalCost, profit, profitPerBird, costPerPrang, revPerPrang, feedKgPerPrang, eggsPerHen, age, stdHD, rec };
   });
   const farm = houses.reduce((a, h) => ({
     avgCh: a.avgCh + h.avgCh, revenue: a.revenue + h.revenue, totalCost: a.totalCost + h.totalCost,
@@ -4704,7 +4730,18 @@ function HouseEconView({ production = {}, flocks = {}, expenses = [], medCostByM
                       <span style={{ fontWeight: 800, color: c.c }}>{h.rec.label}</span>
                       {h.age != null && <span style={{ fontSize: 12.5, color: "#7a6f5c" }}>อายุ ~{h.age} สป.</span>}
                       <span style={{ fontSize: 12.5, color: h.profit >= 0 ? "#15803D" : "#B91C1C", fontWeight: 700 }}>{h.profit >= 0 ? "กำไร" : "ขาดทุน"} {money(h.profit)} บ.</span>
-                      {h.hendayPct != null && <span style={{ fontSize: 12.5, color: "#7a6f5c" }}>ผลผลิต {h.hendayPct.toFixed(0)}%{h.stdHD != null ? ` (มฐ ~${h.stdHD.toFixed(0)}%)` : ""}</span>}
+                      {h.hendayPct != null && (
+                        <span style={{ fontSize: 12.5, color: "#7a6f5c" }}>
+                          ผลผลิต {h.hendayPct.toFixed(0)}%{h.stdHD != null ? ` (มฐ ~${h.stdHD.toFixed(0)}%)` : ""}
+                          {/* ตัวเลขรายเดือนเป็นตัวหลัก · 30 วันล่าสุดคือตัวที่ใช้ตัดสินปลด/เฝ้าระวัง */}
+                          {h.roll30Pct != null && (
+                            <span style={{ marginLeft: 6, fontSize: 11.5, fontWeight: 700, color: "#5B21B6", background: "#EDE9FE", borderRadius: 999, padding: "1px 8px" }}
+                              title={`ใช้ตัวเลขนี้ตัดสินปลด/เฝ้าระวัง — เฉลี่ย ${h.roll30Days} วันล่าสุด (ค่าเฉลี่ยรายเดือนต้นเดือนจะเพี้ยนเพราะมีข้อมูลน้อยวัน)`}>
+                              30 วัน {h.roll30Pct.toFixed(0)}%
+                            </span>
+                          )}
+                        </span>
+                      )}
                     </div>
                     {h.rec.reasons.length > 0 && <div style={{ fontSize: 12, color: "#6b6358", marginTop: 3 }}>เหตุผล: {h.rec.reasons.join(" · ")}</div>}
                   </div>
@@ -5604,7 +5641,16 @@ function exportCloseDayExcel(day, dayTH, rows, meta, refPrices = {}) {
    หน้าจอ: ผลผลิต/ดึงไข่รายหลัง (H.2–H.6)
 ============================================================ */
 // ข้อมูลจริง 1/7/69 (เบอร์ 0-5 กระจายตามสัดส่วน ให้ผลรวม = "รายการไข่ดี" ในรายงาน ; ตกเกรดหน่วยแผง)
-const OFF_KEYS = ["จัมโบ้", "บุบ", "ตอก", "จิ๋ว", "เปลือกขาว", "หัวทราย", "นวล", "เปื้อนมาก", "เปื้อนน้อย"];
+/* ชนิดตกเกรด — เรียงตามรายงานจริงของฟาร์ม (เจ้าของสั่งเพิ่ม 4 ก.ย. 69)
+   คีย์เก่า 3 ตัวคงไว้ ไม่ย้ายข้อมูล: เปลือกขาว/หัวทราย/นวล = ตัว "ใหญ่" · เพิ่มตัว "จิ๋ว" แยกใหม่
+   ⚠️ ข้อมูลก่อน 4 ก.ย. 69 ยังรวมทั้งใหญ่+จิ๋วไว้ในคีย์เดิม (ตอนนั้นยังไม่ได้แยก) */
+const OFF_KEYS = ["จัมโบ้", "บุบ", "ตอก", "จิ๋ว", "เปลือกขาว", "ขาวจิ๋ว", "หัวทราย", "ทรายจิ๋ว", "นวล", "นวลจิ๋ว", "เปื้อนมาก", "เปื้อนน้อย", "เปื้อนไข่"];
+// ป้ายชื่อที่โชว์ — ให้ตรงกับที่ฟาร์มเรียกในรายงาน (คีย์ในข้อมูลคงเดิม)
+// แยกกลุ่มหัวตาราง: ชนิดทั่วไป (คอลัมน์เดี่ยว) กับกลุ่ม "ไข่เปื้อน" (มี 3 ระดับใต้หัวเดียว)
+const OFF_DIRTY = ["เปื้อนมาก", "เปื้อนน้อย", "เปื้อนไข่"];
+const OFF_HEAD = OFF_KEYS.filter((k) => !OFF_DIRTY.includes(k));
+const OFF_LABEL = { เปลือกขาว: "ขาวใหญ่", ขาวจิ๋ว: "ขาวจิ๋ว", หัวทราย: "ทรายใหญ่", ทรายจิ๋ว: "ทรายจิ๋ว", นวล: "นวลใหญ่", นวลจิ๋ว: "นวลจิ๋ว", เปื้อนไข่: "ป.ไข่" };
+const offLabel = (k) => OFF_LABEL[k] || k;
 /* 🖐️ ชนิดที่ฟาร์มเก็บมือ "หลังเครื่องคัด" จริง (จากรายงานหลัง 4 · เจ้าของแจ้ง 3 ก.ย. 69)
    หัวทราย · นวล · เปื้อนน้อย · เปื้อนมาก · บุบ — เก็บแยกจากตกเกรดในเล้า เพราะต้องหักออกจากไข่ดี */
 const PICKBACK_KEYS = ["บุบ", "หัวทราย", "นวล", "เปื้อนมาก", "เปื้อนน้อย"];   // เรียงตามลำดับตารางรายงานผลผลิต
@@ -5633,7 +5679,7 @@ const HOUSES_4_7 = [
 // โรงเรือนทั้งหมดของฟาร์ม — เพิ่มหลังใหม่ที่นี่ที่เดียว ทุกหน้า (ผลผลิต/เลี้ยง/อาหาร/ยา/ต้นทุน) เห็นเอง
 // H7 เริ่มเข้าไก่ 8/7/69 (ยังไม่มีผลผลิตย้อนหลัง — วันเก่าไม่โชว์ H7 ตามจริง)
 const HOUSE_IDS = ["H2", "H3", "H4", "H5", "H6", "H7"];
-const emptyHouseDay = (id, date) => ({ id, date, chickens: 0, pickBack: {}, grade: { เบอร์: { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }, ตกเกรด: { จัมโบ้: 0, บุบ: 0, ตอก: 0, จิ๋ว: 0, เปลือกขาว: 0, หัวทราย: 0, นวล: 0, เปื้อนมาก: 0, เปื้อนน้อย: 0 } } });
+const emptyHouseDay = (id, date) => ({ id, date, chickens: 0, pickBack: {}, grade: { เบอร์: { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }, ตกเกรด: Object.fromEntries(OFF_KEYS.map((k) => [k, 0])) } });
 
 // ---------- สมุดวัคซีนประจำหลัง ----------
 // ข้อมูลอ้างอิงที่มาของรุ่น (โชว์หัวสมุด) — H7 = ใบบันทึกวัคซีนจากฟาร์มอนุบาล (ไก่เข้าฟาร์มเรา 8/7/69)
@@ -6300,14 +6346,8 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
           <thead>
             <tr>
               <th rowSpan={2} style={{ ...S.th, ...S.thSticky, textAlign: "left" }}>หลัง</th>
-              <th rowSpan={2} style={{ ...S.th, background: PROD_C.off }}>จัมโบ้</th>
-              <th rowSpan={2} style={{ ...S.th, background: PROD_C.off }}>บุบ</th>
-              <th rowSpan={2} style={{ ...S.th, background: PROD_C.off }}>ตอก</th>
-              <th rowSpan={2} style={{ ...S.th, background: PROD_C.off }}>จิ๋ว</th>
-              <th rowSpan={2} style={{ ...S.th, background: PROD_C.off }}>ขาว</th>
-              <th rowSpan={2} style={{ ...S.th, background: PROD_C.off }}>หัวทราย</th>
-              <th rowSpan={2} style={{ ...S.th, background: PROD_C.off }}>นวล</th>
-              <th colSpan={2} style={{ ...S.th, background: PROD_C.off }}>ไข่เปื้อน</th>
+              {OFF_HEAD.map((k) => <th key={k} rowSpan={2} style={{ ...S.th, background: PROD_C.off }}>{offLabel(k)}</th>)}
+              <th colSpan={OFF_DIRTY.length} style={{ ...S.th, background: PROD_C.off }}>ไข่เปื้อน</th>
               <th rowSpan={2} style={{ ...S.th, background: PROD_C.off }}>รวม<br />(แผง)</th>
               <th rowSpan={2} style={{ ...S.th, background: "#C2410C", color: "#fff", fontSize: 13.5 }}>%ไข่<br />ตกเกรด</th>
               {/* ไข่ดี = ไข่เบอร์ + ไข่คละ (เจ้าของยืนยัน 29 ส.ค. 69) — คละอยู่ในกลุ่มไข่ดี ช่อง "รวม" บวกทั้งสองอย่าง */}
@@ -6321,8 +6361,7 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
               <th rowSpan={2} style={{ ...S.th, background: "#EDE9FE", color: "#5B21B6", fontSize: 13 }}>เทียบ<br />เมื่อวาน</th>
             </tr>
             <tr>
-              <th style={{ ...S.th, background: PROD_C.off }}>มาก</th>
-              <th style={{ ...S.th, background: PROD_C.off }}>น้อย</th>
+              {OFF_DIRTY.map((k) => <th key={k} style={{ ...S.th, background: PROD_C.off }}>{k === "เปื้อนมาก" ? "มาก" : k === "เปื้อนน้อย" ? "น้อย" : "ป.ไข่"}</th>)}
               {BER_KEYS.map((k) => <th key={k} style={{ ...S.th, background: "#DBF5E4", color: "#15803D" }}>เบอร์ {k}</th>)}
               {activeKla.map((k) => <th key={k} style={{ ...S.th, background: "#B6EDDF", color: "#0F5F55" }}>คละ {k}</th>)}
               <th style={{ ...S.th, background: "#4FB477", color: "#fff" }}>รวม<br /><span style={{ fontWeight: 600, fontSize: 10.5 }}>เบอร์+คละ</span></th>
@@ -6342,15 +6381,7 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
                       {alertMap[h.id] && alertMap[h.id].length ? <span title={alertMap[h.id].map((a) => a.label + " " + a.detail).join("\n")} style={{ cursor: "help", fontSize: 12 }}>⚠️</span> : null}
                     </span>
                   </td>
-                  <td style={{ ...S.td, ...flag(h.id, "off:จัมโบ้") }}>{fmt(g.จัมโบ้ || 0)}</td>
-                  <td style={{ ...S.td, ...flag(h.id, "off:บุบ") }}>{fmt(g.บุบ || 0)}</td>
-                  <td style={{ ...S.td, ...flag(h.id, "off:ตอก") }}>{fmt(g.ตอก || 0)}</td>
-                  <td style={{ ...S.td, ...flag(h.id, "off:จิ๋ว") }}>{fmt(g.จิ๋ว || 0)}</td>
-                  <td style={{ ...S.td, ...flag(h.id, "off:เปลือกขาว") }}>{fmt(g.เปลือกขาว || 0)}</td>
-                  <td style={{ ...S.td, ...flag(h.id, "off:หัวทราย") }}>{fmt(g.หัวทราย || 0)}</td>
-                  <td style={{ ...S.td, ...flag(h.id, "off:นวล") }}>{fmt(g.นวล || 0)}</td>
-                  <td style={{ ...S.td, ...flag(h.id, "off:เปื้อนมาก") }}>{fmt(g.เปื้อนมาก || 0)}</td>
-                  <td style={{ ...S.td, ...flag(h.id, "off:เปื้อนน้อย") }}>{fmt(g.เปื้อนน้อย || 0)}</td>
+                  {[...OFF_HEAD, ...OFF_DIRTY].map((k) => <td key={k} style={{ ...S.td, ...flag(h.id, "off:" + k) }}>{fmt(g[k] || 0)}</td>)}
                   <td style={{ ...S.td, fontWeight: 700 }}>{fmt(c.offgrade)}</td>
                   <td style={{ ...S.td, background: "#FFE8D2", fontWeight: 800, color: "#9A3412", fontSize: 14, ...flag(h.id, "rate:offpct") }}>{c.pctOff.toFixed(2)}%</td>
                   {BER_KEYS.map((k) => <td key={k} style={{ ...S.td, ...flag(h.id, "ber:" + k) }}>{fmt(Math.round((h.grade.เบอร์[k] || 0) / PER_PRADANG))}</td>)}
@@ -6394,7 +6425,7 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
             })}
             <tr>
               <td style={{ ...S.td, ...S.tdSticky, ...S.tfoot, textAlign: "left" }}>รวม</td>
-              {OFF_KEYS.map((k) => <td key={k} style={{ ...S.td, ...S.tfoot }}>{fmt(grand.off[k] || 0)}</td>)}
+              {[...OFF_HEAD, ...OFF_DIRTY].map((k) => <td key={k} style={{ ...S.td, ...S.tfoot }}>{fmt(grand.off[k] || 0)}</td>)}
               <td style={{ ...S.td, ...S.tfoot }}>{fmt(grand.offPrang)}</td>
               <td style={{ ...S.td, ...S.tfoot, background: "#FED7AA", color: "#9A3412", fontSize: 14 }}>{grand.total ? ((grand.offFong / grand.total) * 100).toFixed(2) : 0}%</td>
               {BER_KEYS.map((k) => <td key={k} style={{ ...S.td, ...S.tfoot }}>{fmt(Math.round((grand.ber[k] || 0) / PER_PRADANG))}</td>)}
@@ -6474,7 +6505,13 @@ function HouseEditModal({ house, defaultDate, onClose, onSave }) {
   const [chickens, setChickens] = useState(String(house.chickens || ""));
   // ไข่ดีเบอร์: กรอก/แสดงเป็น "แผง" (ตรงกับใบงานหน้าฟาร์มและตารางรายงาน) — ภายในเก็บเป็นฟอง จึงแปลง ÷30 ตอนเปิด, ×30 ตอนบันทึก
   const [ber, setBer] = useState(() => { const o = {}; Object.keys(house.grade.เบอร์).forEach((k) => o[k] = house.grade.เบอร์[k] == null ? "" : String(Math.round((house.grade.เบอร์[k] || 0) / PER_PRADANG))); return o; });
-  const [off, setOff] = useState(() => { const o = {}; Object.keys(house.grade.ตกเกรด).forEach((k) => o[k] = String(house.grade.ตกเกรด[k] ?? "")); return o; });
+  /* ช่องตกเกรด: ตั้งต้นจาก OFF_KEYS ให้ครบทุกชนิดเสมอ แล้วเติมค่าที่บันทึกไว้ทับ
+     ข้อมูลเก่าไม่มีชนิดใหม่ (ขาวจิ๋ว/ทรายจิ๋ว/นวลจิ๋ว/ป.ไข่) → ช่องว่าง กรอกเพิ่มได้เลย */
+  const [off, setOff] = useState(() => {
+    const o = {}; OFF_KEYS.forEach((k) => o[k] = "");
+    Object.keys(house.grade.ตกเกรด || {}).forEach((k) => o[k] = String(house.grade.ตกเกรด[k] ?? ""));
+    return o;
+  });
   // ไข่คละตามน้ำหนัก (แผง) — ข้อมูลเก่าไม่มีหมวดนี้ → เริ่มว่าง
   const [kla, setKla] = useState(() => { const src = house.grade.คละ || {}; const o = {}; Object.keys(KLA_TO_PID).forEach((k) => o[k] = src[k] != null ? String(src[k]) : ""); return o; });
   /* 🖐️ เก็บมือหลังเครื่องคัด (แผง) — ชนิดที่ฟาร์มเก็บจริงหลังเครื่อง (เจ้าของแจ้ง 3 ก.ย. 69)
@@ -6553,7 +6590,7 @@ function HouseEditModal({ house, defaultDate, onClose, onSave }) {
         <div style={section("#FEF6EC", "#FBD9A8", "#D97706")}>
           <div style={{ fontWeight: 800, color: "#B45309", fontSize: 13, marginBottom: 8 }}>🍳 ตกเกรด (แผง) · แยกชนิด</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 7 }}>
-            {offKeys.map((k, i) => fieldWrap(k, k, <input {...regInput(offBase + i, "pfOff", { padding: "6px 8px", fontSize: 13.5 })} value={withCommas(off[k])} onChange={stripSet((v) => setOff((p) => ({ ...p, [k]: v })))} />, "#B45309", 11.5))}
+            {offKeys.map((k, i) => fieldWrap(k, offLabel(k), <input {...regInput(offBase + i, "pfOff", { padding: "6px 8px", fontSize: 13.5 })} value={withCommas(off[k])} onChange={stripSet((v) => setOff((p) => ({ ...p, [k]: v })))} />, "#B45309", 11.5))}
           </div>
         </div>
 
@@ -11795,6 +11832,16 @@ function AccountsView() {
   );
 }
 
+/* 🚫 ล้างรหัสที่เบราว์เซอร์เติมมาให้เอง — เรียกซ้ำ 3 จังหวะ เพราะแต่ละเบราว์เซอร์เติมคนละเวลา
+   ล้างเฉพาะตอนที่ผู้ใช้ยังไม่ได้พิมพ์เอง จึงไม่ลบสิ่งที่ผู้ใช้พิมพ์ทิ้ง */
+function ClearAutofill({ onClear, dep }) {
+  useEffect(() => {
+    const ts = [60, 250, 700].map((ms) => setTimeout(() => onClear(), ms));
+    return () => ts.forEach(clearTimeout);
+  }, [dep]);
+  return null;
+}
+
 function LoginScreen({ onDone }) {
   // บัญชีฟาร์ม — กดเลือกว่าเป็นใคร แล้วใส่รหัสของคนนั้น · ล็อกอินสำเร็จ = ตั้งบทบาทในแอปให้อัตโนมัติ ไม่ต้องใส่ PIN ซ้ำ
   // รายชื่อดึงจากคลาวด์ (ตาราง app_accounts) — เจ้าของเพิ่มคนใหม่ที่หน้า "บัญชีผู้ใช้" แล้วขึ้นที่นี่เองทุกเครื่อง
@@ -11819,7 +11866,11 @@ function LoginScreen({ onDone }) {
   useEffect(() => { loadAccounts().then((rows) => { if (rows && rows.length) setACCOUNTS(onlyActive(rows)); }).catch(() => {}); }, []);
   const [acct, setAcct] = useState(null);
   const [pw, setPw] = useState("");
-  const [showPw, setShowPw] = useState(false);   // 👁 กดเพื่อโชว์รหัสที่กรอก (กันพิมพ์ผิดโดยไม่รู้ตัว)
+  const [showPw, setShowPw] = useState(false);   // 👁 กดเพื่อโชว์รหัสที่กรอก (กันพิมพ์ผิดโดยไม่รู้ตัว) — เริ่มที่ "ซ่อน" เสมอ
+  /* 🚫 กันเบราว์เซอร์/ตัวจัดการรหัสผ่าน เติมรหัสของบัญชีอื่นมาให้เอง
+     ชื่อช่องสุ่มใหม่ทุกครั้งที่เปิดหน้า → ตัวจัดการรหัสจำไม่ได้ว่าเคยเป็นช่องไหน */
+  const [pwFieldName] = useState(() => "f" + Math.random().toString(36).slice(2, 10));
+  const pwTypedRef = React.useRef(false);   // ผู้ใช้พิมพ์เองแล้วหรือยัง
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const submit = async () => {
@@ -11888,12 +11939,19 @@ function LoginScreen({ onDone }) {
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 13px", background: "#FFF3DF", border: "1.5px solid #F0D9B8", borderRadius: 11 }}>
               <span style={{ fontSize: 24 }}>{acct.emoji}</span>
               <span style={{ fontWeight: 900, color: INK, fontSize: 15, flex: 1 }}>{acct.label}</span>
-              <button onClick={() => { setAcct(null); setPw(""); setErr(""); }} style={{ border: "none", background: "transparent", color: "#b08a5c", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}>เปลี่ยน</button>
+              <button onClick={() => { setAcct(null); setPw(""); setErr(""); setShowPw(false); pwTypedRef.current = false; }} style={{ border: "none", background: "transparent", color: "#b08a5c", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}>เปลี่ยน</button>
             </div>
+            <ClearAutofill onClear={() => { if (!pwTypedRef.current) { setPw(""); setShowPw(false); } }} dep={acct && acct.username} />
             <div>
               <div style={{ fontSize: 12.5, fontWeight: 800, color: "#6d6151", marginBottom: 5 }}>ใส่รหัสของ{acct.label}</div>
               <div style={{ position: "relative" }}>
-                <input value={pw} onChange={(e) => { setPw(e.target.value); setErr(""); }} onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+                {/* 🚫 กันเบราว์เซอร์เติมรหัสให้อัตโนมัติ (เจ้าของสั่ง 4 ก.ย. 69)
+                    เดิมเบราว์เซอร์เติมรหัสของบัญชีอื่นมาให้ ทุกคนต้องลบทิ้งแล้วพิมพ์ใหม่ทุกครั้ง
+                    วิธี: autoComplete="new-password" + name/id สุ่ม + readOnly ตอนแรกแล้วปลดตอนโฟกัส
+                    (ตัวจัดการรหัสผ่านหลายตัวข้าม autoComplete ได้ แต่ข้าม readOnly ไม่ได้) */}
+                <input value={pw} onChange={(e) => { pwTypedRef.current = true; setPw(e.target.value); setErr(""); }} onKeyDown={(e) => { pwTypedRef.current = true; if (e.key === "Enter") submit(); }}
+                  autoComplete="new-password" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                  name={pwFieldName} id={pwFieldName} data-lpignore="true" data-1p-ignore="true" data-form-type="other"
                   type={showPw ? "text" : "password"} autoFocus placeholder="● ● ● ●" style={{ width: "100%", padding: "12px 46px 12px 14px", border: "1.5px solid #e3ddd0", borderRadius: 11, fontSize: 18, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: "#fff", textAlign: "center", letterSpacing: 2 }} />
                 <button type="button" onClick={() => setShowPw((v) => !v)} title={showPw ? "ซ่อนรหัส" : "โชว์รหัสที่กรอก"}
                   style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", border: "none", background: "transparent", cursor: "pointer", fontSize: 20, padding: 4, lineHeight: 1 }}>
