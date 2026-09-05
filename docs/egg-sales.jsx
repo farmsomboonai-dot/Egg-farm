@@ -947,7 +947,7 @@ const LAST_PRICES = {
 };
 
 // ราคาอ้างอิงต่อแผง (fallback) — ใช้ตีมูลค่า "ส่วนต่าง" ตอนปิดยอด ถ้าไม่มีราคาจากบิลจริง
-const REF_PRICE_FALLBACK = { n0: 130, n1: 120, n2: 110, n3: 100, n4: 90, n5: 85, s_white: 75, g_nuan: 60, g_sand: 55, g_pueanmak: 45, g_pueannoi: 50, g_pueankai: 48, g_bub: 70, g_jiw: 65, g_tok: 20, g_toklew: 20, g_tokdaeng: 25, s_jumbo: 140, w_wash: 39, ww19: 36, ww20: 39, ww21: 42, ww22: 45, ww23: 48 };   // คละล้าง = คละปกติเบอร์นั้น − 6 บาท
+const REF_PRICE_FALLBACK = { n0: 140, n1: 130, n2: 128, n3: 118, n4: 110, n5: 100, s_white: 100, g_nuan: 100, g_sand: 103, g_pueanmak: 105, g_pueannoi: 105, g_pueankai: 105, g_bub: 85, g_jiw: 86, g_tok: 20, g_toklew: 20, g_tokdaeng: 25, s_jumbo: 150, w_wash: 39, ww19: 36, ww20: 39, ww21: 42, ww22: 45, ww23: 48 };   // คละล้าง = คละปกติเบอร์นั้น − 6 บาท
 // หน่วยขายต่อสินค้า — ปกติขายเป็น "แผง" · ไข่ตอกแก้ว ขายเป็น "แก้ว" (เจ้าของสั่ง 16 ส.ค. 69)
 const PRODUCT_UNIT = { g_tok: "แก้ว" };
 const productUnit = (pid) => PRODUCT_UNIT[pid] || "แผง";
@@ -1279,9 +1279,9 @@ function enterAdvanceFocus(e) {
    หมายเหตุ: ป้องกันการเปิดข้ามบทบาท/กดผิดหน้า ระดับเบา · ไม่ใช่ความปลอดภัยระดับเซิร์ฟเวอร์
 ============================================================ */
 const TOPIC_LABELS = {
-  sales: "ขายไข่", bills: "ประวัติบิล", account: "บัญชีลูกหนี้", tray: "บัญชีแผงไข่",
+  sales: "เปิดบิลขาย", bills: "ประวัติบิล", account: "บัญชีลูกหนี้", tray: "บัญชีแผงไข่",
   stock: "สต๊อคไข่ประจำวัน", production: "ผลผลิตประจำวัน", dash: "แดชบอร์ด", manage: "แดชบอร์ดผู้บริหาร",
-  booking: "จองออเดอร์", plan: "วางแผนออเดอร์", rear: "เก็บข้อมูลการเลี้ยง",
+  booking: "จองออเดอร์", plan: "วางแผนการขาย", rear: "เก็บข้อมูลการเลี้ยง",
   feed: "อาหารไก่", med: "ยาและวิตามิน", trial: "ทดลอง·ติดตามผล", health: "สุขภาพไก่", cost: "บัญชีต้นทุน", houseecon: "ประสิทธิภาพไก่",
 };
 const ALL_TOPIC_IDS = Object.keys(TOPIC_LABELS);
@@ -1593,6 +1593,18 @@ export default function App() {
   const [showRolePicker, setShowRolePicker] = useState(false);
   const [showRoleSettings, setShowRoleSettings] = useState(false);
   const [openNav, setOpenNav] = useState(null);   // กลุ่มเมนูที่กำลังเปิด dropdown (null = ปิดหมด)
+  /* 📌 วัดความสูงแถบหัวแอป → เก็บใน --hdrH ให้หัวตารางตรึงใต้แถบได้พอดี
+     (จอแคบแถบจะสูงขึ้นเพราะเมนูตัดบรรทัด จึงต้องวัดสดไม่ใช่ค่าคงที่) */
+  useEffect(() => {
+    const set = () => {
+      const h = document.querySelector("header");
+      document.documentElement.style.setProperty("--hdrH", ((h && h.getBoundingClientRect().height) || 126) + "px");
+    };
+    set();
+    window.addEventListener("resize", set);
+    const t = setInterval(set, 1200);   // เมนู/แถบเตือนเปลี่ยนความสูงได้ระหว่างใช้งาน
+    return () => { window.removeEventListener("resize", set); clearInterval(t); };
+  }, []);
   const roleObj = roles.find((r) => r.id === currentRole) || roles[0];
   /* 👀 บัญชีแขก — ดูอย่างเดียว ห้ามแก้ทุกอย่าง (เจ้าของสั่ง 4 ก.ย. 69)
      ยึดจาก DEFAULT_ROLES เสมอ ไม่เอาจาก localStorage กันคนแก้ eggRoles ในเครื่องเพื่อปลดล็อก */
@@ -1986,9 +1998,9 @@ export default function App() {
         <nav className="mainNav" style={S.nav}>
           {(() => {
             const TOPIC_META = {
-              sales: { icon: <ShoppingCart size={15} />, label: "ขายไข่", c: "#EA580C" },
+              sales: { icon: <ShoppingCart size={15} />, label: "เปิดบิลขาย", c: "#EA580C" },
               booking: { icon: <Receipt size={15} />, label: "จองออเดอร์", c: "#BE185D" },
-              plan: { icon: <Calendar size={15} />, label: "วางแผนออเดอร์", c: "#7E22CE" },
+              plan: { icon: <Calendar size={15} />, label: "วางแผนการขาย", c: "#7E22CE" },
               stock: { icon: <Warehouse size={15} />, label: "สต๊อคไข่ประจำวัน", c: "#0E7490" },
               bills: { icon: <FileText size={15} />, label: "ประวัติบิล", c: "#475569" },
               tray: { icon: <RotateCcw size={15} />, label: "บัญชีแผงไข่", c: "#7C3AED" },
@@ -2008,7 +2020,7 @@ export default function App() {
               roles: { icon: <Settings size={15} />, label: "ตั้งค่าสิทธิ์", c: "#6D28D9", ownerOnly: true, action: true },
             };
             const GROUPS = [
-              { id: "g_sales", emoji: "🛒", label: "งานเสมียน", c: "#EA580C", items: ["sales", "production", "booking", "plan", "stock", "bills", "tray"] },
+              { id: "g_sales", emoji: "🛒", label: "งานเสมียน", c: "#EA580C", items: ["sales", "production", "stock", "bills", "booking", "plan", "tray"] },   // ลำดับตามที่เจ้าของสั่ง 4 ก.ย. 69
               { id: "g_farm", emoji: "🐔", label: "งานสัตวบาล", c: "#B45309", items: ["rear", "feed", "med", "health", "trial"] },
               { id: "g_acct", emoji: "💰", label: "งานบัญชี", c: "#A16207", items: ["account", "cost"] },
               { id: "g_mgr", emoji: "📊", label: "ผู้บริหาร", c: "#7C3AED", items: ["dash", "manage", "houseecon", "activity", "accounts", "roles"] },
@@ -2030,11 +2042,24 @@ export default function App() {
                     {open && (
                       // fixed หลุดจากกรอบ overflow-x ของ .mainNav บนมือถือ (absolute โดนตัดทิ้ง → กดเมนูย่อยไม่ได้)
                       <div style={{ position: "fixed", top: openNav.top + 6, left: Math.max(8, Math.min(openNav.left, (window.innerWidth || 360) - 242)), zIndex: 60, background: "#fff", border: "1px solid #e6ddca", borderRadius: 12, boxShadow: "0 10px 28px rgba(60,45,20,0.16)", padding: 6, minWidth: 218, maxHeight: "62vh", overflowY: "auto" }}>
-                        {items.map((id) => { const t = TOPIC_META[id]; const on = view === id; return (
-                          <button key={id} onClick={() => { setOpenNav(null); if (t.action) setShowRoleSettings(true); else setView(id); }}
-                            style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", textAlign: "left", padding: "9px 11px", border: `1px solid ${on ? t.c : t.c + "33"}`, borderRadius: 8, marginBottom: 4, background: on ? "#FBF3E7" : t.c + "0F", color: on ? t.c : INK, fontWeight: on ? 800 : 600, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
-                            <span style={{ color: t.c, display: "inline-flex" }}>{t.icon}</span> {t.label}
-                          </button>
+                        {/* 3 อันแรกของ "งานเสมียน" = ที่เสมียนใช้บ่อยสุด → ทำให้เด่น (เจ้าของสั่ง 4 ก.ย. 69)
+                            ใหญ่กว่า · หนากว่า · พื้นเข้มกว่า · มีเลขลำดับ · คั่นเส้นจากที่เหลือ · กลุ่มอื่นแสดงปกติ */}
+                        {items.map((id, i) => { const t = TOPIC_META[id]; const on = view === id; const top = g.id === "g_sales" && i < 3; return (
+                          <React.Fragment key={id}>
+                            {g.id === "g_sales" && i === 3 && items.length > 3 && <div style={{ height: 1, background: "#e6ddca", margin: "8px 2px 7px" }} />}
+                            <button onClick={() => { setOpenNav(null); if (t.action) setShowRoleSettings(true); else setView(id); }}
+                              style={{ display: "flex", alignItems: "center", gap: top ? 10 : 9, width: "100%", textAlign: "left",
+                                padding: top ? "12px 12px" : "8px 11px",
+                                border: `${top ? 2 : 1}px solid ${on ? t.c : t.c + (top ? "55" : "33")}`,
+                                borderRadius: top ? 10 : 8, marginBottom: top ? 6 : 4,
+                                background: on ? "#FBF3E7" : t.c + (top ? "1C" : "0F"),
+                                color: on ? t.c : INK, fontWeight: on ? 800 : (top ? 800 : 600),
+                                fontSize: top ? 14.5 : 12.5, cursor: "pointer", fontFamily: "inherit",
+                                boxShadow: top ? `0 2px 6px ${t.c}22` : "none" }}>
+                              {top && <span style={{ flexShrink: 0, width: 19, height: 19, borderRadius: 999, background: t.c, color: "#fff", fontSize: 11, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</span>}
+                              <span style={{ color: t.c, display: "inline-flex" }}>{t.icon}</span> {t.label}
+                            </button>
+                          </React.Fragment>
                         ); })}
                       </div>
                     )}
@@ -4343,7 +4368,7 @@ function ManageDashView({ production = {}, rearingByDate = {}, flocks = {} }) {
     return { txt: pct.toFixed(0) + "%", style: { color: bad ? "#B91C1C" : "#15803D", fontWeight: 700, background: bad ? "#FEF2F2" : "transparent" } };
   };
   const td = { padding: "7px 8px", fontSize: 13, borderBottom: "1px solid #f3eee2", textAlign: "right", whiteSpace: "nowrap" };
-  const th = { padding: "8px", fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", borderBottom: "2px solid #eadfca", textAlign: "right", whiteSpace: "nowrap" };
+  const th = { padding: "8px", fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", borderBottom: "2px solid #eadfca", textAlign: "right", whiteSpace: "nowrap", background: "#F7F2E8", position: "sticky", top: 0, zIndex: 3 };   // 📌 ล็อกหัวตาราง
   return (
     <div style={S.wide}>
       <div style={S.subBar}>
@@ -4400,7 +4425,7 @@ function ManageDashView({ production = {}, rearingByDate = {}, flocks = {} }) {
           </div>
 
           {/* ตารางรายหลัง */}
-          <div style={{ ...S.dashCard, marginTop: 14, overflowX: "auto" }}>
+          <div style={{ ...S.dashCard, marginTop: 14, overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
             <div style={S.dashCardTitle}><Warehouse size={16} /> สรุปรายหลัง</div>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
               <thead><tr>
@@ -4435,7 +4460,7 @@ function ManageDashView({ production = {}, rearingByDate = {}, flocks = {} }) {
           </div>
 
           {/* 📏 เทียบมาตรฐาน Hy-Line Brown ตามอายุจริง ทุกตัวชี้วัด + โปรแกรมแสง */}
-          <div style={{ ...S.dashCard, marginTop: 14, overflowX: "auto" }}>
+          <div style={{ ...S.dashCard, marginTop: 14, overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
             <div style={S.dashCardTitle}><TrendingUp size={16} /> เทียบมาตรฐาน Hy-Line Brown ตามอายุจริง · รวมโปรแกรมแสง</div>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 880 }}>
               <thead><tr>
@@ -4488,7 +4513,7 @@ function ManageDashView({ production = {}, rearingByDate = {}, flocks = {} }) {
           <MonthlyProdChart production={production} />
 
           {/* กระจายเบอร์ไข่ต่อหลัง (เทียบค่าเฉลี่ยฟาร์ม) */}
-          <div style={{ ...S.dashCard, marginTop: 14, overflowX: "auto" }}>
+          <div style={{ ...S.dashCard, marginTop: 14, overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
             <div style={S.dashCardTitle}><Egg size={16} /> กระจายเบอร์ไข่รายหลัง (แผง) · เทียบสัดส่วนเฉลี่ยฟาร์ม</div>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 560 }}>
               <thead><tr>
@@ -4690,7 +4715,7 @@ function HouseEconView({ production = {}, flocks = {}, expenses = [], medCostByM
   const f = data.farm;
   const cullHouses = data.houses.filter((h) => h.rec.level === "cull");
   const watchHouses = data.houses.filter((h) => h.rec.level === "watch");
-  const th = { padding: "8px", fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", borderBottom: "2px solid #eadfca", textAlign: "right", whiteSpace: "nowrap" };
+  const th = { padding: "8px", fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", borderBottom: "2px solid #eadfca", textAlign: "right", whiteSpace: "nowrap", background: "#F7F2E8", position: "sticky", top: 0, zIndex: 3 };   // 📌 ล็อกหัวตาราง
   const td = { padding: "7px 8px", fontSize: 13, borderBottom: "1px solid #f3eee2", textAlign: "right", whiteSpace: "nowrap" };
   const money = (v) => (v < 0 ? "-" : "") + fmt(Math.abs(Math.round(v)));
   const recBg = { cull: { bg: "#FEF2F2", c: "#B91C1C" }, watch: { bg: "#FFF7EC", c: "#B45309" }, ok: { bg: "#F0FDF4", c: "#15803D" } };
@@ -4752,7 +4777,7 @@ function HouseEconView({ production = {}, flocks = {}, expenses = [], medCostByM
           )}
 
           {/* ตารางเศรษฐศาสตร์รายหลัง */}
-          <div style={{ ...S.dashCard, marginTop: 14, overflowX: "auto" }}>
+          <div style={{ ...S.dashCard, marginTop: 14, overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
             <div style={S.dashCardTitle}><Warehouse size={16} /> ต้นทุน–รายได้–กำไร รายหลัง · {ymTH(curYm)}</div>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
               <thead><tr>
@@ -4788,7 +4813,7 @@ function HouseEconView({ production = {}, flocks = {}, expenses = [], medCostByM
           </div>
 
           {/* เทรนด์ราคาไข่ทั้งปี */}
-          <div style={{ ...S.dashCard, marginTop: 14, overflowX: "auto" }}>
+          <div style={{ ...S.dashCard, marginTop: 14, overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
             <div style={S.dashCardTitle}><TrendingUp size={16} /> เทรนด์ราคาไข่เฉลี่ย/แผง · ปี {Number(year) + 543} <span style={{ fontSize: 12, fontWeight: 600, color: "#9b8e78" }}>(จากบิลขายจริง)</span></div>
             {trend.rows.length === 0 ? (
               <div style={{ padding: "14px 6px", color: "#9b8e78" }}>ยังไม่มีข้อมูลราคาจากบิลในปีนี้</div>
@@ -4818,7 +4843,7 @@ function HouseEconView({ production = {}, flocks = {}, expenses = [], medCostByM
           </div>
 
           {/* ราคาไข่ล่าสุดต่อลูกค้า — เปรียบเทียบทุกคน */}
-          <div style={{ ...S.dashCard, marginTop: 14, overflowX: "auto" }}>
+          <div style={{ ...S.dashCard, marginTop: 14, overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
             <div style={S.dashCardTitle}><CircleDollarSign size={16} /> ราคาไข่ล่าสุดต่อลูกค้า <span style={{ fontSize: 12, fontWeight: 600, color: "#9b8e78" }}>(เปรียบเทียบทุกคน · บาท/แผง)</span></div>
             {priceByCust.customers.length === 0 ? (
               <div style={{ padding: "14px 6px", color: "#9b8e78" }}>ยังไม่มีข้อมูลราคาจากบิลขาย</div>
@@ -4990,8 +5015,8 @@ function StockView({ salesByDay = {}, productionByDate = {}, defaultDay, stockCo
   const padTd = ["9px 10px", "8px 5px", "7px 3px", "6px 2px"][density];
   const padTh = ["10px 10px", "9px 5px", "8px 3px", "7px 2px"][density];
   const tblX = { ...S.table, minWidth: 0, tableLayout: "fixed", fontSize: fzTbl };
-  const thX = { ...S.th, padding: padTh, whiteSpace: "normal", fontSize: Math.max(11, fzTbl + 0.5), lineHeight: 1.25 };   // หัวช่องสรุป — ใหญ่ขึ้นตามตัวเลข
-  const thCustX = { ...S.thCust, padding: padTh, whiteSpace: "normal", wordBreak: "break-word", fontSize: fzCust, lineHeight: 1.25 };
+  const thX = { ...S.th, ...S.thTop, padding: padTh, whiteSpace: "normal", fontSize: Math.max(11, fzTbl + 0.5), lineHeight: 1.25 };   // หัวช่องสรุป — ใหญ่ขึ้นตามตัวเลข
+  const thCustX = { ...S.thCust, ...S.thTop, padding: padTh, whiteSpace: "normal", wordBreak: "break-word", fontSize: fzCust, lineHeight: 1.25 };
   // 🔲 เส้นคั่นเฉพาะรอยต่อโซน (เจ้าของเลือก 29 ส.ค. 69) — โซนลูกค้าไม่คั่นเส้นภายใน
   //    โซน: ชื่อ | ยกมา-รับเข้า-รวม | ลูกค้า | ขายรวม | คงเหลือ-ส่วนต่าง | ประมาณการ | ชื่อ(ขวา)
   const zEdge = { borderLeft: "2px solid #C0B296" };
@@ -6345,26 +6370,26 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
         <table style={S.table} className="prodTable">
           <thead>
             <tr>
-              <th rowSpan={2} style={{ ...S.th, ...S.thSticky, textAlign: "left" }}>หลัง</th>
-              {OFF_HEAD.map((k) => <th key={k} rowSpan={2} style={{ ...S.th, background: PROD_C.off }}>{offLabel(k)}</th>)}
-              <th colSpan={OFF_DIRTY.length} style={{ ...S.th, background: PROD_C.off }}>ไข่เปื้อน</th>
-              <th rowSpan={2} style={{ ...S.th, background: PROD_C.off }}>รวม<br />(แผง)</th>
-              <th rowSpan={2} style={{ ...S.th, background: "#C2410C", color: "#fff", fontSize: 13.5 }}>%ไข่<br />ตกเกรด</th>
+              <th rowSpan={2} style={{ ...S.th, ...S.thTop, ...S.thSticky, textAlign: "left" }}>หลัง</th>
+              {OFF_HEAD.map((k) => <th key={k} rowSpan={2} style={{ ...S.th, ...S.thTop, background: PROD_C.off }}>{offLabel(k)}</th>)}
+              <th colSpan={OFF_DIRTY.length} style={{ ...S.th, ...S.thTop, background: PROD_C.off }}>ไข่เปื้อน</th>
+              <th rowSpan={2} style={{ ...S.th, ...S.thTop, background: PROD_C.off }}>รวม<br />(แผง)</th>
+              <th rowSpan={2} style={{ ...S.th, ...S.thTop, background: "#C2410C", color: "#fff", fontSize: 13.5 }}>%ไข่<br />ตกเกรด</th>
               {/* ไข่ดี = ไข่เบอร์ + ไข่คละ (เจ้าของยืนยัน 29 ส.ค. 69) — คละอยู่ในกลุ่มไข่ดี ช่อง "รวม" บวกทั้งสองอย่าง */}
-              <th colSpan={BER_KEYS.length + activeKla.length + 1} style={{ ...S.th, background: PROD_C.good }}>รายการไข่ดี (แผง) <span style={{ fontWeight: 600, fontSize: 11.5, opacity: 0.85 }}>· <span style={{ color: "#15803D" }}>เบอร์</span> + <span style={{ color: "#0F5F55" }}>คละ</span></span></th>
-              <th rowSpan={2} style={{ ...S.th, background: "#DBEAFE", color: "#1D4ED8" }}>เก็บมือ<br />หลังเครื่อง (ฟอง)</th>
-              <th rowSpan={2} style={{ ...S.th, background: "#DBEAFE", color: "#1D4ED8" }}>ไข่ดี<br />คงเหลือ (ฟอง)</th>
-              <th rowSpan={2} style={{ ...S.th, background: PROD_C.sum }}>รวมไข่ไก่<br />(ดี+ตกเกรด)</th>
-              <th rowSpan={2} style={{ ...S.th, background: PROD_C.sum }}>ยอดไก่<br />คงเหลือ</th>
-              <th rowSpan={2} style={{ ...S.th, background: "#15803D", color: "#fff", fontSize: 14.5, fontFamily: "'Prompt', sans-serif", letterSpacing: 0.3 }}>%ไข่<br />รวม</th>
-              <th rowSpan={2} style={{ ...S.th, background: "#8C7B5E", color: "#fff", fontSize: 13 }}>%มฐ<br />Hy-Line</th>
-              <th rowSpan={2} style={{ ...S.th, background: "#EDE9FE", color: "#5B21B6", fontSize: 13 }}>เทียบ<br />เมื่อวาน</th>
+              <th colSpan={BER_KEYS.length + activeKla.length + 1} style={{ ...S.th, ...S.thTop, background: PROD_C.good }}>รายการไข่ดี (แผง) <span style={{ fontWeight: 600, fontSize: 11.5, opacity: 0.85 }}>· <span style={{ color: "#15803D" }}>เบอร์</span> + <span style={{ color: "#0F5F55" }}>คละ</span></span></th>
+              <th rowSpan={2} style={{ ...S.th, ...S.thTop, background: "#DBEAFE", color: "#1D4ED8" }}>เก็บมือ<br />หลังเครื่อง (แผง)</th>
+              <th rowSpan={2} style={{ ...S.th, ...S.thTop, background: "#DBEAFE", color: "#1D4ED8" }}>ไข่ดี<br />คงเหลือ (ฟอง)</th>
+              <th rowSpan={2} style={{ ...S.th, ...S.thTop, background: PROD_C.sum }}>รวมไข่ไก่<br />(ดี+ตกเกรด)</th>
+              <th rowSpan={2} style={{ ...S.th, ...S.thTop, background: PROD_C.sum }}>ยอดไก่<br />คงเหลือ</th>
+              <th rowSpan={2} style={{ ...S.th, ...S.thTop, background: "#15803D", color: "#fff", fontSize: 14.5, fontFamily: "'Prompt', sans-serif", letterSpacing: 0.3 }}>%ไข่<br />รวม</th>
+              <th rowSpan={2} style={{ ...S.th, ...S.thTop, background: "#8C7B5E", color: "#fff", fontSize: 13 }}>%มฐ<br />Hy-Line</th>
+              <th rowSpan={2} style={{ ...S.th, ...S.thTop, background: "#EDE9FE", color: "#5B21B6", fontSize: 13 }}>เทียบ<br />เมื่อวาน</th>
             </tr>
             <tr>
-              {OFF_DIRTY.map((k) => <th key={k} style={{ ...S.th, background: PROD_C.off }}>{k === "เปื้อนมาก" ? "มาก" : k === "เปื้อนน้อย" ? "น้อย" : "ป.ไข่"}</th>)}
-              {BER_KEYS.map((k) => <th key={k} style={{ ...S.th, background: "#DBF5E4", color: "#15803D" }}>เบอร์ {k}</th>)}
-              {activeKla.map((k) => <th key={k} style={{ ...S.th, background: "#B6EDDF", color: "#0F5F55" }}>คละ {k}</th>)}
-              <th style={{ ...S.th, background: "#4FB477", color: "#fff" }}>รวม<br /><span style={{ fontWeight: 600, fontSize: 10.5 }}>เบอร์+คละ</span></th>
+              {OFF_DIRTY.map((k) => <th key={k} style={{ ...S.th, ...S.thTop2, background: PROD_C.off }}>{k === "เปื้อนมาก" ? "มาก" : k === "เปื้อนน้อย" ? "น้อย" : "ป.ไข่"}</th>)}
+              {BER_KEYS.map((k) => <th key={k} style={{ ...S.th, ...S.thTop2, background: "#DBF5E4", color: "#15803D" }}>เบอร์ {k}</th>)}
+              {activeKla.map((k) => <th key={k} style={{ ...S.th, ...S.thTop2, background: "#B6EDDF", color: "#0F5F55" }}>คละ {k}</th>)}
+              <th style={{ ...S.th, ...S.thTop2, background: "#4FB477", color: "#fff" }}>รวม<br /><span style={{ fontWeight: 600, fontSize: 10.5 }}>เบอร์+คละ</span></th>
             </tr>
           </thead>
           <tbody>
@@ -6387,7 +6412,7 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
                   {BER_KEYS.map((k) => <td key={k} style={{ ...S.td, ...flag(h.id, "ber:" + k) }}>{fmt(Math.round((h.grade.เบอร์[k] || 0) / PER_PRADANG))}</td>)}
                   {activeKla.map((k) => <td key={k} style={{ ...S.td, fontWeight: 700, color: "#0F766E", background: "#E3F8F2" }}>{(h.grade.คละ || {})[k] ? fmt(h.grade.คละ[k]) : "·"}</td>)}
                   <td style={{ ...S.td, fontWeight: 800, color: "#15803D", background: "#DBF5E4", ...flag(h.id, "rate:good") }}>{fmt(Math.round(c.goodPrang) + Math.round(c.klaPrang))}</td>
-                  <td style={{ ...S.td, background: "#EFF5FE", fontWeight: 700, color: c.pickBackFong > 0 ? "#1D4ED8" : "#c9c0ad" }}>{c.pickBackFong > 0 ? "−" + fmt(c.pickBackFong) : "·"}</td>
+                  <td style={{ ...S.td, background: "#EFF5FE", fontWeight: 700, color: c.pickBackPrang > 0 ? "#1D4ED8" : "#c9c0ad" }}>{c.pickBackPrang > 0 ? "−" + fmt(c.pickBackPrang) : "·"}</td>
                   <td style={{ ...S.td, background: "#EFF5FE", fontWeight: 800, color: "#1D4ED8" }}>{fmt(c.goodNetFong)}</td>
                   <td style={{ ...S.td, fontWeight: 600 }}>{fmt(c.totalFong)}</td>
                   <td style={S.td}>{fmt(h.chickens)}</td>
@@ -6431,7 +6456,7 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
               {BER_KEYS.map((k) => <td key={k} style={{ ...S.td, ...S.tfoot }}>{fmt(Math.round((grand.ber[k] || 0) / PER_PRADANG))}</td>)}
               {activeKla.map((k) => <td key={k} style={{ ...S.td, ...S.tfoot, color: "#0F766E", background: "#D5F2EA" }}>{fmt(grand.klaByKey[k] || 0)}</td>)}
               <td style={{ ...S.td, ...S.tfoot, background: "#DBF5E4", color: "#15803D" }}>{fmt(Math.round(grand.good / PER_PRADANG) + Math.round(grand.kla))}</td>
-              <td style={{ ...S.td, ...S.tfoot, color: "#1D4ED8" }}>{grand.pickBack > 0 ? "−" + fmt(grand.pickBack * PER_PRADANG) : "·"}</td>
+              <td style={{ ...S.td, ...S.tfoot, color: "#1D4ED8" }}>{grand.pickBack > 0 ? "−" + fmt(grand.pickBack) : "·"}</td>
               <td style={{ ...S.td, ...S.tfoot, color: "#1D4ED8" }}>{fmt(grand.goodNet)}</td>
               <td style={{ ...S.td, ...S.tfoot }}>{fmt(grand.total)}</td>
               <td style={{ ...S.td, ...S.tfoot }}>{fmt(grand.chickens)}</td>
@@ -8061,7 +8086,7 @@ function FeedView({ rearingByDate = {}, flocks = {}, production = {}, feedDelive
   const recheckPending = feedRecheck.filter((x) => x.keeper == null);
   const recheckMatched = feedRecheck.filter((x) => x.diff != null && Math.abs(x.diff) <= 0.001).length;
   const recent = [...(feedDeliveries || [])].sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 10);
-  const th = { padding: "9px 10px", fontSize: 12.5, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", whiteSpace: "nowrap", textAlign: "right" };
+  const th = { padding: "9px 10px", fontSize: 12.5, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", whiteSpace: "nowrap", textAlign: "right", position: "sticky", top: 0, zIndex: 3 };   // 📌 ล็อกหัวตาราง
   const td = { padding: "9px 10px", fontSize: 13.5, textAlign: "right", borderBottom: "1px solid #eee7d8", whiteSpace: "nowrap" };
   const remCell = (act, v) => act ? <span style={v < feedMin ? { color: "#B91C1C", fontWeight: 800 } : { fontWeight: 700 }}>{fmt1(v)}{v < feedMin ? " ⚠️" : ""}</span> : <span style={{ color: "#c9c0ad" }}>—</span>;
   return (
@@ -9046,7 +9071,7 @@ function CostView({ expenses = [], addExpense, deleteExpense, production = {}, m
   const recent = expenses.slice(0, 20);
   const inp = { width: "100%", padding: "9px 10px", border: "1.5px solid #e3ddd0", borderRadius: 9, fontSize: 14, fontFamily: "inherit", outline: "none", boxSizing: "border-box" };
   const lbl = { display: "block", fontSize: 12, fontWeight: 700, color: INK, marginBottom: 3 };
-  const th = { padding: "9px 10px", fontSize: 12, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", whiteSpace: "nowrap", textAlign: "right" };
+  const th = { padding: "9px 10px", fontSize: 12, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", whiteSpace: "nowrap", textAlign: "right", position: "sticky", top: 0, zIndex: 3 };   // 📌 ล็อกหัวตาราง
   const td = { padding: "9px 10px", fontSize: 13.5, textAlign: "right", borderBottom: "1px solid #eee7d8", whiteSpace: "nowrap" };
   const card = (label, value, color) => (
     <div style={{ flex: 1, minWidth: 150, background: "#fff", border: "1px solid #eee3cd", borderRadius: 12, padding: "10px 14px" }}>
@@ -9412,7 +9437,11 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
             {statCard("ไก่คงเหลือ", fl?.startCount ? fmt(fl.startCount - cumAll.total) + " ตัว" : "—", "#15803D")}
           </div>
           {(() => {
-            const vTh = { padding: "6px 8px", fontSize: 11.5, fontWeight: 800, color: "#5d5341", background: "#F6F1E7", whiteSpace: "nowrap", lineHeight: 1.25, borderBottom: "2px solid #D9CDB4", textAlign: "center" };
+            /* 📌 ล็อกหัวตารางไว้ด้านบน เลื่อนดูวันเก่าแล้วยังเห็นชื่อคอลัมน์ (เจ้าของสั่ง 5 ก.ย. 69)
+               หัวมี 2 แถว: แถวบน top:0 · แถวล่างต้องเลื่อนลงเท่าความสูงแถวบน (VH1) */
+            const VH1 = 27;   // ความสูงจริงของหัวแถวบน (วัดจากหน้าเว็บ)
+            const vTh = { padding: "6px 8px", fontSize: 11.5, fontWeight: 800, color: "#5d5341", background: "#F6F1E7", whiteSpace: "nowrap", lineHeight: 1.25, borderBottom: "2px solid #D9CDB4", textAlign: "center", position: "sticky", top: 0, zIndex: 3 };
+            const vTh2 = { ...vTh, top: VH1, zIndex: 3 };   // หัวแถวที่สอง
             const vTd = { padding: "5px 8px", fontSize: 12.5, textAlign: "center", whiteSpace: "nowrap", borderBottom: "1px solid #F0E9DA" };
             const edge = { borderLeft: "2px solid #C0B296" };
             // ผลผลิตไข่ของวันนั้น (จากหน้าผลผลิต) — ไข่ดี = เบอร์ + คละ · ตกเกรดแยก
@@ -9452,7 +9481,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                 <table style={{ borderCollapse: "collapse", minWidth: 1500 }}>
                   <thead>
                     <tr>
-                      <th rowSpan={2} style={{ ...vTh, textAlign: "left", position: "sticky", left: 0, zIndex: 2 }}>ว/ด/ป</th>
+                      <th rowSpan={2} style={{ ...vTh, textAlign: "left", left: 0, zIndex: 6 }}>ว/ด/ป</th>
                       <th rowSpan={2} style={{ ...vTh, ...edge }}>ตาย</th>
                       <th rowSpan={2} style={{ ...vTh, color: "#15803D" }}>ยอดไก่<br />คงเหลือ</th>
                       <th colSpan={3} style={{ ...vTh, ...edge, background: "#FFF4E3", color: "#B45309" }}>ไซโล 1</th>
@@ -9468,18 +9497,18 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
                       <th rowSpan={2} style={{ ...vTh, ...edge, textAlign: "left" }}>การให้ยา / สารเสริม</th>
                     </tr>
                     <tr>
-                      <th style={{ ...vTh, ...edge, background: "#FFF4E3" }}>รับเข้า</th>
-                      <th style={{ ...vTh, background: "#FFF4E3" }}>ใช้ไป</th>
-                      <th style={{ ...vTh, background: "#FFF4E3" }}>คงเหลือ</th>
-                      <th style={{ ...vTh, ...edge, background: "#FFF9F0" }}>รับเข้า</th>
-                      <th style={{ ...vTh, background: "#FFF9F0" }}>ใช้ไป</th>
-                      <th style={{ ...vTh, background: "#FFF9F0" }}>คงเหลือ</th>
-                      <th style={{ ...vTh, ...edge, background: "#EFF7FC" }}>Avg<br />(มล./ตัว)</th>
-                      <th style={{ ...vTh, background: "#EFF7FC" }}>Total<br />({waterUnitLabel(selHouse)})</th>
-                      <th style={{ ...vTh, ...edge, background: "#F2FBF4" }}>ไข่ดีรวม<br />(แผง)</th>
-                      <th style={{ ...vTh, background: "#F2FBF4" }}>ตกเกรดรวม<br />(แผง)</th>
-                      <th style={{ ...vTh, background: "#F2FBF4" }}>%ผลผลิต</th>
-                      <th style={{ ...vTh, background: "#F2FBF4" }}>%ตกเกรด</th>
+                      <th style={{ ...vTh2, ...edge, background: "#FFF4E3" }}>รับเข้า</th>
+                      <th style={{ ...vTh2, background: "#FFF4E3" }}>ใช้ไป</th>
+                      <th style={{ ...vTh2, background: "#FFF4E3" }}>คงเหลือ</th>
+                      <th style={{ ...vTh2, ...edge, background: "#FFF9F0" }}>รับเข้า</th>
+                      <th style={{ ...vTh2, background: "#FFF9F0" }}>ใช้ไป</th>
+                      <th style={{ ...vTh2, background: "#FFF9F0" }}>คงเหลือ</th>
+                      <th style={{ ...vTh2, ...edge, background: "#EFF7FC" }}>Avg<br />(มล./ตัว)</th>
+                      <th style={{ ...vTh2, background: "#EFF7FC" }}>Total<br />({waterUnitLabel(selHouse)})</th>
+                      <th style={{ ...vTh2, ...edge, background: "#F2FBF4" }}>ไข่ดีรวม<br />(แผง)</th>
+                      <th style={{ ...vTh2, background: "#F2FBF4" }}>ตกเกรดรวม<br />(แผง)</th>
+                      <th style={{ ...vTh2, background: "#F2FBF4" }}>%ผลผลิต</th>
+                      <th style={{ ...vTh2, background: "#F2FBF4" }}>%ตกเกรด</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -11411,9 +11440,13 @@ const S = {
   primaryBtn: { width: "100%", padding: "13px", background: INK, color: "#fff", border: "none", borderRadius: 11, fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 },
 
   // ตาราง (คลัง/ผลผลิต)
-  tableScroll: { overflowX: "auto", margin: "16px 0 8px", border: "1px solid #ece6da", borderRadius: 14, background: "#fff" },
+  tableScroll: { overflowX: "auto", overflowY: "auto", maxHeight: "72vh", margin: "16px 0 8px", border: "1px solid #ece6da", borderRadius: 14, background: "#fff" },   // 📌 เลื่อนในกล่อง → หัวตารางตรึงได้
   table: { borderCollapse: "collapse", width: "100%", fontSize: 13, minWidth: 700 },
   th: { padding: "10px 12px", background: "#F7F2E8", borderBottom: "2px solid #e3ddd0", fontWeight: 700, fontSize: 12.5, textAlign: "center", whiteSpace: "nowrap" },
+  // 📌 หัวตารางตรึงไว้ใต้แถบหัวแอป — เลื่อนดูแถวล่างๆ แล้วยังเห็นชื่อคอลัมน์
+  thTop: { position: "sticky", top: 0, zIndex: 3 },                            // หัวแถวบน
+  thTop2: { position: "sticky", top: 40, zIndex: 3 },                          // หัวแถวที่สอง (ใต้แถวบน)
+  thTopBox: { position: "sticky", top: 0, zIndex: 3 },                        // ตารางที่อยู่ในกล่องเลื่อนของตัวเอง
   thSticky: { position: "sticky", left: 0, zIndex: 2, background: "#F7F2E8" },
   thCust: { padding: "10px 10px", background: "#fff", borderBottom: "2px solid #e3ddd0", fontWeight: 600, fontSize: 12, textAlign: "center", whiteSpace: "nowrap", color: "#6b6358" },
   td: { padding: "9px 12px", borderBottom: "1px solid #f3f0e9", textAlign: "center", whiteSpace: "nowrap" },
