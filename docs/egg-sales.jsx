@@ -5862,13 +5862,18 @@ function normAlertCfg(raw) {
 // คำนวณรายการแจ้งเตือนของ 1 หลัง ตามเกณฑ์ cfg → [{tag,label,detail}]
 function computeHouseAlerts(h, cfg) {
   const out = [];
-  const goodFong = Object.values(h.grade.เบอร์).reduce((s, v) => s + (v || 0), 0);
-  const offPrang = Object.values(h.grade.ตกเกรด).reduce((s, v) => s + (v || 0), 0);
+  /* ทุกยอดต้องคิดแบบเดียวกับตาราง: เก็บมือหลังเครื่องนับเป็นตกเกรด และหักออกจากไข่ดี */
+  const pb = h.pickBack || {};
+  const pbPrang = Object.values(pb).reduce((s, v) => s + (v || 0), 0);
+  const goodFong = Math.max(0, Object.values(h.grade.เบอร์).reduce((s, v) => s + (v || 0), 0)
+    + Object.values(h.grade.คละ || {}).reduce((s, v) => s + (v || 0), 0) * PER_PRADANG
+    - pbPrang * PER_PRADANG);
+  const offPrang = Object.values(h.grade.ตกเกรด).reduce((s, v) => s + (v || 0), 0) + pbPrang;
   const offFong = offPrang * PER_PRADANG;
   const totalFong = goodFong + offFong;
   const chickens = h.chickens || 0;
   OFF_KEYS.forEach((k) => {
-    const prang = h.grade.ตกเกรด[k] || 0; const r = cfg.off[k] || {};
+    const prang = (h.grade.ตกเกรด[k] || 0) + (pb[k] || 0); const r = cfg.off[k] || {};
     if (r.max != null && prang > r.max) out.push({ tag: "off:" + k, label: k, detail: `${fmt(prang)} แผง · เกิน ${fmt(r.max)}` });
     if (r.pct != null && totalFong > 0) { const p = (prang * PER_PRADANG) / totalFong * 100; if (p > r.pct) out.push({ tag: "off:" + k, label: k, detail: `${p.toFixed(1)}% ของไข่รวม · เกิน ${r.pct}%` }); }
   });
@@ -6478,8 +6483,18 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
                       {alertMap[h.id] && alertMap[h.id].length ? <span title={alertMap[h.id].map((a) => a.label + " " + a.detail).join("\n")} style={{ cursor: "help", fontSize: 12 }}>⚠️</span> : null}
                     </span>
                   </td>
-                  {[...OFF_HEAD, ...OFF_DIRTY].map((k) => <td key={k} style={{ ...S.td, ...flag(h.id, "off:" + k) }}>{fmt(g[k] || 0)}</td>)}
-                  <td style={{ ...S.td, fontWeight: 700 }}>{fmt(c.offgrade)}</td>
+                  {/* ตกเกรดแยกประเภท = เก็บมือในเล้า + เก็บมือหลังเครื่องของประเภทนั้น (เจ้าของสั่ง 6 ก.ย. 69)
+                      ตัวเลขใต้ช่องคือส่วนที่มาจากหลังเครื่อง จะได้รู้ว่าก้อนไหนมาจากไหน */}
+                  {[...OFF_HEAD, ...OFF_DIRTY].map((k) => {
+                    const back = (h.pickBack || {})[k] || 0;
+                    return (
+                      <td key={k} style={{ ...S.td, ...flag(h.id, "off:" + k) }}>
+                        {fmt((g[k] || 0) + back)}
+                        {back > 0 ? <div style={{ fontSize: 10, fontWeight: 700, color: "#1D4ED8", lineHeight: 1.1, marginTop: 1 }}>+{fmt(back)}</div> : null}
+                      </td>
+                    );
+                  })}
+                  <td style={{ ...S.td, fontWeight: 700 }}>{fmt(c.offAllPrang)}</td>
                   <td style={{ ...S.td, background: "#FFE8D2", fontWeight: 800, color: "#9A3412", fontSize: 14, ...flag(h.id, "rate:offpct") }}>{c.pctOff.toFixed(2)}%</td>
                   {BER_KEYS.map((k) => <td key={k} style={{ ...S.td, ...flag(h.id, "ber:" + k) }}>{fmt(Math.round((h.grade.เบอร์[k] || 0) / PER_PRADANG))}</td>)}
                   {activeKla.map((k) => <td key={k} style={{ ...S.td, fontWeight: 700, color: "#0F766E", background: "#E3F8F2" }}>{(h.grade.คละ || {})[k] ? fmt(h.grade.คละ[k]) : "·"}</td>)}
@@ -6522,7 +6537,15 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
             })}
             <tr>
               <td style={{ ...S.td, ...S.tdSticky, ...S.tfoot, textAlign: "left" }}>รวม</td>
-              {[...OFF_HEAD, ...OFF_DIRTY].map((k) => <td key={k} style={{ ...S.td, ...S.tfoot }}>{fmt(grand.off[k] || 0)}</td>)}
+              {[...OFF_HEAD, ...OFF_DIRTY].map((k) => {
+                const back = grand.pbByKey[k] || 0;
+                return (
+                  <td key={k} style={{ ...S.td, ...S.tfoot }}>
+                    {fmt((grand.off[k] || 0) + back)}
+                    {back > 0 ? <div style={{ fontSize: 10, fontWeight: 700, color: "#1D4ED8", lineHeight: 1.1, marginTop: 1 }}>+{fmt(back)}</div> : null}
+                  </td>
+                );
+              })}
               <td style={{ ...S.td, ...S.tfoot }}>{fmt(grand.offPrang)}</td>
               <td style={{ ...S.td, ...S.tfoot, background: "#FED7AA", color: "#9A3412", fontSize: 14 }}>{grand.total ? ((grand.offFong / grand.total) * 100).toFixed(2) : 0}%</td>
               {BER_KEYS.map((k) => <td key={k} style={{ ...S.td, ...S.tfoot }}>{fmt(Math.round((grand.ber[k] || 0) / PER_PRADANG))}</td>)}
@@ -6574,7 +6597,7 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
         </table>
       </div>
       )}
-      <div style={S.hint}>กด ✎ ที่ชื่อหลังเพื่อ "กรอก/แก้ไข" จำนวนไข่วันนี้ (เบอร์ 0-5 + ตกเกรด) · <b style={{ color: "#15803D" }}>ผลผลิตเข้าสต็อกคลังของวันนั้นอัตโนมัติ</b> (ไม่ต้องกดรับเข้า) · <b>แก้ผิด?</b> กด "↩ ย้อนการแก้" (มุมขวาบน) เพื่อคืนค่าเดิม · <b style={{ color: "#B91C1C" }}>ช่องแดง</b> = เกินเกณฑ์ที่ตั้งไว้ (กด <b>🔔 เกณฑ์เตือน</b> เพื่อปรับตัวเลข) · %ไข่ตกเกรด = ตกเกรด(ฟอง) ÷ ไข่รวม · %ไข่รวม = ไข่รวม ÷ ยอดไก่</div>
+      <div style={S.hint}>กด ✎ ที่ชื่อหลังเพื่อ "กรอก/แก้ไข" จำนวนไข่วันนี้ (เบอร์ 0-5 + ตกเกรด) · <b style={{ color: "#15803D" }}>ผลผลิตเข้าสต็อกคลังของวันนั้นอัตโนมัติ</b> (ไม่ต้องกดรับเข้า) · <b>แก้ผิด?</b> กด "↩ ย้อนการแก้" (มุมขวาบน) เพื่อคืนค่าเดิม · <b style={{ color: "#1D4ED8" }}>ช่องตกเกรดแยกประเภท</b> = เก็บมือในเล้า + เก็บมือหลังเครื่อง (เลขสีน้ำเงินตัวเล็กคือส่วนที่มาจากหลังเครื่อง) · <b style={{ color: "#B91C1C" }}>ช่องแดง</b> = เกินเกณฑ์ที่ตั้งไว้ (กด <b>🔔 เกณฑ์เตือน</b> เพื่อปรับตัวเลข) · %ไข่ตกเกรด = ตกเกรด(ฟอง) ÷ ไข่รวม · %ไข่รวม = ไข่รวม ÷ ยอดไก่</div>
       {!readOnly && !lockClosed && showMachine && <MachinePullModal prodDate={prodDate} existing={housesAll}
         onClose={() => setShowMachine(false)}
         onApply={(byHouse) => {
