@@ -950,12 +950,16 @@ const LAST_PRICES = {
 const REF_PRICE_FALLBACK = { n0: 140, n1: 130, n2: 128, n3: 118, n4: 110, n5: 100, s_white: 100, g_nuan: 100, g_sand: 103, g_pueanmak: 105, g_pueannoi: 105, g_pueankai: 105, g_bub: 85, g_jiw: 86, g_tok: 20, g_toklew: 20, g_tokdaeng: 25, s_jumbo: 150, w_wash: 39, ww19: 36, ww20: 39, ww21: 42, ww22: 45, ww23: 48 };   // คละล้าง = คละปกติเบอร์นั้น − 6 บาท
 // หน่วยขายต่อสินค้า — ปกติขายเป็น "แผง" · ไข่ตอกแก้ว ขายเป็น "แก้ว" (เจ้าของสั่ง 16 ส.ค. 69)
 const PRODUCT_UNIT = { g_tok: "แก้ว" };
-const productUnit = (pid) => PRODUCT_UNIT[pid] || "แผง";
+const productUnit = (pid) => PRODUCT_UNIT[pid] || STOCK_SPECIAL_UNIT[pid] || "แผง";   // ไข่เหลว/ตอกแดง = กิโล · ตอกแก้ว = แก้ว
 // 🥛 ไข่ตอก 1 แก้ว = 8 ฟอง (เจ้าของยืนยัน 27 ส.ค. 69)
 const PER_GLASS = 8;
 // 🥛 รายการที่ไม่ได้นับเป็นแผง — แยกไว้ท้ายตารางสต๊อค ไม่รวมในยอด "รวม (แผง)" (เจ้าของสั่ง 27 ส.ค. 69)
 const STOCK_SPECIAL_UNIT = { g_tok: "แก้ว", g_toklew: "กิโล", g_tokdaeng: "กิโล" };
 const isSpecialStock = (pid) => !!STOCK_SPECIAL_UNIT[pid];
+/* 🛍️ สินค้าที่ไม่ได้ใส่แผงขาย → ห้ามนับเป็นแผงมัดจำ/แผงรับ-คืน
+   ตอกแก้ว = ใส่แก้ว · ไข่เหลว/ตอกแดง = ชั่งกิโลใส่ถุง (เจ้าของแจ้ง 5 ก.ย. 69)
+   เดิมยกเว้นแค่ตอกแก้ว ทำให้ไข่เหลวไปโผล่ในยอดค่ามัดจำแผง */
+const usesNoTray = (item) => !!(item?.product?.noTray || isSpecialStock(item?.productId));
 // หน่วยที่ใช้ในหน้าสต๊อค — ต่างจาก productUnit() ที่ใช้ในบิล (บิลรู้จักแค่ "แก้ว")
 const stockUnit = (pid) => STOCK_SPECIAL_UNIT[pid] || "แผง";
 
@@ -2337,16 +2341,16 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
   });
 
   const eggTotal = cartItems.reduce((s, i) => s + i.subtotal, 0);
-  const totalPrang = cartItems.reduce((s, i) => s + (i.product?.noTray ? 0 : i.qty), 0);   // นับเฉพาะแผงไข่จริง (ไม่รวมบรรจุภัณฑ์ เช่น แผงไข่กระดาษ)
+  const totalPrang = cartItems.reduce((s, i) => s + (usesNoTray(i) ? 0 : i.qty), 0);   // นับเฉพาะแผงไข่จริง (ไม่รวมบรรจุภัณฑ์ · ตอกแก้ว · ไข่เหลว/ตอกแดงที่ขายเป็นกิโล)
   // 🥛 สินค้าหน่วยพิเศษ (ตอกแก้ว): 1 แก้ว = 8 ฟอง (เจ้าของยืนยัน 27 ส.ค. 69) — แยกออกจากยอดแผง และคิดฟองที่ 8/แก้ว ไม่ใช่ 30
   const glassQty = cartItems.filter((i) => !i.product?.noTray && PRODUCT_UNIT[i.productId]).reduce((s, i) => s + (i.qty || 0), 0);
-  const prangQty = totalPrang - glassQty;
+  const prangQty = totalPrang;   // totalPrang หักสินค้าที่ไม่ใช้แผงออกไปแล้ว
   const fongEst = Math.round(prangQty * PER_PRADANG + glassQty * PER_GLASS);
   // ยอดแผงรับ = ยอดไข่ × 1.1 (จำนวนแผงจริงที่ลูกค้ารับ) — ตอกแก้วไม่ใช้แผง จึงไม่นับ (ใช้ prangQty ไม่ใช่ totalPrang)
   const trayReceivedTotal = Math.round(prangQty * 1.1);
 
   // แยกแผงไข่ตามชนิดแผง: ไข่คละ → แผงส้ม (เว้นแต่ลูกค้าขอแผงดำ) ; อื่นๆ → แผงดำ (ตอกแก้วไม่นับ)
-  const klaTrays = cartItems.filter((i) => i.product.group === "คละ").reduce((s, i) => s + i.qty, 0);
+  const klaTrays = cartItems.filter((i) => i.product.group === "คละ" && !usesNoTray(i)).reduce((s, i) => s + i.qty, 0);
   const otherTrays = prangQty - klaTrays;
   const blackEggTrays = otherTrays + (klaUseBlack ? klaTrays : 0);
   const orangeEggTrays = klaUseBlack ? 0 : klaTrays;
@@ -2355,7 +2359,7 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
   const orangePanels = Math.round(orangeEggTrays * 1.1);
   // แยกขนาดแผงดำอัตโนมัติจากเบอร์ไข่: เฉพาะเบอร์ 2-5 = แผงเล็ก ; ที่เหลือ (เบอร์ 0,1 + จัมโบ้ + ตกเกรด + คละ) = แผงใหญ่
   const bigBlackEggTrays = cartItems.reduce((s, i) => {
-    if (i.product?.noTray || PRODUCT_UNIT[i.productId]) return s;   // บรรจุภัณฑ์ + สินค้าหน่วยพิเศษ (ตอกแก้ว) ไม่นับเป็นแผงดำ
+    if (usesNoTray(i)) return s;   // บรรจุภัณฑ์ + ตอกแก้ว + ไข่เหลว/ตอกแดง (กิโล) ไม่นับเป็นแผงดำ
     const onBlack = i.product.group !== "คละ" || klaUseBlack;   // คละปกติอยู่แผงส้ม
     if (!onBlack) return s;
     const isBig = !SMALL_TRAY_IDS.has(i.productId);
@@ -5704,6 +5708,74 @@ const HOUSES_4_7 = [
 // โรงเรือนทั้งหมดของฟาร์ม — เพิ่มหลังใหม่ที่นี่ที่เดียว ทุกหน้า (ผลผลิต/เลี้ยง/อาหาร/ยา/ต้นทุน) เห็นเอง
 // H7 เริ่มเข้าไก่ 8/7/69 (ยังไม่มีผลผลิตย้อนหลัง — วันเก่าไม่โชว์ H7 ตามจริง)
 const HOUSE_IDS = ["H2", "H3", "H4", "H5", "H6", "H7"];
+/* 📋 แยกข้อความรายงานตกเกรดจากไลน์ → ตัวเลขลงช่องอัตโนมัติ (เจ้าของสั่ง 6 ก.ย. 69)
+   เดิมเสมียนคนหนึ่งพิมพ์ลงไลน์ อีกคนมานั่งคีย์ซ้ำ 13 ช่อง × 7 หลัง ทุกวัน
+   ตัวอย่างข้อความ:
+     06/09/69 รายงานไข่ตกเกรดหลัง 5
+     เก็บมือ
+     จัมโบ้= 139 ฟอง          ← จัมโบ้เป็น "ฟอง" ต้อง ÷30 เป็นแผง
+     ไข่บุบ = 13 แผง
+     นวลใหญ่ = 62 แผง
+     หน้าเครื่อง               ← ส่วนนี้ = เก็บมือหลังเครื่องคัด
+     หัวทราย = 11 แผง
+   รองรับชื่อเรียกหลายแบบ (ไข่บุบ/บุบ · หัวทรายใหญ่/ทรายใหญ่/หัวทราย · เปื้อนไข่/ป.ไข่) */
+const LINE_OFF_ALIAS = [
+  ["จัมโบ้", ["จัมโบ้", "จัมโบ", "จำโบ้"]],
+  ["บุบ", ["ไข่บุบ", "บุบ"]],
+  ["ตอก", ["ไข่ตอก", "ตอก"]],
+  ["จิ๋ว", ["ไข่จิ๋ว", "จิ๋ว"]],
+  ["เปลือกขาว", ["ขาวใหญ่", "เปลือกขาวใหญ่", "เปลือกขาว", "ขาว"]],
+  ["ขาวจิ๋ว", ["ขาวจิ๋ว", "เปลือกขาวจิ๋ว"]],
+  ["หัวทราย", ["หัวทรายใหญ่", "ทรายใหญ่", "หัวทราย", "ทราย"]],
+  ["ทรายจิ๋ว", ["ทรายจิ๋ว", "หัวทรายจิ๋ว"]],
+  ["นวล", ["นวลใหญ่", "นวล"]],
+  ["นวลจิ๋ว", ["นวลจิ๋ว"]],
+  ["เปื้อนมาก", ["เปื้อนมาก", "ป.มาก"]],
+  ["เปื้อนน้อย", ["เปื้อนน้อย", "ป.น้อย"]],
+  ["เปื้อนไข่", ["เปื้อนไข่", "ป.ไข่", "ปไข่"]],
+];
+function parseLineReport(txt) {
+  const raw = String(txt || "");
+  if (!raw.trim()) return null;
+  const norm = (x) => x.replace(/\s+/g, "").replace(/[·•]/g, "");
+  const lines = raw.split(/\r?\n/);
+  const out = { house: null, date: null, off: {}, pickBack: {}, unknown: [] };
+
+  // หาเลขโรงเรือน: "หลัง 5" / "หลัง5" / "H5"
+  const mH = raw.match(/หลัง\s*([2-9])\b/) || raw.match(/\bH\s*([2-9])\b/i);
+  if (mH) out.house = "H" + mH[1];
+  // หาวันที่ dd/mm/yy(yy) — ปี พ.ศ. 2 หรือ 4 หลัก
+  const mD = raw.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if (mD) {
+    let y = parseInt(mD[3], 10);
+    if (y < 100) y += 2500; if (y > 2400) y -= 543;
+    out.date = y + "-" + String(parseInt(mD[2],10)).padStart(2,"0") + "-" + String(parseInt(mD[1],10)).padStart(2,"0");
+  }
+
+  let section = "off";   // ก่อนเจอหัวข้อ = เก็บมือ (ตกเกรดปกติ)
+  lines.forEach((ln) => {
+    const t = norm(ln);
+    if (!t) return;
+    if (/หน้าเครื่อง|หลังเครื่อง|ผ่านเครื่อง/.test(t)) { section = "pb"; return; }
+    if (/^เก็บมือ$|^เก็บมือ\(|เก็บมือในเล้า/.test(t)) { section = "off"; return; }
+    if (/รายงาน|ตกเกรดหลัง/.test(t) && !/[=:]\s*\d/.test(t)) return;
+    const m = ln.match(/^\s*(.+?)\s*[=:]\s*([\d,]+)\s*(ฟอง|แผง)?\s*$/);
+    if (!m) return;
+    const label = norm(m[1]);
+    const qty = parseInt(m[2].replace(/,/g, ""), 10);
+    if (isNaN(qty)) return;
+    const hit = LINE_OFF_ALIAS.find(([, aliases]) => aliases.some((a) => norm(a) === label));
+    if (!hit) { if (qty > 0) out.unknown.push(m[1].trim() + " = " + m[2]); return; }
+    const key = hit[0];
+    // หน่วย "ฟอง" → แปลงเป็นแผง (จัมโบ้ฟาร์มนี้รายงานเป็นฟอง)
+    const prang = (m[3] === "ฟอง") ? Math.round(qty / PER_PRADANG) : qty;
+    if (section === "pb") { if (PICKBACK_KEYS.includes(key)) out.pickBack[key] = prang; else out.off[key] = (out.off[key] || 0) + prang; }
+    else out.off[key] = (out.off[key] || 0) + prang;
+  });
+  const hasAny = Object.keys(out.off).length || Object.keys(out.pickBack).length;
+  return hasAny ? out : null;
+}
+
 const emptyHouseDay = (id, date) => ({ id, date, chickens: 0, pickBack: {}, grade: { เบอร์: { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }, ตกเกรด: Object.fromEntries(OFF_KEYS.map((k) => [k, 0])) } });
 
 // ---------- สมุดวัคซีนประจำหลัง ----------
@@ -6584,6 +6656,39 @@ function HouseEditModal({ house, defaultDate, onClose, onSave }) {
     style: { ...cellInput, ...(extra || {}) },
   });
   const stripSet = (setter) => (e) => { const v = e.target.value.replace(/\D/g, ""); setter(v); };  // เก็บเฉพาะตัวเลข (ตัดลูกน้ำ/ตัวอักษรออก)
+  /* 📋 วางข้อความจากไลน์ → เติมช่องให้อัตโนมัติ + แบบฟอร์มมาตรฐานให้เสมียนใช้ (เจ้าของสั่ง 6 ก.ย. 69)
+     เดิมเสมียนคนหนึ่งพิมพ์ลงไลน์ อีกคนคีย์ซ้ำ 13 ช่อง × 7 หลัง ทุกวัน */
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteTxt, setPasteTxt] = useState("");
+  const [pasteMsg, setPasteMsg] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const [tplOpen, setTplOpen] = useState(false);
+  const applyPaste = () => {
+    const r = parseLineReport(pasteTxt);
+    if (!r) { setPasteMsg({ ok: false, text: "อ่านข้อความไม่ออก — ตรวจว่าคัดลอกมาครบไหม" }); return; }
+    if (r.house && r.house !== house.id) {
+      setPasteMsg({ ok: false, text: `ข้อความนี้เป็นของ ${r.house} แต่กำลังกรอก ${house.id} — เปิดฟอร์มให้ถูกหลังก่อน` });
+      return;
+    }
+    setOff((prev) => { const o = { ...prev }; Object.entries(r.off).forEach(([k, v]) => { o[k] = String(v); }); return o; });
+    setPb((prev) => { const o = { ...prev }; PICKBACK_KEYS.forEach((k) => { o[k] = String(r.pickBack[k] != null ? r.pickBack[k] : 0); }); return o; });
+    if (r.date) setDate(r.date);
+    const nOff = Object.keys(r.off).length, nPb = Object.keys(r.pickBack).length;
+    setPasteMsg({ ok: true, text: `ใส่ให้แล้ว — ตกเกรด ${nOff} ช่อง · หน้าเครื่อง ${nPb} ช่อง${r.unknown.length ? " · อ่านไม่ออก: " + r.unknown.join(", ") : ""}` });
+    setTimeout(() => { setPasteOpen(false); setPasteMsg(null); setPasteTxt(""); }, 1600);
+  };
+  /* แบบฟอร์มเปล่าให้เสมียนกรอกในไลน์ — ชื่อช่องตรงกับที่ระบบอ่านได้ 100%
+     เรียงลำดับเดียวกับฟอร์มในแอป จะได้ไล่กรอกตามกันได้ */
+  const templateText = () => {
+    const d = date ? date.slice(8, 10) + "/" + date.slice(5, 7) + "/" + String(Number(date.slice(0, 4)) + 543).slice(2) : "__/__/__";
+    const L = [`รายงานไข่ตกเกรด ${house.id}`, d, "", "เก็บมือ"];
+    OFF_KEYS.forEach((k) => L.push(`${offLabel(k)} = `));
+    L.push("", "หน้าเครื่อง");
+    PICKBACK_KEYS.forEach((k) => L.push(`${offLabel(k)} = `));
+    L.push("", "(ตัวเลขทุกช่องเป็นแผง ถ้านับเป็นฟองให้เขียนคำว่าฟองต่อท้าย)");
+    return L.join("\n");
+  };
+  const copyTemplate = () => { try { navigator.clipboard.writeText(templateText()); setCopied(true); setTimeout(() => setCopied(false), 2200); } catch (e) {} };
   const fieldWrap = (key, label, node, color, labelSize) => <div key={key}><label style={{ display: "block", fontSize: labelSize || 12.5, fontWeight: 700, color: color || INK, marginBottom: 3, textAlign: "left" }}>{label}</label>{node}</div>;
   const section = (bg, border, accent) => ({ background: bg, border: `1px solid ${border}`, borderLeft: `4px solid ${accent}`, borderRadius: 12, padding: "12px 12px 8px", marginBottom: 13 });
   const berBase = 1, offBase = 1 + berKeys.length;
@@ -6594,6 +6699,53 @@ function HouseEditModal({ house, defaultDate, onClose, onSave }) {
           <div><div style={S.modalTitle}>กรอกข้อมูลผลผลิต · {house.id}</div><div style={S.modalSub}>ใส่ตัวเลข แล้วกด Enter เพื่อไปช่องถัดไป</div></div>
           <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
         </div>
+
+        {/* ลดการคีย์ซ้ำ: ก๊อปข้อความจากไลน์มาวางทีเดียว ไม่ต้องคีย์ 18 ช่องใหม่ */}
+        <button type="button" onClick={() => { setPasteOpen((v) => !v); setPasteMsg(null); }}
+          style={{ width: "100%", padding: "11px 12px", borderRadius: 10, marginBottom: 12, border: "2px solid #0D9488", background: pasteOpen ? "#0D9488" : "#F0FDFA", color: pasteOpen ? "#fff" : "#0F766E", fontSize: 13.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
+          📋 วางข้อความจากไลน์
+        </button>
+        {pasteOpen && (
+          <div style={{ background: "#F0FDFA", border: "2px solid #99F6E4", borderRadius: 12, padding: "11px 12px", marginBottom: 13 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#0F766E", marginBottom: 6, textAlign: "left", lineHeight: 1.5 }}>
+              ก๊อปข้อความจากไลน์มาวางทั้งก้อน แล้วกด "ใส่ให้เลย" — ระบบแยกตัวเลขลงช่องเอง<br />
+              <span style={{ color: "#5EAAA3" }}>รองรับทั้ง "เก็บมือ" และ "หน้าเครื่อง" · แปลงจัมโบ้จากฟองเป็นแผงให้</span>
+            </div>
+            <textarea value={pasteTxt} onChange={(e) => setPasteTxt(e.target.value)} rows={5} autoFocus
+              placeholder={"06/09/69\nรายงานไข่ตกเกรดหลัง 5\nเก็บมือ\nจัมโบ้= 139 ฟอง\nไข่บุบ = 13 แผง\n..."}
+              style={{ width: "100%", padding: "9px 11px", border: "1.5px solid #99F6E4", borderRadius: 9, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box", resize: "vertical" }} />
+            {pasteMsg && (
+              <div style={{ marginTop: 7, padding: "7px 10px", borderRadius: 8, fontSize: 12.5, fontWeight: 700, textAlign: "left",
+                background: pasteMsg.ok ? "#DCFCE7" : "#FEF2F2", border: `1.5px solid ${pasteMsg.ok ? "#86EFAC" : "#FCA5A5"}`, color: pasteMsg.ok ? "#15803D" : "#B91C1C" }}>
+                {pasteMsg.ok ? "✓ " : "⚠️ "}{pasteMsg.text}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
+              <button type="button" onClick={() => { setPasteOpen(false); setPasteTxt(""); setPasteMsg(null); }} style={S.ghostBtn}>ปิด</button>
+              <button type="button" disabled={!pasteTxt.trim()} onClick={applyPaste}
+                style={{ ...S.primarySmBtn, background: "#0D9488", opacity: pasteTxt.trim() ? 1 : 0.5 }}>ใส่ให้เลย</button>
+            </div>
+            <div style={{ borderTop: "1.5px dashed #99F6E4", marginTop: 11, paddingTop: 9 }}>
+              <button type="button" onClick={() => setTplOpen((v) => !v)}
+                style={{ background: "none", border: "none", padding: 0, color: "#0F766E", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
+                {tplOpen ? "▾" : "▸"} แบบฟอร์มมาตรฐาน — ให้เสมียนพิมพ์ตามนี้ในไลน์
+              </button>
+              {tplOpen && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ fontSize: 11.5, color: "#5EAAA3", textAlign: "left", marginBottom: 6, lineHeight: 1.55 }}>
+                    ชื่อช่องทุกบรรทัดตรงกับที่ระบบอ่านได้ · ก๊อปไปปักหมุดไว้ในกลุ่ม แล้วให้เสมียนก๊อปมาเติมตัวเลขทุกวัน
+                  </div>
+                  <pre style={{ margin: 0, background: "#fff", border: "1.5px solid #99F6E4", borderRadius: 9, padding: "10px 12px", fontSize: 12.5, lineHeight: 1.65, fontFamily: "inherit", whiteSpace: "pre-wrap", textAlign: "left", maxHeight: 240, overflowY: "auto", color: INK }}>{templateText()}</pre>
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 7 }}>
+                    <button type="button" onClick={copyTemplate} style={{ ...S.ghostBtn, borderColor: copied ? "#15803D" : undefined, color: copied ? "#15803D" : undefined, fontWeight: 800 }}>
+                      {copied ? "✓ คัดลอกแบบฟอร์มแล้ว" : "คัดลอกแบบฟอร์ม"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         <div style={section("#F5F3FF", "#DDD6FE", "#7C3AED")}>
           <div style={{ fontWeight: 800, color: "#6D28D9", fontSize: 13, marginBottom: 8 }}>📅 วันที่ผลผลิต {dateTH && <span style={{ fontWeight: 600, color: "#7C6FAE" }}>· {dateTH}</span>}</div>
