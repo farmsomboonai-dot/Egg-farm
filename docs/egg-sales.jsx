@@ -66,6 +66,26 @@ let __sbSafe = false;
 // 🔘 สถานะซิงก์สำหรับปุ่มที่หัวเว็บ — พนักงานเห็น/กดส่งซ้ำได้ทุกหน้า (ปัญหาเดิม: บางเครื่องส่งไม่สำเร็จแบบเงียบ ๆ ไม่มีใครรู้)
 let __sbStat = { pending: 0, flushing: false, lastOkAt: 0, lastErrAt: 0, lastPullAt: 0 };
 function __sbStatPending() { __sbStat.pending = Object.keys(__sbQueue).length; }
+/* 💾 คิวค้างส่ง เก็บลงเครื่องด้วย — เดิมอยู่แต่ในหน่วยความจำ ปิดแท็บ/รีเฟรชแล้วหายเงียบ
+   พอเปิดใหม่ auto-pull จะเอาค่าคลาวด์มาทับ ของที่คีย์ค้างไว้เลยตายถาวร (บิล 6 ก.ย. 69) */
+const SB_QUEUE_LS = "sjfSyncQueue";
+function sbSaveQueue() {
+  try {
+    const k = Object.keys(__sbQueue);
+    if (!k.length) localStorage.removeItem(SB_QUEUE_LS);
+    else localStorage.setItem(SB_QUEUE_LS, JSON.stringify(__sbQueue));
+  } catch (e) {}
+}
+function sbLoadQueue() {
+  try {
+    const s = localStorage.getItem(SB_QUEUE_LS); if (!s) return 0;
+    const q = JSON.parse(s); if (!q || typeof q !== "object") return 0;
+    let n = 0;
+    Object.keys(q).forEach((k) => { if (!(k in __sbQueue)) { __sbQueue[k] = q[k]; n++; } });
+    if (n) { __sbStatPending(); console.log("[sync] กู้คิวค้างส่งจากครั้งก่อน " + n + " รายการ"); }
+    return n;
+  } catch (e) { return 0; }
+}
 function sbQueueKey(key, valueStr) {
   if (!supabase || !__sbSafe || __sbHydrating || SB_SKIP.has(key) || !SB_SYNC_RE.test(key)) return;
   if (__sbLast[key] === valueStr) return;   // ค่าไม่เปลี่ยน → ไม่อัปซ้ำ (กันแค่โหลดหน้าแล้ว re-write ไปทับ edit ของอุปกรณ์อื่น)
@@ -73,6 +93,7 @@ function sbQueueKey(key, valueStr) {
   let data; try { data = JSON.parse(valueStr); } catch (e) { data = valueStr; }
   __sbQueue[key] = data;
   __sbStatPending();
+  sbSaveQueue();
   clearTimeout(__sbTimer);
   __sbTimer = setTimeout(sbFlush, 1000);
 }
@@ -117,8 +138,13 @@ async function sbFlush() {
     try {
       const { data: merged, error } = await supabase.rpc("app_snapshot_merge", { p_key: key, p_data: queued[key], p_device: dev });
       if (error) {
-        // เผื่อฐานข้อมูลยังไม่มีฟังก์ชัน merge → ถอยไปใช้ upsert เดิม (ยังทำงานได้ ไม่ค้าง)
-        console.warn("[sync] merge ไม่สำเร็จ, ใช้ upsert แทน:", error.message);
+        /* 🛑 6 ก.ย. 69 — ห้าม "ถอยไป upsert ทับทั้งก้อน" กับลิสต์บิลเด็ดขาด
+           merge บิลใช้เวลาเกินเพดาน (985 ใบ = 6.6 วิ · เพดาน 3 วิ) จึงล้มทุกครั้ง แล้วทางสำรองนี้
+           เอาลิสต์ของเครื่องเดียวไปทับคลาวด์ → บิลที่เครื่องอื่นเพิ่งคีย์หายทั้งใบ (IVE6906-5991)
+           ลิสต์ที่ต้อง union: ล้มก็ปล่อยเข้าคิวส่งซ้ำ ไม่ทับ */
+        console.warn("[sync] merge ไม่สำเร็จ:", error.message);
+        if (SB_MERGE_ARRAY_KEYS.has(key)) { failKeys.push(key); continue; }
+        // ออบเจกต์ (ผลผลิต/สมุดเลี้ยง ฯลฯ) — ถอยไป upsert ได้ เพราะฝั่งดึงรวมแบบลึกอยู่แล้ว
         const data = queued[key];
         const { error: e2 } = await supabase.from(SB_TABLE).upsert([{ key, data, item_count: data && typeof data === "object" ? Object.keys(data).length : null, snapshot_at: now, device: dev }], { onConflict: "key" });
         if (!e2) { meta[key] = now; okCount++; } else failKeys.push(key);
@@ -140,13 +166,42 @@ async function sbFlush() {
   // คีย์ที่พลาด → กลับเข้าคิว (ไม่ทับค่าที่ใหม่กว่า) + นัดส่งซ้ำใน 30 วิ — ปุ่มสถานะที่หัวเว็บจะโชว์ ❌ ให้พนักงานกดส่งซ้ำได้ทันที
   failKeys.forEach((k) => { if (!(k in __sbQueue)) __sbQueue[k] = queued[k]; });
   __sbStatPending();
+  sbSaveQueue();
   __sbStat.flushing = false;
   if (failKeys.length) { __sbStat.lastErrAt = Date.now(); clearTimeout(__sbTimer); __sbTimer = setTimeout(sbFlush, 30000); }
   else if (okCount) __sbStat.lastOkAt = Date.now();
   if (okCount) console.log("[sync] ⬆ อัปขึ้นคลาวด์ " + okCount + " รายการ (merge " + mergeKeys.length + ")");
 }
+/* 🧾 คีย์ประจำตัวของบิล/รายการในลิสต์ที่ต้อง union — เลขบิล+เวลา (เลขบิลชนกันได้ ต้องพ่วง ts)
+   ใช้ทั้งตอนดึงและตอนกันบิลซ้ำ ให้ตรงกับสูตรฝั่งฐานข้อมูล */
+function sbRowKey(r) {
+  if (!r || typeof r !== "object" || Array.isArray(r)) return null;
+  const id = r.id != null ? String(r.id) : (r.no != null ? String(r.no) : null);
+  return id == null ? null : id + ":" + (r.ts != null ? String(r.ts) : "");
+}
+/* 🛟 รวมลิสต์แบบ union ตามคีย์ — ของเครื่องที่ยังไม่เคยอัปขึ้นจะไม่หาย
+   คืน null ถ้ามีสมาชิกที่ไม่มีคีย์ (union ไม่ปลอดภัย ให้ผู้เรียกถอยไปใช้ค่าคลาวด์) */
+function sbUnionRows(cloud, local) {
+  if (!Array.isArray(cloud) || !Array.isArray(local)) return null;
+  const out = [], seen = new Map();
+  for (const arr of [cloud, local]) {
+    for (const r of arr) {
+      const k = sbRowKey(r);
+      if (k == null) return null;
+      if (seen.has(k)) continue;      // คลาวด์มาก่อน → คลาวด์ชนะใบที่ซ้ำกัน
+      seen.set(k, true); out.push(r);
+    }
+  }
+  return out;
+}
 // 🛟 รวมค่าคลาวด์เข้ากับของเครื่องตอนดึง (คลาวด์ชนะช่องที่ชนกัน แต่คีย์ที่มีเฉพาะในเครื่อง เช่น วันที่ยังไม่เคยอัปขึ้น จะไม่หาย)
-function sbPullMerge(cloud, local) {
+function sbPullMerge(cloud, local, key) {
+  /* 🧾 6 ก.ย. 69 — บิล IVE6906-5991 หาย: ลิสต์บิลเคยถูก "ทับ" ด้วยค่าคลาวด์ทั้งก้อน
+     บิลที่เครื่องเพิ่งคีย์แต่ยังอัปขึ้นไม่สำเร็จ จึงตายตอน auto-pull → ต้อง union */
+  if (key && SB_MERGE_ARRAY_KEYS.has(key) && Array.isArray(cloud) && Array.isArray(local)) {
+    const u = sbUnionRows(cloud, local);
+    if (u) return u;
+  }
   if (cloud && local && typeof cloud === "object" && !Array.isArray(cloud) && typeof local === "object" && !Array.isArray(local)) {
     const out = { ...local };
     Object.keys(cloud).forEach((k) => { out[k] = sbPullMerge(cloud[k], local[k]); });
@@ -179,10 +234,11 @@ async function pullFromCloud() {
         if (localStr != null) {
           try {
             const localVal = JSON.parse(localStr);
-            const mergedVal = sbPullMerge(row.data, localVal);
+            const mergedVal = sbPullMerge(row.data, localVal, key);
             if (JSON.stringify(mergedVal) !== JSON.stringify(row.data)) {
               out = mergedVal;
               __sbQueue[key] = mergedVal;   // ส่วนที่เครื่องมีเกินคลาวด์ → ตั้งคิวอัปขึ้น
+              sbSaveQueue();
               clearTimeout(__sbTimer); __sbTimer = setTimeout(sbFlush, 1500);
             }
           } catch (e) {}
@@ -204,6 +260,7 @@ async function pullFromCloud() {
         let d; try { d = JSON.parse(s); } catch (e) { d = s; }
         __sbQueue[key] = d; kept++;
       }
+      if (kept) sbSaveQueue();
     } catch (e) {}
   } finally { __sbHydrating = false; }
   sbSetMeta(meta);
@@ -11809,7 +11866,10 @@ async function __hydrate() {
   // เพราะต้องได้ข้อมูลจริงก่อนเปิด — ถ้าไม่ทันจริงๆ แอปเปิดโหมดอ่านในเครื่อง และถูกห้ามอัปขึ้นคลาวด์ (__sbSafe)
   let waitMs = 15000;
   try { waitMs = Object.keys(JSON.parse(localStorage.getItem("eggSyncMeta") || "{}")).length > 0 ? 3500 : 15000; } catch (e) {}
+  const queued0 = sbLoadQueue();   // 💾 กู้คิวค้างส่งจากครั้งก่อนก่อนดึงคลาวด์ (ต้องมาก่อน จะได้ไม่โดนพิจารณาว่าไม่มี)
   try { await Promise.race([pullFromCloud().catch(() => {}), new Promise((r) => setTimeout(r, waitMs))]); } catch (e) {}
+  // ดึงเสร็จแล้วค่อยส่งของค้างขึ้น (ก่อนดึงสำเร็จ __sbSafe ยังปิด ส่งไม่ได้)
+  if (queued0) try { setTimeout(() => sbFlush(), 2500); } catch (e) {}
   // 🛟 ถ้าดึงครั้งแรกไม่สำเร็จ (__sbSafe ยังปิด = ห้ามอัปขึ้นคลาวด์ทั้ง session) → ลองใหม่เองทุก 60 วิ จนกว่าจะสำเร็จ
   // กันเหตุแท็บเล็ตเปิดตอนเน็ตสะดุดแล้วคีย์งานต่อทั้งวันโดยไม่ซิงก์เลย (เจอจริง 27-30 ก.ค. 69: ข้อมูลค้างเครื่องเดียว 4 วัน)
   try {
