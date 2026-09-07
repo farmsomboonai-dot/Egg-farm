@@ -5783,7 +5783,6 @@ function MonthlySalesView({ bills = [] }) {
   const [ym, setYm] = useState("");
   useEffect(() => { if (!ym && months.length) setYm(months[months.length - 1]); }, [months.join(",")]);   // เปิดมาให้อยู่เดือนล่าสุด
   const [byGroup, setByGroup] = useState(false);
-  const [hideZero, setHideZero] = useState(true);
   const { rows, groups, billCount, hasOwner } = useMemo(() => monthlySalesData(bills, ym), [bills, ym]);
 
   // ช่องจำนวน: โหมดปกติ 2 ช่อง (โรงคัด/สาขา) · โหมดแยกกลุ่ม = ช่องละกลุ่ม
@@ -5792,7 +5791,7 @@ function MonthlySalesView({ bills = [] }) {
     : [{ key: "plant", label: "บิลขายโรงคัด", get: (r) => r.plant }, { key: "branch", label: "ร้านสาขา", get: (r) => r.branch },
        ...(hasOwner ? [{ key: "owner", label: "บ้านเจ้", get: (r) => r.owner }] : [])];
 
-  const shown = hideZero ? rows.filter((r) => r.qty !== 0) : rows;
+  const shown = rows;   // แสดงทุกรายการเสมอ ทั้งที่มียอดและยอด 0 — ให้ไล่เทียบกับชีทได้ทีละบรรทัด (เจ้าของสั่ง 8 ก.ย. 69)
   const main = shown.filter((r) => !isSpecialStock(r.pid));          // หน่วยแผง — รวมกันได้
   const spec = shown.filter((r) => isSpecialStock(r.pid));           // ไข่แก้ว/ไข่เหลว คนละหน่วย แยกรวม
   const sum = (list, f) => list.reduce((s, r) => s + f(r), 0);
@@ -5826,13 +5825,11 @@ function MonthlySalesView({ bills = [] }) {
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", padding: "12px 20px 0" }}>
         {chip(!byGroup, () => setByGroup(false), "โรงคัด / ร้านสาขา")}
         {chip(byGroup, () => setByGroup(true), "แยกทุกกลุ่มลูกค้า")}
-        <span style={{ width: 10 }} />
-        {chip(!hideZero, () => setHideZero((v) => !v), "แสดงรายการที่ยอด 0 ด้วย")}
-        <button onClick={() => exportMonthlySalesExcel(ym, shown, cols)} disabled={!shown.length}
-          style={{ marginLeft: "auto", padding: "7px 14px", border: "none", background: shown.length ? INK : "#cbc4b6", color: "#fff", borderRadius: 9, fontSize: 13, fontWeight: 800, cursor: shown.length ? "pointer" : "default", fontFamily: "inherit" }}>⬇ Export Excel</button>
+        <button onClick={() => exportMonthlySalesExcel(ym, shown, cols)} disabled={!billCount}
+          style={{ marginLeft: "auto", padding: "7px 14px", border: "none", background: billCount ? INK : "#cbc4b6", color: "#fff", borderRadius: 9, fontSize: 13, fontWeight: 800, cursor: billCount ? "pointer" : "default", fontFamily: "inherit" }}>⬇ Export Excel</button>
       </div>
 
-      {!shown.length ? (
+      {!billCount ? (
         <div style={S.emptyState}><Package size={36} color="#d1d5db" /><div>ยังไม่มีบิลขายใน{ym ? ymTH(ym) : "ระบบ"} — เลือกเดือนอื่น</div></div>
       ) : (
         <div style={{ ...S.dashCard, marginTop: 14, overflowX: "auto", overflowY: "auto", maxHeight: "72vh" }}>
