@@ -1344,13 +1344,14 @@ const TOPIC_LABELS = {
   stock: "สต๊อคไข่ประจำวัน", production: "ผลผลิตประจำวัน", dash: "แดชบอร์ด", manage: "แดชบอร์ดผู้บริหาร",
   booking: "จองออเดอร์", plan: "วางแผนการขาย", rear: "เก็บข้อมูลการเลี้ยง",
   feed: "อาหารไก่", med: "ยาและวิตามิน", trial: "ทดลอง·ติดตามผล", health: "สุขภาพไก่", cost: "บัญชีต้นทุน", houseecon: "ประสิทธิภาพไก่",
+  salesum: "สรุปยอดขายรายเดือน",
 };
 const ALL_TOPIC_IDS = Object.keys(TOPIC_LABELS);
 const DEFAULT_ROLES = [
   { id: "owner", name: "เจ้าของ/ผู้จัดการ", emoji: "👑", pin: "1234", topics: ALL_TOPIC_IDS.slice() },
-  { id: "sales", name: "ฝ่ายขาย/เสมียนโรงคัด", emoji: "🛒", pin: "", topics: ["sales", "bills", "account", "tray", "booking", "plan", "stock"] },
+  { id: "sales", name: "ฝ่ายขาย/เสมียนโรงคัด", emoji: "🛒", pin: "", topics: ["sales", "bills", "account", "tray", "booking", "plan", "stock", "salesum"] },
   { id: "farm", name: "สัตวบาล/ดูแลไก่", emoji: "🐔", pin: "", topics: ["production", "rear", "feed", "med", "trial", "health", "stock"] },
-  { id: "acct", name: "บัญชี", emoji: "💰", pin: "", topics: ["bills", "account", "cost", "dash", "manage", "houseecon"] },
+  { id: "acct", name: "บัญชี", emoji: "💰", pin: "", topics: ["bills", "account", "cost", "salesum", "dash", "manage", "houseecon"] },
   { id: "medclerk", name: "เสมียนห้องสต๊อคยา", emoji: "💊", pin: "", topics: ["med"] },
   // บทบาทร้านค้าภายนอก — เข้าได้แค่ "จองออเดอร์" และเห็นเฉพาะลูกค้า/ใบจองของกลุ่มตัวเอง (custGroup)
   { id: "retail_shop", name: "ร้านค้าขายปลีก (ฉันจะกินไข่สดทุกวัน)", emoji: "🛍️", pin: "", topics: ["booking"], custGroup: "retail" },
@@ -2073,6 +2074,7 @@ export default function App() {
               trial: { icon: <TrendingUp size={15} />, label: "ทดลอง·ติดตามผล", c: "#0891B2" },
               account: { icon: <Wallet size={15} />, label: "บัญชีลูกหนี้", c: "#B91C1C" },
               cost: { icon: <Calculator size={15} />, label: "บัญชีต้นทุน", c: "#A16207" },
+              salesum: { icon: <Package size={15} />, label: "สรุปยอดขายรายเดือน", c: "#0F766E" },
               dash: { icon: <LayoutDashboard size={15} />, label: "แดชบอร์ด", c: "#1D4ED8" },
               manage: { icon: <Activity size={15} />, label: "แดชบอร์ดผู้บริหาร", c: "#9333EA" },
               houseecon: { icon: <CircleDollarSign size={15} />, label: "ประสิทธิภาพไก่", c: "#047857" },
@@ -2083,7 +2085,7 @@ export default function App() {
             const GROUPS = [
               { id: "g_sales", emoji: "🛒", label: "งานเสมียน", c: "#EA580C", items: ["sales", "production", "stock", "bills", "booking", "plan", "tray"] },   // ลำดับตามที่เจ้าของสั่ง 4 ก.ย. 69
               { id: "g_farm", emoji: "🐔", label: "งานสัตวบาล", c: "#B45309", items: ["rear", "feed", "med", "health", "trial"] },
-              { id: "g_acct", emoji: "💰", label: "งานบัญชี", c: "#A16207", items: ["account", "cost"] },
+              { id: "g_acct", emoji: "💰", label: "งานบัญชี", c: "#A16207", items: ["account", "cost", "salesum"] },
               { id: "g_mgr", emoji: "📊", label: "ผู้บริหาร", c: "#7C3AED", items: ["dash", "manage", "houseecon", "activity", "accounts", "roles"] },
             ];
             const canSee = (id) => TOPIC_META[id].ownerOnly ? roleObj.id === "owner" : allowedTopics.includes(id);
@@ -2144,6 +2146,7 @@ export default function App() {
       {view === "med" && <MedView production={productionByDate} medStock={medStock} medInfo={medInfo} medReceipts={medReceipts} addMedItem={guard(addMedItem)} updateMedItem={guard(updateMedItem)} addMedReceipt={guard(addMedReceipt)} medCostByMonth={medCostByMonth} canManage={!viewOnly && (currentRole === "owner" || currentRole === "medclerk")} />}
       {view === "trial" && <TrialView medTrials={medTrials} addMedTrial={guard(addMedTrial)} deleteMedTrial={guard(deleteMedTrial)} production={productionByDate} rearingByDate={rearingByDate} />}
       {view === "health" && <HealthHubView production={productionByDate} flocks={flocks} vaccines={vaccines} addVaccine={guard(addVaccine)} deleteVaccine={guard(deleteVaccine)} />}
+      {view === "salesum" && <MonthlySalesView bills={activeBills} />}
       {view === "cost" && <CostView expenses={expenses} addExpense={addExpense} deleteExpense={deleteExpense} production={productionByDate} medCostByMonth={medCostByMonth} feedCostByMonth={feedCostByMonth} feedPrice={feedPrice} bills={activeBills} />}
       {view === "houseecon" && <HouseEconView production={productionByDate} flocks={flocks} expenses={expenses} medCostByMonth={medCostByMonth} feedCostByMonth={feedCostByMonth} feedUseByMonth={feedUseByMonth} feedPrice={feedPrice} refPrices={refPrices} bills={activeBills} />}
       {view === "activity" && <ActivityLogView roles={roles} />}
@@ -5719,6 +5722,206 @@ function exportCloseDayExcel(day, dayTH, rows, meta, refPrices = {}) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url; a.download = "ปิดยอด-" + day + ".xls";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+/* ============================================================
+   หน้าจอ: สรุปยอดขายรายเดือน — ทำตามชีท "สรุปยอด" ที่เจ้าของทำมือทุกเดือน
+   เอาเฉพาะรายการไข่ไก่ (ตัด "แผงไข่กระดาษ" ออก เพราะเป็นบรรจุภัณฑ์ ไม่ใช่ไข่)
+   ช่องปกติ: บิลขายโรงคัด (ลูกค้าทุกกลุ่มที่ไม่ใช่ร้านสาขา) · ร้านสาขา · รวม · ยอดเงิน
+   กด "แยกทุกกลุ่มลูกค้า" เพื่อกางเป็นคอลัมน์ละกลุ่ม (สายส่ง/ขายส่ง/ปลีกหน้าฟาร์ม ฯลฯ)
+   ลำดับรายการ = STOCK_ORDER ซึ่งเรียงตามชีทของเจ้าของอยู่แล้ว
+============================================================ */
+const SALESUM_SKIP = new Set(["s_papertray"]);   // บรรจุภัณฑ์ ไม่ใช่ไข่
+// ช่อง "บ้านเจ้" ในชีทของเจ้าของ = กลุ่มลูกค้าชื่อนี้ (ผู้ใช้สร้างเอง → หา id ตอนรัน ไม่ฝังไว้ในโค้ด)
+// ถ้าวันหนึ่งเปลี่ยนชื่อกลุ่ม ช่องนี้จะหายไปเฉยๆ ยอดจะไปรวมอยู่ใน "บิลขายโรงคัด" — ยอดรวมไม่เพี้ยน
+const SALESUM_OWNER_GROUP = "ออเดอร์ส่วนตัวเจ้";
+const salesumOwnerGid = () => { const g = CUSTOMER_GROUPS.find((x) => x.name === SALESUM_OWNER_GROUP); return g ? g.id : null; };
+const SALESUM_ORDER = STOCK_ORDER.filter((pid) => !SALESUM_SKIP.has(pid));
+
+// ยอดขายรายเดือน: สินค้า × กลุ่มลูกค้า (จำนวนตามหน่วยของสินค้านั้น: แผง/แก้ว/กิโล)
+// ym = "" → รวมทุกเดือน
+function monthlySalesData(bills, ym) {
+  const groupOf = {};
+  CUSTOMERS.forEach((c) => { groupOf[c.id] = c.group || "other"; });
+  const byPid = {};
+  const seen = new Set();
+  let billCount = 0;
+  (bills || []).forEach((b) => {
+    if (ym && billYM(b) !== ym) return;
+    billCount++;
+    const g = groupOf[b.customerId] || "other";
+    (b.items || []).forEach((it) => {
+      const pid = it.productId;
+      if (!pid || SALESUM_SKIP.has(pid)) return;          // ข้ามมัดจำแผง (ไม่มี productId) + ของที่ไม่ใช่ไข่
+      const r = byPid[pid] || (byPid[pid] = { pid, g: {}, qty: 0, baht: 0 });
+      const q = it.qty || 0;
+      r.g[g] = (r.g[g] || 0) + q;
+      r.qty += q;
+      r.baht += it.subtotal != null ? it.subtotal : q * (parseFloat(it.price) || 0);
+      seen.add(g);
+    });
+  });
+  const ownerGid = salesumOwnerGid();
+  const mk = (pid) => {
+    const r = byPid[pid] || { pid, g: {}, qty: 0, baht: 0 };
+    const branch = r.g.branch || 0;
+    const owner = ownerGid ? (r.g[ownerGid] || 0) : 0;
+    return { ...r, name: STOCK_LABEL[pid] || (PRODUCT_BY_ID[pid] ? PRODUCT_BY_ID[pid].name : pid), unit: stockUnit(pid), branch, owner, plant: r.qty - branch - owner };
+  };
+  const rows = SALESUM_ORDER.map(mk);
+  // สินค้าที่ขายจริงแต่ไม่อยู่ในลำดับมาตรฐาน (เพิ่มใหม่ทีหลัง) → ต่อท้าย ยอดจะได้ไม่หายไปจากรายงาน
+  Object.keys(byPid).forEach((pid) => { if (!SALESUM_ORDER.includes(pid)) rows.push(mk(pid)); });
+  const groups = CUSTOMER_GROUPS.filter((g) => seen.has(g.id)).map((g) => ({ id: g.id, name: g.name }));
+  if (seen.has("other")) groups.push({ id: "other", name: "ไม่ระบุกลุ่ม" });
+  return { rows, groups, billCount, hasOwner: !!ownerGid && seen.has(ownerGid) };
+}
+
+function MonthlySalesView({ bills = [] }) {
+  const months = useMemo(() => [...new Set((bills || []).map(billYM).filter(Boolean))].sort(), [bills]);
+  const [ym, setYm] = useState("");
+  useEffect(() => { if (!ym && months.length) setYm(months[months.length - 1]); }, [months.join(",")]);   // เปิดมาให้อยู่เดือนล่าสุด
+  const [byGroup, setByGroup] = useState(false);
+  const [hideZero, setHideZero] = useState(true);
+  const { rows, groups, billCount, hasOwner } = useMemo(() => monthlySalesData(bills, ym), [bills, ym]);
+
+  // ช่องจำนวน: โหมดปกติ 2 ช่อง (โรงคัด/สาขา) · โหมดแยกกลุ่ม = ช่องละกลุ่ม
+  const cols = byGroup
+    ? groups.map((g) => ({ key: g.id, label: g.name, get: (r) => r.g[g.id] || 0 }))
+    : [{ key: "plant", label: "บิลขายโรงคัด", get: (r) => r.plant }, { key: "branch", label: "ร้านสาขา", get: (r) => r.branch },
+       ...(hasOwner ? [{ key: "owner", label: "บ้านเจ้", get: (r) => r.owner }] : [])];
+
+  const shown = hideZero ? rows.filter((r) => r.qty !== 0) : rows;
+  const main = shown.filter((r) => !isSpecialStock(r.pid));          // หน่วยแผง — รวมกันได้
+  const spec = shown.filter((r) => isSpecialStock(r.pid));           // ไข่แก้ว/ไข่เหลว คนละหน่วย แยกรวม
+  const sum = (list, f) => list.reduce((s, r) => s + f(r), 0);
+  const bahtAll = sum(shown, (r) => r.baht);
+
+  const th = { padding: "9px 10px", background: "#F7F2E8", borderBottom: "2px solid #e3ddd0", fontWeight: 800, fontSize: 12, color: "#7a6f5c", textAlign: "right", whiteSpace: "nowrap", position: "sticky", top: 0, zIndex: 3 };
+  const thL = { ...th, textAlign: "left" };
+  const td = { padding: "7px 10px", borderBottom: "1px solid #f3f0e9", fontSize: 13, textAlign: "right", whiteSpace: "nowrap" };
+  const tdL = { ...td, textAlign: "left" };
+  const tot = { ...td, background: "#F5E6CE", color: "#7A4F16", fontWeight: 800, borderTop: "2px solid #D9B27A" };
+  const chip = (on, fn, label) => (
+    <button onClick={fn} style={{ padding: "6px 13px", borderRadius: 999, border: `1.5px solid ${on ? ACCENT_DK : "#e0d7c3"}`, background: on ? ACCENT_DK : "#fff", color: on ? "#fff" : "#7a6f5c", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>{label}</button>
+  );
+
+  const bodyRow = (r, i) => (
+    <tr key={r.pid} style={{ background: i % 2 ? "#FBF7EF" : "#fff" }}>
+      <td style={tdL}>{r.name}</td>
+      <td style={{ ...td, textAlign: "center", color: "#9b8e78", fontSize: 12 }}>{r.unit}</td>
+      {cols.map((c) => <td key={c.key} style={td}>{c.get(r) ? fmt(c.get(r)) : <span style={{ color: "#d8d0c0" }}>—</span>}</td>)}
+      <td style={{ ...td, fontWeight: 800 }}>{fmt(r.qty)}</td>
+      <td style={{ ...td, color: "#15803D", fontWeight: 700 }}>{r.baht ? fmt(Math.round(r.baht)) : <span style={{ color: "#d8d0c0" }}>—</span>}</td>
+    </tr>
+  );
+
+  return (
+    <div style={S.wide}>
+      <div style={S.subBar}>
+        <span style={S.subBarTitle}>สรุปยอดขายรายเดือน · เฉพาะรายการไข่ไก่</span>
+        <div style={{ marginLeft: "auto" }}><MonthBar months={months} value={ym} onChange={setYm} /></div>
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", padding: "12px 20px 0" }}>
+        {chip(!byGroup, () => setByGroup(false), "โรงคัด / ร้านสาขา")}
+        {chip(byGroup, () => setByGroup(true), "แยกทุกกลุ่มลูกค้า")}
+        <span style={{ width: 10 }} />
+        {chip(!hideZero, () => setHideZero((v) => !v), "แสดงรายการที่ยอด 0 ด้วย")}
+        <button onClick={() => exportMonthlySalesExcel(ym, shown, cols)} disabled={!shown.length}
+          style={{ marginLeft: "auto", padding: "7px 14px", border: "none", background: shown.length ? INK : "#cbc4b6", color: "#fff", borderRadius: 9, fontSize: 13, fontWeight: 800, cursor: shown.length ? "pointer" : "default", fontFamily: "inherit" }}>⬇ Export Excel</button>
+      </div>
+
+      {!shown.length ? (
+        <div style={S.emptyState}><Package size={36} color="#d1d5db" /><div>ยังไม่มีบิลขายใน{ym ? ymTH(ym) : "ระบบ"} — เลือกเดือนอื่น</div></div>
+      ) : (
+        <div style={{ ...S.dashCard, marginTop: 14, overflowX: "auto", overflowY: "auto", maxHeight: "72vh" }}>
+          <div style={S.dashCardTitle}><Package size={16} /> {ym ? ymTH(ym) : "ทุกเดือน"} · {fmt(billCount)} บิล</div>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 620 }}>
+            <thead>
+              <tr>
+                <th style={thL}>รายการ</th>
+                <th style={{ ...th, textAlign: "center" }}>หน่วย</th>
+                {cols.map((c) => <th key={c.key} style={th}>{c.label}</th>)}
+                <th style={th}>รวม</th>
+                <th style={th}>ยอดเงิน (บาท)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {main.map(bodyRow)}
+              <tr>
+                <td style={tot}>รวม (แผง)</td>
+                <td style={{ ...tot, textAlign: "center" }}>แผง</td>
+                {cols.map((c) => <td key={c.key} style={tot}>{fmt(sum(main, c.get))}</td>)}
+                <td style={tot}>{fmt(sum(main, (r) => r.qty))}</td>
+                <td style={tot}>{fmt(Math.round(sum(main, (r) => r.baht)))}</td>
+              </tr>
+              {/* 🥛 ไข่แก้ว/ไข่เหลว คนละหน่วย — แยกออกมา ไม่ให้ไปปนกับยอดแผง */}
+              {spec.length ? (
+                <tr><td colSpan={cols.length + 4} style={{ ...td, background: "#FFF1F2", color: "#BE123C", fontWeight: 800, textAlign: "left", fontSize: 12.5 }}>🥛 ไข่แก้ว / ไข่เหลว · คนละหน่วย — ไม่รวมในยอดแผงข้างบน</td></tr>
+              ) : null}
+              {spec.map(bodyRow)}
+              {[...new Set(spec.map((r) => r.unit))].map((u) => {
+                const g = spec.filter((r) => r.unit === u);
+                return (
+                  <tr key={u}>
+                    <td style={{ ...tot, background: "#FECDD3", color: "#9F1239", borderTop: "1px solid #FDA4AF" }}>รวม ({u})</td>
+                    <td style={{ ...tot, background: "#FECDD3", color: "#9F1239", textAlign: "center", borderTop: "1px solid #FDA4AF" }}>{u}</td>
+                    {cols.map((c) => <td key={c.key} style={{ ...tot, background: "#FECDD3", color: "#9F1239", borderTop: "1px solid #FDA4AF" }}>{fmt(sum(g, c.get))}</td>)}
+                    <td style={{ ...tot, background: "#FECDD3", color: "#9F1239", borderTop: "1px solid #FDA4AF" }}>{fmt(sum(g, (r) => r.qty))}</td>
+                    <td style={{ ...tot, background: "#FECDD3", color: "#9F1239", borderTop: "1px solid #FDA4AF" }}>{fmt(Math.round(sum(g, (r) => r.baht)))}</td>
+                  </tr>
+                );
+              })}
+              <tr>
+                <td colSpan={cols.length + 3} style={{ ...tot, background: "#15803D", color: "#fff", textAlign: "right" }}>ยอดเงินค่าไข่รวมทั้งเดือน</td>
+                <td style={{ ...tot, background: "#15803D", color: "#fff" }}>{fmt(Math.round(bahtAll))}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div style={S.hint}>
+        นับจาก <b>บิลขายจริง</b> ที่ยังไม่ถูกยกเลิก · เดือนของบิลใช้ <b>วันทำงาน</b> (ไม่ใช่เวลาที่คีย์) ·
+        “ร้านสาขา” = ลูกค้ากลุ่ม <b>{(CUSTOMER_GROUPS.find((g) => g.id === "branch") || {}).name || "ร้านสาขา"}</b>{hasOwner ? <> · “บ้านเจ้” = กลุ่ม <b>{SALESUM_OWNER_GROUP}</b></> : null} · “บิลขายโรงคัด” = ลูกค้ากลุ่มอื่นทั้งหมด ·
+        ยอดเงิน = เฉพาะค่าไข่ (ไม่รวมค่ามัดจำแผง ค่าส่ง ส่วนลด) · แผงไข่กระดาษไม่นับ เพราะไม่ใช่ไข่
+      </div>
+    </div>
+  );
+}
+
+// Export เป็นไฟล์ Excel — หน้าตาเหมือนตารางในจอ เอาไปเทียบกับชีทเดิม/EXPRESS ได้เลย
+function exportMonthlySalesExcel(ym, rows, cols) {
+  const esc = (v) => String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const NF = 'mso-number-format:"\\#\\,\\#\\#0";';
+  const head = ["รายการ", "หน่วย", ...cols.map((c) => c.label), "รวม", "ยอดเงิน (บาท)"];
+  const NC = head.length;
+  const cell = (v, num, bg, extra) => `<td style="${bg || ""}${num ? NF : 'mso-number-format:"\\@";'}text-align:${num ? "right" : "left"};border:1px solid #E2DAC9;padding:5px 8px;font-size:12px;${extra || ""}">${esc(v)}</td>`;
+  const line = (r, bg) => "<tr>" + [r.name, r.unit, ...cols.map((c) => c.get(r) || 0), r.qty, Math.round(r.baht)].map((v, i) => cell(v, i >= 2, bg)).join("") + "</tr>";
+  const main = rows.filter((r) => !isSpecialStock(r.pid));
+  const spec = rows.filter((r) => isSpecialStock(r.pid));
+  const sum = (list, f) => list.reduce((s, r) => s + f(r), 0);
+  const totRow = (label, list, bg, fg) => "<tr>" + [label, list[0] ? list[0].unit : "", ...cols.map((c) => sum(list, c.get)), sum(list, (r) => r.qty), Math.round(sum(list, (r) => r.baht))]
+    .map((v, i) => `<td style="background:${bg};font-weight:bold;color:${fg};text-align:${i >= 2 ? "right" : "left"};border:1px solid #D9B27A;padding:6px 8px;font-size:12px;${i >= 2 ? NF : ""}">${esc(v)}</td>`).join("") + "</tr>";
+  let body = main.map((r, i) => line(r, i % 2 ? "background:#FBF7EF;" : "background:#ffffff;")).join("");
+  body += totRow("รวม (แผง)", main.length ? main : [{ unit: "แผง", qty: 0, baht: 0, g: {}, plant: 0, branch: 0 }], "#F5E6CE", "#7A4F16");
+  if (spec.length) {
+    body += `<tr><td colspan="${NC}" style="background:#FFF1F2;color:#BE123C;font-weight:bold;border:1px solid #FDA4AF;padding:6px 8px;font-size:12px;">🥛 ไข่แก้ว / ไข่เหลว · คนละหน่วย — ไม่รวมในยอดแผงข้างบน</td></tr>`;
+    body += spec.map((r) => line(r, "background:#FFF7F8;")).join("");
+    [...new Set(spec.map((r) => r.unit))].forEach((u) => { body += totRow("รวม (" + u + ")", spec.filter((r) => r.unit === u), "#FECDD3", "#9F1239"); });
+  }
+  const headRows = `
+    <tr><td colspan="${NC}" style="background:#0F766E;color:#fff;font-weight:bold;font-size:16px;text-align:center;padding:9px;border:1px solid #0b5c56;">${esc(COMPANY.name)}</td></tr>
+    <tr><td colspan="${NC}" style="text-align:center;font-size:11px;color:#5b5347;padding:3px;">${esc(COMPANY.addr1)} ${esc(COMPANY.addr2)} · โทร. ${esc(COMPANY.tel)}</td></tr>
+    <tr><td colspan="${NC}" style="text-align:center;font-size:15px;font-weight:bold;color:#1f2937;padding:8px 4px 8px;">สรุปยอดขายรายเดือน · เฉพาะรายการไข่ไก่ · ${esc(ym ? ymTH(ym) : "ทุกเดือน")}</td></tr>`;
+  const headerCells = "<tr>" + head.map((t) => `<td style="background:#0F766E;color:#fff;font-weight:bold;text-align:center;border:1px solid #0b5c56;padding:6px;font-size:12px;">${esc(t)}</td>`).join("") + "</tr>";
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8">`
+    + `<style>td{font-family:"TH Sarabun New","Noto Sans Thai",Tahoma,sans-serif;}</style></head><body>`
+    + `<table border="0" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">${headRows}${headerCells}${body}</table></body></html>`;
+  const blob = new Blob(["\ufeff" + html], { type: "application/vnd.ms-excel;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "สรุปยอดขาย-" + (ym || "ทุกเดือน") + ".xls";
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
