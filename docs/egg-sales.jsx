@@ -53,6 +53,41 @@ function sbDeviceId() {
 function sbGetMeta() { try { return JSON.parse(localStorage.getItem("eggSyncMeta") || "{}"); } catch (e) { return {}; } }
 function sbSetMeta(m) { try { localStorage.setItem("eggSyncMeta", JSON.stringify(m)); } catch (e) {} }
 let __sbQueue = {}, __sbLast = {}, __sbTimer = null, __sbHydrating = false;
+/* 🧮 13 ก.ย. 69 — ผลผลิตหลัง 7 หายตอนเสมียนกดบันทึกหลัง 5 (4 เครื่องคีย์พร้อมกัน)
+   ต้นเหตุ: เครื่องส่ง eggProduction "ทั้งก้อน" ขึ้นคลาวด์ทุกครั้ง
+   ฝั่งฐานข้อมูลรวมแบบ "ช่องไหนมีค่าที่ส่งมา ให้ค่าที่ส่งมาชนะ" → เลข 0 ของหลังที่เครื่องนี้ยังไม่เห็น
+   ไปทับเลขจริงที่เครื่องอื่นเพิ่งคีย์ (10 ก.ย. หลัง 5 · 13 ก.ย. หลัง 2 กับ 7 ก็โดนแบบเดียวกัน)
+   แก้: ส่งเฉพาะส่วนที่ "ต่างจากค่าที่คลาวด์ถืออยู่" เท่านั้น หลังที่ไม่ได้แตะจะไม่ถูกส่ง จึงทับใครไม่ได้
+   __sbBase[key] = สำเนาค่าคลาวด์ล่าสุดที่เครื่องนี้รู้ (อัปเดตตอนดึงลง และตอน merge สำเร็จ) */
+let __sbBase = {};
+const sbRowId = (r) => (r && typeof r === "object" && !Array.isArray(r) && (r.id != null || r.no != null))
+  ? String(r.id != null ? r.id : r.no) : null;
+/* คืน "เฉพาะส่วนที่เปลี่ยน" ของออบเจกต์ก้อนใหญ่ (คีย์ชั้นบน = วันที่)
+   - วันไหนไม่เปลี่ยน → ไม่ส่ง
+   - วันที่เปลี่ยนและค่าเป็นลิสต์ของ object ที่มี id (ผลผลิตรายหลัง) → ส่งเฉพาะหลังที่เปลี่ยน
+   ฝั่งฐานข้อมูลรวมลิสต์ด้วย full join ตาม id ของที่ไม่ได้ส่งจึงอยู่ครบ
+   ⚠️ delta ลบของไม่ได้ (ส่งแต่สิ่งที่มี) — ข้อมูลพวกนี้มีแต่เพิ่ม/แก้ ไม่มีลบ จึงปลอดภัย */
+function sbDeltaObj(cur, baseStr) {
+  if (!baseStr) return cur;                       // ยังไม่รู้ค่าคลาวด์ → ส่งทั้งก้อนเหมือนเดิม
+  let base; try { base = JSON.parse(baseStr); } catch (e) { return cur; }
+  const plain = (v) => v && typeof v === "object" && !Array.isArray(v);
+  if (!plain(base) || !plain(cur)) return cur;
+  const out = {};
+  Object.keys(cur).forEach((k) => {
+    const a = base[k], b = cur[k];
+    const bs = JSON.stringify(b);
+    if (JSON.stringify(a) === bs) return;         // ไม่เปลี่ยน → ไม่ต้องส่ง
+    if (Array.isArray(a) && Array.isArray(b)
+        && a.every((r) => sbRowId(r) != null) && b.every((r) => sbRowId(r) != null)) {
+      const was = new Map(a.map((r) => [sbRowId(r), JSON.stringify(r)]));
+      const changed = b.filter((r) => was.get(sbRowId(r)) !== JSON.stringify(r));
+      if (changed.length) out[k] = changed;
+      return;
+    }
+    out[k] = b;
+  });
+  return out;
+}
 // 🤖 แยก "ซิงก์อัตโนมัติ" กับ "คนแก้จริง" ในบันทึกกิจกรรม: ถ้ายังไม่มีการแตะจอ/กดคีย์เลยตั้งแต่เปิดหน้า = การเซฟรอบนั้นเป็นการจัดระเบียบอัตโนมัติ
 let __userActed = false;
 try {
@@ -130,30 +165,36 @@ async function sbFlush() {
     try {
       const { error } = await supabase.from(SB_TABLE).upsert(plainRows, { onConflict: "key" });
       if (error) { console.warn("[sync] อัปขึ้นคลาวด์ (upsert) ไม่สำเร็จ:", error.message); plainRows.forEach((r) => failKeys.push(r.key)); }
-      else { plainRows.forEach((r) => { meta[r.key] = now; }); okCount += plainRows.length; }
+      else { plainRows.forEach((r) => { meta[r.key] = now; try { __sbBase[r.key] = JSON.stringify(r.data); } catch (e) {} }); okCount += plainRows.length; }
     } catch (e) { console.warn("[sync] upsert error:", e && e.message); plainRows.forEach((r) => failKeys.push(r.key)); }
   }
   // 2) ออบเจกต์ → merge ฝั่งฐานข้อมูล (atomic, ไม่ทับของเครื่องอื่น) แล้วเก็บผลรวมกลับลงเครื่อง
   for (const key of mergeKeys) {
     try {
-      const { data: merged, error } = await supabase.rpc("app_snapshot_merge", { p_key: key, p_data: queued[key], p_device: dev });
+      // 🧮 ส่งเฉพาะส่วนที่เครื่องนี้แก้จริง — หลัง/วันที่ไม่ได้แตะจะไม่ถูกส่ง จึงทับของเครื่องอื่นไม่ได้
+      const payload = SB_MERGE_ARRAY_KEYS.has(key) ? queued[key] : sbDeltaObj(queued[key], __sbBase[key]);
+      if (payload && typeof payload === "object" && !Array.isArray(payload) && !Object.keys(payload).length) {
+        meta[key] = now; continue;   // ไม่มีอะไรต่างจากคลาวด์ → ไม่ต้องส่ง
+      }
+      const { data: merged, error } = await supabase.rpc("app_snapshot_merge", { p_key: key, p_data: payload, p_device: dev });
       if (error) {
         /* 🛑 6 ก.ย. 69 — ห้าม "ถอยไป upsert ทับทั้งก้อน" กับลิสต์บิลเด็ดขาด
            merge บิลใช้เวลาเกินเพดาน (985 ใบ = 6.6 วิ · เพดาน 3 วิ) จึงล้มทุกครั้ง แล้วทางสำรองนี้
            เอาลิสต์ของเครื่องเดียวไปทับคลาวด์ → บิลที่เครื่องอื่นเพิ่งคีย์หายทั้งใบ (IVE6906-5991)
            ลิสต์ที่ต้อง union: ล้มก็ปล่อยเข้าคิวส่งซ้ำ ไม่ทับ */
+        /* 13 ก.ย. 69 — ตัดทางถอย "upsert ทับทั้งก้อน" ออกจากออบเจกต์ด้วย
+           เดิมถ้า merge ล้ม จะเอาสำเนาของเครื่องเดียวไปทับคลาวด์ → ผลผลิตที่เครื่องอื่นเพิ่งคีย์หายทั้งก้อน
+           (เหตุผลเดิมว่า "ฝั่งดึงรวมแบบลึกอยู่แล้ว" ใช้ไม่ได้ เพราะแถวบนคลาวด์ถูกทับไปแล้วจริง)
+           merge ล้ม = เข้าคิวส่งซ้ำ ไม่ทับใคร */
         console.warn("[sync] merge ไม่สำเร็จ:", error.message);
-        if (SB_MERGE_ARRAY_KEYS.has(key)) { failKeys.push(key); continue; }
-        // ออบเจกต์ (ผลผลิต/สมุดเลี้ยง ฯลฯ) — ถอยไป upsert ได้ เพราะฝั่งดึงรวมแบบลึกอยู่แล้ว
-        const data = queued[key];
-        const { error: e2 } = await supabase.from(SB_TABLE).upsert([{ key, data, item_count: data && typeof data === "object" ? Object.keys(data).length : null, snapshot_at: now, device: dev }], { onConflict: "key" });
-        if (!e2) { meta[key] = now; okCount++; } else failKeys.push(key);
+        failKeys.push(key);
         continue;
       }
       meta[key] = now; okCount++;
       // เอาผลรวม (union ของทุกเครื่อง) กลับลง localStorage เพื่อให้เครื่องนี้ converge — กัน mount เขียนทับ
       if (merged && typeof merged === "object") {
         const str = JSON.stringify(merged);
+        __sbBase[key] = str;   // คลาวด์ถือค่านี้อยู่แล้ว — ใช้เป็นฐานเทียบ delta รอบหน้า
         if (str !== __sbLast[key]) {
           __sbHydrating = true;
           try { localStorage.setItem(key, str); } catch (e) {} finally { __sbHydrating = false; }
@@ -244,9 +285,11 @@ async function pullFromCloud() {
           } catch (e) {}
         }
         const str = JSON.stringify(out);
+        try { __sbBase[key] = JSON.stringify(row.data); } catch (e) {}   // ค่าที่คลาวด์ถืออยู่จริง (ยังไม่รวมของเครื่อง)
         try { localStorage.setItem(key, str); meta[key] = cloudTs; __sbLast[key] = str; applied++; } catch (e) {}
       } else {
         __sbLast[key] = localStr;   // เก็บของเดิม กัน mount เขียนซ้ำแล้วอัปทับ
+        try { __sbBase[key] = JSON.stringify(row.data); } catch (e) {}
       }
     });
     // คีย์ egg* ที่มีในเครื่องแต่คลาวด์ยังไม่มี → อัปขึ้นคลาวด์ให้ครบ — เฉพาะเครื่องที่เคย sync แล้วเท่านั้น
@@ -300,6 +343,7 @@ async function pullChangedFromCloud() {
         } catch (e) {}
       }
       const str = JSON.stringify(out);
+      try { __sbBase[key] = JSON.stringify(row.data); } catch (e) {}
       try { localStorage.setItem(key, str); meta[key] = row.snapshot_at || ""; __sbLast[key] = str; applied++; } catch (e) {}
     });
   } finally { __sbHydrating = false; }
@@ -6567,6 +6611,33 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
     const total = goodNet + (offPrang + pbPrang) * PER_PRADANG;
     return total > 0 ? (total / ch) * 100 : null;
   };
+  /* 📈 %ไข่รวม เฉลี่ยย้อนหลัง 3 วัน (รวมวันที่เลือกด้วย) — เจ้าของสั่ง 13 ก.ย. 69
+     เหตุผล: ไก่ไข่ไม่ตรงเวลากันทุกวัน บางวันเก็บทัน บางวันไม่ทัน ตัวเลขรายวันเลยเด้งขึ้นลง
+     ดูค่าเฉลี่ย 3 วันจะเห็นระดับจริงของหลังนั้น ไม่หลงตกใจกับวันเดียว
+     นับเฉพาะวันที่มีข้อมูลจริง (ข้ามวันที่ยังไม่ได้ลง) และบอกไว้ด้วยว่าใช้กี่วัน */
+  const avg3Of = (pick) => {
+    const ds = Object.keys(production).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && d <= prodDate).sort();
+    const used = [];
+    for (let i = ds.length - 1; i >= 0 && used.length < 3; i--) {
+      const v = pick(ds[i]);
+      if (v != null) used.push({ d: ds[i], v });
+    }
+    if (!used.length) return null;
+    used.reverse();
+    return { avg: used.reduce((s, x) => s + x.v, 0) / used.length, days: used.map((x) => x.d) };
+  };
+  const avg3House = (hid) => avg3Of((d) => pctTotalOn(d, hid));
+  const avg3Farm = () => avg3Of((d) => {                    // ทั้งฟาร์ม = ถ่วงน้ำหนักตามจำนวนไก่ของวันนั้น
+    let t = 0, ch = 0;
+    (production[d] || []).forEach((x) => { const v = pctTotalOn(d, x.id); if (v != null) { t += v * nf(x.chickens); ch += nf(x.chickens); } });
+    return ch > 0 ? t / ch : null;
+  });
+  // ป้ายวันที่แบบสั้น: "11, 12, 13 ก.ย." — เอาชื่อเดือนจากวันสุดท้าย (monthTH อยู่ในคอมโพเนนต์อื่น ใช้ที่นี่ไม่ได้)
+  const avg3Label = (r) => {
+    const last = r.days[r.days.length - 1];
+    const mo = toThaiDate(last, false).split(" ")[1] || "";
+    return r.days.map((d) => Number(d.slice(8))).join(", ") + " " + mo;
+  };
   // วันก่อนหน้าที่มีข้อมูลของหลังนั้นจริง (ข้ามวันที่ไม่ได้ลง/ข้อมูลผี)
   const prevDayWithData = (hid) => {
     const ds = Object.keys(production).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && d < prodDate).sort();
@@ -6718,6 +6789,7 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
               <th rowSpan={2} style={{ ...S.th, ...S.thTop, background: PROD_C.sum }}>ยอดไก่<br />คงเหลือ</th>
               <th rowSpan={2} style={{ ...S.th, ...S.thTop, background: "#15803D", color: "#fff", fontSize: 14.5, fontFamily: "'Prompt', sans-serif", letterSpacing: 0.3 }}>%ไข่<br />รวม</th>
               <th rowSpan={2} style={{ ...S.th, ...S.thTop, background: "#8C7B5E", color: "#fff", fontSize: 13 }}>%มฐ<br />Hy-Line</th>
+              <th rowSpan={2} style={{ ...S.th, ...S.thTop, background: "#CFE8D8", color: "#14532D", fontSize: 13 }} title="ค่าเฉลี่ย %ไข่รวม ของวันนี้กับ 2 วันก่อนหน้า — กันตัวเลขเด้งเพราะไก่ไข่ไม่ตรงเวลากันทุกวัน">เฉลี่ย<br />3 วัน</th>
               <th rowSpan={2} style={{ ...S.th, ...S.thTop, background: "#EDE9FE", color: "#5B21B6", fontSize: 13 }}>เทียบ<br />เมื่อวาน</th>
             </tr>
             <tr>
@@ -6776,6 +6848,16 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
                     );
                   })()}
                   {(() => {
+                    const r = avg3House(h.id);
+                    if (!r) return <td style={{ ...S.td, background: "#F2F8F4", color: "#c9c0ad" }}>—</td>;
+                    return (
+                      <td style={{ ...S.td, background: "#F2F8F4", fontWeight: 800, color: "#14532D", fontSize: 13.5 }} title={"เฉลี่ยจากวันที่ " + avg3Label(r)}>
+                        {r.avg.toFixed(2)}%
+                        <div style={{ fontSize: 9.5, fontWeight: 600, color: "#8a9b8f" }}>{r.days.length < 3 ? r.days.length + " วัน (มีเท่านี้)" : avg3Label(r)}</div>
+                      </td>
+                    );
+                  })()}
+                  {(() => {
                     const pd = prevDayWithData(h.id);
                     const prev = pd ? pctTotalOn(pd, h.id) : null;
                     if (prev == null || !(c.pctTotal > 0)) return <td style={{ ...S.td, background: "#F8F6FE", color: "#c9c0ad" }}>—</td>;
@@ -6829,6 +6911,16 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
                 );
               })()}
               {(() => {
+                const r = avg3Farm();
+                if (!r) return <td style={{ ...S.td, ...S.tfoot, background: "#CFE8D8", color: "#c9c0ad" }}>—</td>;
+                return (
+                  <td style={{ ...S.td, ...S.tfoot, background: "#CFE8D8", color: "#14532D" }} title={"เฉลี่ยจากวันที่ " + avg3Label(r)}>
+                    {r.avg.toFixed(2)}%
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "#5f7a68" }}>{r.days.length < 3 ? r.days.length + " วัน" : avg3Label(r)}</div>
+                  </td>
+                );
+              })()}
+              {(() => {
                 // เทียบเมื่อวานทั้งฟาร์ม — ใช้วันก่อนหน้าที่มีข้อมูลจริง
                 const ds = Object.keys(production).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && d < prodDate).sort();
                 let pd = null, prevAct = null;
@@ -6855,7 +6947,7 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
         </table>
       </div>
       )}
-      <div style={S.hint}>กด ✎ ที่ชื่อหลังเพื่อ "กรอก/แก้ไข" จำนวนไข่วันนี้ (เบอร์ 0-5 + ตกเกรด) · <b style={{ color: "#15803D" }}>ผลผลิตเข้าสต็อกคลังของวันนั้นอัตโนมัติ</b> (ไม่ต้องกดรับเข้า) · <b>แก้ผิด?</b> กด "↩ ย้อนการแก้" (มุมขวาบน) เพื่อคืนค่าเดิม · <b style={{ color: "#1D4ED8" }}>ช่องตกเกรดแยกประเภท</b> = เก็บมือในเล้า + เก็บมือหลังเครื่อง (เลขสีน้ำเงินตัวเล็กคือส่วนที่มาจากหลังเครื่อง) · <b style={{ color: "#B91C1C" }}>ช่องแดง</b> = เกินเกณฑ์ที่ตั้งไว้ (กด <b>🔔 เกณฑ์เตือน</b> เพื่อปรับตัวเลข) · %ไข่ตกเกรด = ตกเกรด(ฟอง) ÷ ไข่รวม · %ไข่รวม = ไข่รวม ÷ ยอดไก่</div>
+      <div style={S.hint}>กด ✎ ที่ชื่อหลังเพื่อ "กรอก/แก้ไข" จำนวนไข่วันนี้ (เบอร์ 0-5 + ตกเกรด) · <b style={{ color: "#15803D" }}>ผลผลิตเข้าสต็อกคลังของวันนั้นอัตโนมัติ</b> (ไม่ต้องกดรับเข้า) · <b>แก้ผิด?</b> กด "↩ ย้อนการแก้" (มุมขวาบน) เพื่อคืนค่าเดิม · <b style={{ color: "#1D4ED8" }}>ช่องตกเกรดแยกประเภท</b> = เก็บมือในเล้า + เก็บมือหลังเครื่อง (เลขสีน้ำเงินตัวเล็กคือส่วนที่มาจากหลังเครื่อง) · <b style={{ color: "#B91C1C" }}>ช่องแดง</b> = เกินเกณฑ์ที่ตั้งไว้ (กด <b>🔔 เกณฑ์เตือน</b> เพื่อปรับตัวเลข) · %ไข่ตกเกรด = ตกเกรด(ฟอง) ÷ ไข่รวม · %ไข่รวม = ไข่รวม ÷ ยอดไก่ · <b>เฉลี่ย 3 วัน</b> = %ไข่รวมเฉลี่ยของวันนี้กับ 2 วันก่อน (นับเฉพาะวันที่ลงข้อมูลแล้ว) — ไก่ไข่ไม่ตรงเวลากันทุกวัน ดูค่าเฉลี่ยจะเห็นระดับจริงกว่าดูวันเดียว</div>
       {!readOnly && !lockClosed && showMachine && <MachinePullModal prodDate={prodDate} existing={housesAll}
         onClose={() => setShowMachine(false)}
         onApply={(byHouse) => {
