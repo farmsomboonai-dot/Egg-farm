@@ -235,6 +235,33 @@ function sbUnionRows(cloud, local) {
   }
   return out;
 }
+/* 🧹 13 ก.ย. 69 — ล้าง "ข้อมูลผี" ในผลผลิตทุกครั้งที่โหลด/ดึงลง
+   เคยมีคีย์วันว่าง "" กับวันอนาคต 2026-09-27 ที่มีแต่ยอดไก่ ไข่เป็น 0 ค้างอยู่
+   ทำให้แดชบอร์ดเปิดมาเจอวันอนาคตแล้วโชว์ 0 ทุกช่อง (เจ้าของแจ้ง 3 ก.ย. 69)
+   ลบจากคลาวด์อย่างเดียวไม่พอ เพราะเครื่องที่ยังมีค้างจะส่งกลับขึ้นไปใหม่ตอน sync
+   ⚠️ ลบเฉพาะวันที่ "ไม่มีไข่เลยสักฟอง" — วันที่มีข้อมูลจริงไม่แตะ ต่อให้เป็นวันอนาคต */
+const SB_DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
+function sbDayHasEggs(arr) {
+  if (!Array.isArray(arr)) return false;
+  const sum = (o) => Object.values(o || {}).reduce((s, v) => s + (Number(v) || 0), 0);
+  return arr.some((h) => {
+    const g = (h && h.grade) || {};
+    return sum(g["เบอร์"]) + sum(g["คละ"]) + sum(g["ตกเกรด"]) + sum(h && h.pickBack) > 0;
+  });
+}
+function sbSanitize(key, val) {
+  if (key !== "eggProduction" || !val || typeof val !== "object" || Array.isArray(val)) return val;
+  let maxDay = "9999-12-31";
+  try { const t = new Date(Date.now() + 86400000); maxDay = t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0"); } catch (e) {}
+  const out = {}; let dropped = 0;
+  Object.keys(val).forEach((k) => {
+    const bad = !SB_DATE_KEY_RE.test(k) || k > maxDay;
+    if (bad && !sbDayHasEggs(val[k])) { dropped++; return; }
+    out[k] = val[k];
+  });
+  if (dropped) console.log("[sync] 🧹 ล้างข้อมูลผีในผลผลิต " + dropped + " วัน");
+  return dropped ? out : val;
+}
 // 🛟 รวมค่าคลาวด์เข้ากับของเครื่องตอนดึง (คลาวด์ชนะช่องที่ชนกัน แต่คีย์ที่มีเฉพาะในเครื่อง เช่น วันที่ยังไม่เคยอัปขึ้น จะไม่หาย)
 function sbPullMerge(cloud, local, key) {
   /* 🧾 6 ก.ย. 69 — บิล IVE6906-5991 หาย: ลิสต์บิลเคยถูก "ทับ" ด้วยค่าคลาวด์ทั้งก้อน
@@ -271,12 +298,13 @@ async function pullFromCloud() {
       if (localStr == null || cloudTs > localTs) {
         // 🛟 19-31 ก.ค.: เดิม "คลาวด์ทับของเครื่องทั้งก้อน" — เครื่องที่คีย์ค้างไว้แต่ยังไม่เคยอัปขึ้น (เช่น แท็บเล็ตซิงก์ล่ม 4 วัน) จะข้อมูลหายตอนรีเฟรช
         // ตอนนี้: รวมกัน (คลาวด์ชนะช่องที่ชนกัน · ส่วนที่มีเฉพาะในเครื่องรอด) แล้วอัปส่วนเกินขึ้นคลาวด์ต่อให้เอง
-        let out = row.data;
+        const cloudVal = sbSanitize(key, row.data);
+        let out = cloudVal;
         if (localStr != null) {
           try {
-            const localVal = JSON.parse(localStr);
-            const mergedVal = sbPullMerge(row.data, localVal, key);
-            if (JSON.stringify(mergedVal) !== JSON.stringify(row.data)) {
+            const localVal = sbSanitize(key, JSON.parse(localStr));
+            const mergedVal = sbSanitize(key, sbPullMerge(cloudVal, localVal, key));
+            if (JSON.stringify(mergedVal) !== JSON.stringify(cloudVal)) {
               out = mergedVal;
               __sbQueue[key] = mergedVal;   // ส่วนที่เครื่องมีเกินคลาวด์ → ตั้งคิวอัปขึ้น
               sbSaveQueue();
@@ -285,7 +313,7 @@ async function pullFromCloud() {
           } catch (e) {}
         }
         const str = JSON.stringify(out);
-        try { __sbBase[key] = JSON.stringify(row.data); } catch (e) {}   // ค่าที่คลาวด์ถืออยู่จริง (ยังไม่รวมของเครื่อง)
+        try { __sbBase[key] = JSON.stringify(cloudVal); } catch (e) {}   // ค่าที่คลาวด์ถืออยู่จริง (ยังไม่รวมของเครื่อง)
         try { localStorage.setItem(key, str); meta[key] = cloudTs; __sbLast[key] = str; applied++; } catch (e) {}
       } else {
         __sbLast[key] = localStr;   // เก็บของเดิม กัน mount เขียนซ้ำแล้วอัปทับ
@@ -331,11 +359,12 @@ async function pullChangedFromCloud() {
     full.data.forEach((row) => {
       const key = row.key;
       let localStr = null; try { localStr = localStorage.getItem(key); } catch (e) {}
-      let out = row.data;
+      const cloudVal = sbSanitize(key, row.data);
+      let out = cloudVal;
       if (localStr != null) {
         try {
-          const mergedVal = sbPullMerge(row.data, JSON.parse(localStr));
-          if (JSON.stringify(mergedVal) !== JSON.stringify(row.data)) {
+          const mergedVal = sbSanitize(key, sbPullMerge(cloudVal, sbSanitize(key, JSON.parse(localStr)), key));
+          if (JSON.stringify(mergedVal) !== JSON.stringify(cloudVal)) {
             out = mergedVal;
             __sbQueue[key] = mergedVal;
             clearTimeout(__sbTimer); __sbTimer = setTimeout(sbFlush, 1500);
@@ -343,7 +372,7 @@ async function pullChangedFromCloud() {
         } catch (e) {}
       }
       const str = JSON.stringify(out);
-      try { __sbBase[key] = JSON.stringify(row.data); } catch (e) {}
+      try { __sbBase[key] = JSON.stringify(cloudVal); } catch (e) {}
       try { localStorage.setItem(key, str); meta[key] = row.snapshot_at || ""; __sbLast[key] = str; applied++; } catch (e) {}
     });
   } finally { __sbHydrating = false; }
@@ -1732,8 +1761,12 @@ export default function App() {
 
   // ผลผลิตรายวัน (ย้อนดูได้) — เก็บลง localStorage ; houses = ของวันที่เลือก (prodDate)
   const [productionByDate, setProductionByDate] = useState(() => {
-    try { const st = JSON.parse(localStorage.getItem("eggProduction") || "{}"); return { ...PRODUCTION_SEED, ...st }; }
-    catch { return { ...PRODUCTION_SEED }; }
+    // 🧹 ล้างข้อมูลผีที่ค้างในเครื่องด้วย (คีย์วันว่าง/วันอนาคตที่ไม่มีไข่) — ไม่งั้นมันจะไหลกลับขึ้นคลาวด์
+    try {
+      const st = sbSanitize("eggProduction", JSON.parse(localStorage.getItem("eggProduction") || "{}"));
+      const merged = sbSanitize("eggProduction", { ...PRODUCTION_SEED, ...st });
+      return merged;
+    } catch (e) { return sbSanitize("eggProduction", { ...PRODUCTION_SEED }); }
   });
   const [prodDate, setProdDate] = useState(PROD_DEFAULT_DATE);
   useEffect(() => { try { localStorage.setItem("eggProduction", JSON.stringify(productionByDate)); } catch {} }, [productionByDate]);
@@ -6549,6 +6582,38 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
   const [showMachine, setShowMachine] = useState(false);  // 🧮 โมดัลคีย์จากเครื่องคัด
   const [showAdvice, setShowAdvice] = useState(false);   // โมดัลคำแนะนำการดูแล
   const [undoStack, setUndoStack] = useState([]);  // ประวัติค่าก่อนแก้ (undo ได้หลายชั้น)
+  /* 📐 ย่อตารางให้พอดีจอ — เจ้าของสั่ง 16 ก.ย. 69 "เปิดตารางให้ครบทั้งตารางในหน้าเดียว"
+     ใช้ CSS zoom (ไม่ใช่ transform) เพราะ transform จะทำให้หัวตารางที่ตรึงไว้ (sticky) หลุด
+     วัดความกว้างจริงด้วย getBoundingClientRect แล้วปรับสัดส่วนเข้าหาความกว้างที่มี — ลู่เข้าภายใน 1-2 รอบ
+     กดปุ่ม "ขนาดเต็ม" เพื่อกลับไปเลื่อนซ้ายขวาแบบเดิมได้ ถ้าตัวหนังสือเล็กไป */
+  const wrapRef = React.useRef(null);
+  const tblRef = React.useRef(null);
+  const [fitWide, setFitWide] = useState(() => { try { return localStorage.getItem("eggProdFitWide") !== "0"; } catch (e) { return true; } });
+  const [fit, setFit] = useState(1);
+  useEffect(() => { try { localStorage.setItem("eggProdFitWide", fitWide ? "1" : "0"); } catch (e) {} }, [fitWide]);
+  useEffect(() => {
+    if (!fitWide) { setFit(1); return; }
+    let stop = false;
+    const calc = () => {
+      if (stop) return;
+      const w = wrapRef.current, t = tblRef.current;
+      if (!w || !t) return;
+      // วัดความกว้าง "ตอนไม่ย่อ" เสมอ — ปิด zoom ชั่วขณะแล้วคืนค่า (อยู่ในจังหวะเดียวกัน จอไม่กระพริบ)
+      const keep = t.style.zoom;
+      t.style.zoom = "1";
+      const natural = t.scrollWidth;
+      t.style.zoom = keep;
+      const avail = w.clientWidth - 2;
+      if (!natural || avail <= 0) return;
+      // ย่อทีละ 0.5% · ไม่ย่อต่ำกว่า 55% (เล็กกว่านี้อ่านไม่ออก — ถ้ายังไม่พอ ปล่อยให้เลื่อนซ้ายขวาแทน)
+      const k = Math.min(1, Math.max(0.55, Math.floor((avail / natural) * 200) / 200));
+      setFit((curK) => Math.abs(curK - k) < 0.004 ? curK : k);
+    };
+    calc();
+    const t1 = setTimeout(calc, 120), t2 = setTimeout(calc, 400), t3 = setTimeout(calc, 900);
+    window.addEventListener("resize", calc);
+    return () => { stop = true; clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); window.removeEventListener("resize", calc); };
+  }, [fitWide, prodDate, houses.length]);
   useEffect(() => { setUndoStack([]); }, [prodDate]);   // เปลี่ยนวัน → ล้างประวัติย้อนกลับ
   // เกณฑ์แจ้งเตือนคุณภาพ (บันทึกลง localStorage — ปรับได้ที่ปุ่ม "เกณฑ์เตือน")
   const [alertCfgRaw, setAlertCfgRaw] = useState(() => {
@@ -6713,6 +6778,10 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
             style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", border: "1px solid #7C3AED", background: "#F7F3FF", color: "#6D28D9", borderRadius: 8, fontSize: 13, fontFamily: "inherit", fontWeight: 700, cursor: "pointer" }}>
             🧮 คีย์จากเครื่องคัด
           </button>}
+          <button onClick={() => setFitWide((v) => !v)} title={fitWide ? "ตอนนี้ย่อให้เห็นครบทั้งตารางในจอเดียว — กดเพื่อกลับไปขนาดเต็ม (เลื่อนซ้ายขวา)" : "กดเพื่อย่อให้เห็นครบทั้งตารางในจอเดียว"}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", border: `1px solid ${fitWide ? "#0E7490" : "#ddd5c7"}`, background: fitWide ? "#ECFEFF" : "#fff", color: fitWide ? "#0E7490" : "#6b6358", borderRadius: 8, fontSize: 13, fontFamily: "inherit", fontWeight: 700, cursor: "pointer" }}>
+            {fitWide ? `⤢ พอดีจอ${fit < 1 ? " · " + Math.round(fit * 100) + "%" : ""}` : "⤢ ขนาดเต็ม"}
+          </button>
           {!readOnly && <button onClick={() => setShowAlertCfg(true)} title="ตั้งค่าเกณฑ์แจ้งเตือนคุณภาพผลผลิต"
             style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", border: `1px solid ${totalAlerts > 0 ? "#DC2626" : ACCENT}`, background: totalAlerts > 0 ? "#FEF2F2" : "#fff", color: totalAlerts > 0 ? "#B91C1C" : ACCENT_DK, borderRadius: 8, fontSize: 13, fontFamily: "inherit", fontWeight: 700, cursor: "pointer" }}>
             <Bell size={14} /> เกณฑ์เตือน{totalAlerts > 0 ? ` · ${totalAlerts}` : ""}
@@ -6772,8 +6841,8 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
           {!readOnly && !lockClosed && <button onClick={startNewDay} style={{ ...S.primaryBtn, maxWidth: 340, margin: "0 auto" }}>＋ เริ่มบันทึกผลผลิตวันนี้ (คัดลอกโครงจากวันล่าสุด)</button>}
         </div>
       ) : (
-      <div style={S.tableScroll}>
-        <table style={S.table} className="prodTable">
+      <div ref={wrapRef} style={{ ...S.tableScroll, overflowX: fitWide && fit > 0.55 ? "hidden" : "auto" }}>
+        <table ref={tblRef} style={{ ...S.table, minWidth: fitWide ? 0 : S.table.minWidth, zoom: fitWide ? fit : 1 }} className="prodTable">
           <thead>
             <tr>
               <th rowSpan={2} style={{ ...S.th, ...S.thTop, ...S.thSticky, textAlign: "left" }}>หลัง</th>
