@@ -31,12 +31,13 @@ const SB_SYNC_RE = /^egg/;
 const SB_SKIP = new Set(["eggDeviceId", "eggSyncMeta", "eggCurrentRole", "eggAccessLog"]);
 // ลิสต์ (อาเรย์) ที่ให้รวมแบบ union ตาม id/เลขบิล แทนการทับทั้งก้อน — เฉพาะลิสต์ที่ "ไม่เคยลบสมาชิกออก"
 // (บิล: ยกเลิก = ติดธง cancelled ไม่ได้ลบออก) จึง union ปลอดภัย กัน 2 คนเพิ่มพร้อมกันแล้วหาย
-const SB_MERGE_ARRAY_KEYS = new Set(["eggBills"]);
+const SB_MERGE_ARRAY_KEYS = new Set(["eggBills", "eggMedIssues", "eggMedOrders", "eggMedCounts"]);
 // 📋 บันทึกกิจกรรม: ป้ายชื่อไทยของแต่ละคีย์ข้อมูล (ไว้โชว์ว่า "แก้อะไร" ในหน้าใครแก้อะไร)
 const ACTIVITY_KEY_LABELS = {
   eggBills: "บิลขาย", eggPayments: "รับชำระเงิน", eggProduction: "ผลผลิตประจำวัน",
   eggRearing: "บันทึกการเลี้ยง", eggFlocks: "รุ่นการเลี้ยง", eggVaccines: "วัคซีน", eggLabTests: "ผลตรวจแล็บ",
   eggMedStock: "สต๊อกยา", eggMedReceipts: "รับยาเข้าสต๊อก", eggMedTrials: "ทดลอง·ติดตามผล",
+  eggMedIssues: "ใบเบิกยา", eggMedOrders: "ขอสั่งซื้อยา", eggMedCounts: "นับสต๊อกยา",
   eggFeedDeliveries: "รับอาหาร", eggFeedPrice: "ราคาอาหาร", eggStockCounts: "ปิดยอดสต๊อกไข่", eggCloseMeta: "ปิดยอดสิ้นวัน", eggWashLogs: "ล้างไข่เปื้อน",
   eggExpenses: "ค่าใช้จ่าย/ต้นทุน", eggBookings: "จองออเดอร์", eggPlanEstimates: "วางแผนออเดอร์",
   eggTrayStock: "บัญชีแผงไข่", eggTrayRecords: "บัญชีแผงไข่", eggTrayEvents: "บัญชีแผงไข่",
@@ -1112,6 +1113,10 @@ const FEED_SUPPLIERS = ["JBF", "หนองบัวฟีดมิลล์"];
 // ---------- สต๊อกยาและวิตามิน — รีเซ็ตยอดตามชีต "สรุปยอดคงเหลือ ยา" ณ 23/7/69 (ยารักษา) ----------
 // opening = คงเหลือจริง ณ วันตั้งต้น (since=24/7 → ยอดนับ 23/7 เป็นยกมาของวันถัดไป) ; เบิกใช้ = ระบบดึงจากบันทึกให้ยารายวัน (จับคู่ด้วยชื่อ ตั้งแต่ since) ; ราคา = บาท/หน่วย
 const MED_STOCK_SINCE = "2026-07-24";
+/* 🧾 วันเริ่มใช้ "ใบเบิกยา" — ตั้งแต่วันนี้ไป สต๊อกตัดจากใบเบิกของหมอ (ไม่ใช่จากบันทึกให้ยารายวัน)
+   ก่อนหน้านี้ยังตัดจากบันทึกให้ยาเหมือนเดิม ไม่งั้นยอดเก่าจะเด้งกลับขึ้นมาทั้งหมด
+   เจ้าของสั่ง 20 ก.ย. 69: หมอเบิก = ตัดสต๊อกทันที · บันทึกให้ยารายวันเหลือไว้เป็นบันทึกการรักษา + ใช้กระทบยอด */
+const MED_ISSUE_SINCE = "2026-10-01";
 const MED_STOCK_SEED = [
   { id: "md01", name: "ทันใจ 100 ซอง/กล่อง", desc: "ยาแก้ปวด ลดไข้", unit: "กล่อง", opening: 130, price: 154, company: "อินเตอร์เวชภัณฑ์", mfg: "13/1/25", expiry: "13/1/27", since: MED_STOCK_SINCE },
   { id: "md02", name: "Acetin (อาซิติน)", desc: "ยาละลายเสมหะ", unit: "หน่วย", opening: 300, price: 154, company: "อินเตอร์เวชภัณฑ์", mfg: "02/2026", expiry: "02/2029", since: MED_STOCK_SINCE },
@@ -1854,6 +1859,32 @@ export default function App() {
   useEffect(() => { try { localStorage.setItem("eggMedStock", JSON.stringify(medStock)); } catch {} }, [medStock]);
   const addMedItem = (it) => setMedStock((prev) => [...prev, it]);
   const updateMedItem = (id, patch) => setMedStock((prev) => prev.map((x) => x.id === id ? { ...x, ...patch } : x));
+  /* 🧾 ใบเบิกยา — หมอกดเบิก แล้วตัดสต๊อกทันที
+     [{id, date, houseId, medId, name, unit, qty, by, note, ts, picked:{by,at}|null}] */
+  const [medIssues, setMedIssues] = useState(() => { try { return JSON.parse(localStorage.getItem("eggMedIssues") || "[]"); } catch { return []; } });
+  useEffect(() => { try { localStorage.setItem("eggMedIssues", JSON.stringify(medIssues)); } catch {} }, [medIssues]);
+  const addMedIssue = (r) => setMedIssues((prev) => [r, ...prev]);
+  const updateMedIssue = (id, patch) => setMedIssues((prev) => prev.map((x) => x.id === id ? { ...x, ...patch } : x));
+  const deleteMedIssue = (id) => setMedIssues((prev) => prev.filter((x) => x.id !== id));
+  /* 📋 ใบนับสต๊อกยา — นับของจริงแล้วตั้งเป็นยอดยกมาใหม่ (เจ้าของสั่งนับใหม่ 30 ก.ย. 69)
+     [{id, date(วันที่นับ), since(ยกมาของวันนี้), by, ts, rows:[{medId,name,unit,system,counted,diff}]}]
+     เก็บไว้เป็นหลักฐานว่ายอดยกมาถูกตั้งใหม่เมื่อไร ใครนับ ต่างจากระบบเท่าไร */
+  const [medCounts, setMedCounts] = useState(() => { try { return JSON.parse(localStorage.getItem("eggMedCounts") || "[]"); } catch { return []; } });
+  useEffect(() => { try { localStorage.setItem("eggMedCounts", JSON.stringify(medCounts)); } catch {} }, [medCounts]);
+  const addMedCount = (rec) => {
+    setMedCounts((prev) => [rec, ...prev]);
+    // ตั้งยอดยกมาใหม่ = ยอดนับจริง · since = วันถัดจากวันนับ (ของที่รับ/เบิกตั้งแต่วันนั้นถึงจะนับต่อ)
+    setMedStock((prev) => prev.map((it) => {
+      const r = (rec.rows || []).find((x) => x.medId === it.id);
+      return r ? { ...it, opening: r.counted, since: rec.since } : it;
+    }));
+  };
+  /* 🛒 ใบขอสั่งซื้อยา — เสมียนห้องยากดขอเมื่อของถึงเกณฑ์เตือน
+     [{id, date, medId, name, unit, qty, by, note, status, ts, doneAt}] */
+  const [medOrders, setMedOrders] = useState(() => { try { return JSON.parse(localStorage.getItem("eggMedOrders") || "[]"); } catch { return []; } });
+  useEffect(() => { try { localStorage.setItem("eggMedOrders", JSON.stringify(medOrders)); } catch {} }, [medOrders]);
+  const addMedOrder = (r) => setMedOrders((prev) => [r, ...prev]);
+  const updateMedOrder = (id, patch) => setMedOrders((prev) => prev.map((x) => x.id === id ? { ...x, ...patch } : x));
   // สมุดวัคซีนประจำหลัง {houseId: [rows]} — H7 seed จากใบบันทึกวัคซีนฟาร์มอนุบาล
   const [vaccines, setVaccines] = useState(() => {
     try { const st = localStorage.getItem("eggVaccines"); return st ? JSON.parse(st) : VACCINE_SEED; }
@@ -1882,43 +1913,76 @@ export default function App() {
   useEffect(() => { try { localStorage.setItem("eggMedReceipts", JSON.stringify(medReceipts)); } catch {} }, [medReceipts]);
   const addMedReceipt = (r) => setMedReceipts((prev) => [r, ...prev]);
   const deleteMedReceipt = (id) => setMedReceipts((prev) => prev.filter((x) => x.id !== id));
-  // ยอดต่อยา: เบิกใช้ = Σ จากบันทึกให้ยารายวัน (จับคู่ "ชื่อ" ตรงกัน, นับตั้งแต่วันตั้งต้นสต๊อกของยานั้น) ; คงเหลือ = ยกมา + รับ − เบิก
+  /* ยอดต่อยา: คงเหลือ = ยกมา + รับเข้า − เบิกใช้
+     เบิกใช้ แยก 2 ช่วง (เจ้าของสั่ง 20 ก.ย. 69):
+       • ก่อน MED_ISSUE_SINCE → นับจากบันทึกให้ยารายวันเหมือนเดิม (ของเก่าต้องไม่เพี้ยน)
+       • ตั้งแต่ MED_ISSUE_SINCE → นับจาก "ใบเบิก" ของหมอ เพราะของออกจากห้องยาตอนเบิก ไม่ใช่ตอนให้
+     usedDose = ยอดที่ลงบันทึกให้ยาจริง (ทุกช่วง) — ไว้กระทบยอดว่าเบิกไปแล้วใช้จริงไหม */
   const medInfo = useMemo(() => {
     const m = {};
+    const issueByMed = {}, issueByName = {};
+    medIssues.forEach((r) => {
+      if ((r.date || "") < MED_ISSUE_SINCE) return;
+      const q = parseFloat(r.qty) || 0;
+      if (r.medId) issueByMed[r.medId] = (issueByMed[r.medId] || 0) + q;
+      else issueByName[(r.name || "").trim()] = (issueByName[(r.name || "").trim()] || 0) + q;
+    });
     medStock.forEach((it) => {
       const nm = (it.name || "").trim();
-      let used = 0;
+      let doseOld = 0, doseAll = 0;
       Object.keys(rearingByDate).forEach((d) => {
         if (it.since && d < it.since) return;
         Object.values(rearingByDate[d] || {}).forEach((r) => {
-          (r?.medsList || []).forEach((x) => { if (x.route === "feed") return; if ((x.name || "").trim() === nm) used += parseFloat(x.qty) || 0; });   // ยามากับอาหาร = ของโรงงานอาหาร ไม่ตัดสต๊อกเรา
+          (r?.medsList || []).forEach((x) => {
+            if (x.route === "feed") return;   // ยามากับอาหาร = ของโรงงานอาหาร ไม่ตัดสต๊อกเรา
+            if ((x.name || "").trim() !== nm) return;
+            const q = parseFloat(x.qty) || 0;
+            doseAll += q;
+            if (d < MED_ISSUE_SINCE) doseOld += q;
+          });
         });
       });
+      const issued = (issueByMed[it.id] || 0) + (issueByName[nm] || 0);
+      const used = doseOld + issued;
       const recv = medReceipts.filter((r) => r.medId === it.id && (!it.since || (r.date || "") >= it.since)).reduce((s, r) => s + (parseFloat(r.qty) || 0), 0);   // นับเฉพาะรับเข้าตั้งแต่วันตั้งต้น (กันซ้ำเวลารีเซ็ตยอดยกมา)
-      m[nm] = { id: it.id, remain: (it.opening || 0) + recv - used, used, recv, price: it.price, unit: it.unit || "หน่วย" };
+      m[nm] = { id: it.id, remain: (it.opening || 0) + recv - used, used, issued, usedDose: doseAll, recv, price: it.price, unit: it.unit || "หน่วย" };
     });
     return m;
-  }, [medStock, medReceipts, rearingByDate]);
-  // ค่ายาที่ใช้จริง ต่อเดือน/ต่อหลัง (จำนวน × ราคา จากสต๊อก) — ป้อนเข้าบัญชีต้นทุนหมวด "ค่ายา+วัสดุสิ้นเปลือง" อัตโนมัติ
+  }, [medStock, medReceipts, rearingByDate, medIssues]);
+  /* ค่ายาที่ใช้จริง ต่อเดือน/ต่อหลัง — เข้าบัญชีต้นทุนหมวด "ค่ายา+วัสดุสิ้นเปลือง" อัตโนมัติ
+     คิดจากยอดเดียวกับที่ตัดสต๊อก: ก่อน MED_ISSUE_SINCE = บันทึกให้ยา · ตั้งแต่นั้น = ใบเบิก
+     (ถ้าคิดคนละทางกับสต๊อก บัญชีกับของในห้องยาจะไม่มีวันตรงกัน) */
   const medCostByMonth = useMemo(() => {
-    const priceByName = {};
-    medStock.forEach((it) => { if (it.price) priceByName[(it.name || "").trim()] = { price: it.price, since: it.since }; });
+    const priceByName = {}, priceById = {};
+    medStock.forEach((it) => { if (it.price) { priceByName[(it.name || "").trim()] = { price: it.price, since: it.since }; priceById[it.id] = { price: it.price, since: it.since }; } });
     const m = {};
+    const add = (d, hid, baht) => {
+      const ym = d.slice(0, 7);
+      m[ym] = m[ym] || { total: 0, byHouse: {} };
+      m[ym].total += baht;
+      m[ym].byHouse[hid] = (m[ym].byHouse[hid] || 0) + baht;
+    };
     Object.keys(rearingByDate).forEach((d) => {
+      if (d >= MED_ISSUE_SINCE) return;   // ตั้งแต่วันเริ่มใช้ใบเบิก → ไปคิดจากใบเบิกแทน กันคิดซ้ำ
       Object.entries(rearingByDate[d] || {}).forEach(([hid, r]) => {
         (r?.medsList || []).forEach((x) => {
           if (x.route === "feed") return;   // ยามากับอาหาร = โรงงานอาหารใส่มา ไม่คิดเข้าค่ายาของฟาร์ม
           const p = priceByName[(x.name || "").trim()]; const q = parseFloat(x.qty) || 0;
           if (!p || !q || (p.since && d < p.since)) return;
-          const ym = d.slice(0, 7);
-          m[ym] = m[ym] || { total: 0, byHouse: {} };
-          m[ym].total += q * p.price;
-          m[ym].byHouse[hid] = (m[ym].byHouse[hid] || 0) + q * p.price;
+          add(d, hid, q * p.price);
         });
       });
     });
+    medIssues.forEach((r) => {
+      const d = r.date || "";
+      if (d < MED_ISSUE_SINCE) return;
+      const p = (r.medId && priceById[r.medId]) || priceByName[(r.name || "").trim()];
+      const q = parseFloat(r.qty) || 0;
+      if (!p || !q || (p.since && d < p.since)) return;
+      add(d, r.houseId || "ไม่ระบุหลัง", q * p.price);
+    });
     return m;
-  }, [medStock, rearingByDate]);
+  }, [medStock, rearingByDate, medIssues]);
   // 🌾 อาหารที่กินจริง ต่อเดือน/ต่อหลัง (กก. จากบันทึกการเลี้ยง ไซโล1+2) — × ราคาอาหาร = ค่าอาหารอัตโนมัติ
   const [feedPrice, setFeedPrice] = useState(() => { const v = parseFloat(localStorage.getItem("eggFeedPrice")); return isNaN(v) ? 0 : v; });
   useEffect(() => { try { localStorage.setItem("eggFeedPrice", String(feedPrice)); } catch {} }, [feedPrice]);
@@ -2220,7 +2284,12 @@ export default function App() {
       {view === "production" && <ProductionView houses={houses} setHouses={setHouses} prodDate={prodDate} setProdDate={setProdDate} production={productionByDate} flocks={flocks} readOnly={viewOnly || roleObj.id === "farm"} dayClosed={stockCounts[prodDate] != null} isOwner={roleObj.id === "owner"} />}
       {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={guard(saveRearing)} flocks={flocks} saveFlock={guard(saveFlock)} production={productionByDate} medTrials={medTrials} medStock={medStock} medInfo={medInfo} vaccines={vaccines} addVaccine={guard(addVaccine)} deleteVaccine={guard(deleteVaccine)} labTests={labTests} addLabTest={guard(addLabTest)} deleteLabTest={guard(deleteLabTest)} viewOnly={viewOnly} />}
       {view === "feed" && <FeedView rearingByDate={rearingByDate} flocks={flocks} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} feedPrice={feedPrice} setFeedPrice={setFeedPrice} feedUseByMonth={feedUseByMonth} feedCostByMonth={feedCostByMonth} />}
-      {view === "med" && <MedView production={productionByDate} medStock={medStock} medInfo={medInfo} medReceipts={medReceipts} addMedItem={guard(addMedItem)} updateMedItem={guard(updateMedItem)} addMedReceipt={guard(addMedReceipt)} medCostByMonth={medCostByMonth} canManage={!viewOnly && (currentRole === "owner" || currentRole === "medclerk")} />}
+      {view === "med" && <MedView production={productionByDate} medStock={medStock} medInfo={medInfo} medReceipts={medReceipts} addMedItem={guard(addMedItem)} updateMedItem={guard(updateMedItem)} addMedReceipt={guard(addMedReceipt)} medCostByMonth={medCostByMonth}
+        medIssues={medIssues} addMedIssue={guard(addMedIssue)} updateMedIssue={guard(updateMedIssue)} deleteMedIssue={guard(deleteMedIssue)}
+        medOrders={medOrders} addMedOrder={guard(addMedOrder)} updateMedOrder={guard(updateMedOrder)} rearingByDate={rearingByDate}
+        medCounts={medCounts} addMedCount={guard(addMedCount)}
+        canIssue={!viewOnly && (currentRole === "owner" || currentRole === "farm")}
+        canManage={!viewOnly && (currentRole === "owner" || currentRole === "medclerk")} />}
       {view === "trial" && <TrialView medTrials={medTrials} addMedTrial={guard(addMedTrial)} deleteMedTrial={guard(deleteMedTrial)} production={productionByDate} rearingByDate={rearingByDate} />}
       {view === "health" && <HealthHubView production={productionByDate} flocks={flocks} vaccines={vaccines} addVaccine={guard(addVaccine)} deleteVaccine={guard(deleteVaccine)} />}
       {view === "salesum" && <MonthlySalesView bills={activeBills} />}
@@ -7894,6 +7963,243 @@ const medCatOf = (desc = "") => {
 };
 
 // ช่องเลือกชื่อยา/สารเสริม — พิมพ์เพื่อกรอง + รายการแบ่งตามหมวด (หัวข้อสี/เส้นคั่น) แทน datalist เดิมที่อ่านยาก
+/* 📖 ประวัติยารายตัว — บัญชีเดินสะพัดของยา 1 ชนิด (เจ้าของสั่ง 27 ก.ย. 69)
+   เรียงตามวันจากเก่าไปใหม่: ยกมา → รับเข้า(+) → เบิก(−) → คงเหลือสะสม
+   บอกด้วยว่าใครเบิก ใช้กับหลังไหน และรับเข้ามาจากบิลไหน
+   บันทึกให้ยาหลังวันเริ่มใช้ใบเบิก = โชว์เป็นข้อมูลอ้างอิง ไม่ตัดสต๊อกซ้ำ */
+function MedHistoryModal({ it, info = {}, medReceipts = [], medIssues = [], rearingByDate = {}, medCounts = [], onClose }) {
+  const nm = (it.name || "").trim();
+  const since = it.since || "";
+  const rows = [];
+  rows.push({ d: since, kind: "ยกมา", qty: it.opening || 0, sign: 1, who: "", house: "", note: "ยอดตั้งต้น" });
+  medReceipts.filter((r) => r.medId === it.id && (!since || (r.date || "") >= since))
+    .forEach((r) => rows.push({ d: r.date, kind: "รับเข้า", qty: parseFloat(r.qty) || 0, sign: 1, who: r.by || "", house: "", note: [r.company, r.billNo ? "บิล " + r.billNo : "", r.price ? fmt(r.price) + " บ./หน่วย" : "", r.note].filter(Boolean).join(" · ") }));
+  medIssues.filter((r) => (r.medId === it.id || (r.name || "").trim() === nm) && (r.date || "") >= MED_ISSUE_SINCE && (!since || (r.date || "") >= since))
+    .forEach((r) => rows.push({ d: r.date, kind: "เบิก", qty: parseFloat(r.qty) || 0, sign: -1, who: r.by || "", house: r.houseId || "", note: [r.note, r.picked ? "จัดโดย " + (r.picked.by || "") : "รอจัด"].filter(Boolean).join(" · ") }));
+  Object.keys(rearingByDate).forEach((d) => {
+    if (since && d < since) return;
+    Object.entries(rearingByDate[d] || {}).forEach(([hid, r]) => {
+      (r?.medsList || []).forEach((x) => {
+        if (x.route === "feed" || (x.name || "").trim() !== nm) return;
+        const q = parseFloat(x.qty) || 0; if (!q) return;
+        const cut = d >= MED_ISSUE_SINCE;
+        rows.push({ d, kind: cut ? "ให้ยา" : "ให้ยา (ตัดสต๊อก)", qty: q, sign: cut ? 0 : -1, who: "", house: hid, note: cut ? "อ้างอิง — สต๊อกตัดตอนเบิกแล้ว" : [x.period, x.water ? "ผสมน้ำ " + x.water + " ล." : ""].filter(Boolean).join(" ") });
+      });
+    });
+  });
+  rows.sort((a, b) => (a.d || "").localeCompare(b.d || "") || (a.sign === 1 ? -1 : 1));
+  let bal = 0;
+  const ledger = rows.map((r) => { bal += r.sign * r.qty; return { ...r, bal }; });
+  const lastCount = medCounts.find((c) => (c.rows || []).some((x) => x.medId === it.id));
+  const td = { padding: "6px 8px", fontSize: 12.5, borderBottom: "1px solid #eee7d8", whiteSpace: "nowrap" };
+  const colOf = (k) => k === "รับเข้า" ? "#15803D" : k === "เบิก" ? "#B45309" : k === "ยกมา" ? "#7a6f5c" : k.startsWith("ให้ยา (") ? "#B45309" : "#9b8e78";
+  return (
+    <div style={S.modalOverlay} onClick={onClose}>
+      <div style={{ ...S.modal, maxWidth: 760 }} onClick={(e) => e.stopPropagation()}>
+        <div style={S.modalHead}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={S.modalTitle}>📖 {it.name}</div>
+            <div style={S.modalSub}>{it.desc || ""}{it.company ? " · " + it.company : ""}{it.expiry ? " · หมดอายุ " + it.expiry : ""}</div>
+          </div>
+          <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
+        </div>
+        {(it.photos || []).length > 0 && (
+          <div style={{ display: "flex", gap: 7, marginBottom: 12, flexWrap: "wrap" }}>
+            {(it.photos || []).map((ph, i) => <img key={i} src={ph.url} alt="รูปยา" onClick={() => window.open(ph.url, "_blank")} style={{ height: 72, width: 72, objectFit: "cover", borderRadius: 9, border: "1px solid #e6ddca", cursor: "pointer" }} />)}
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+          {[["คงเหลือ", fmt1(info.remain != null ? info.remain : it.opening || 0) + " " + (it.unit || ""), (info.remain || 0) <= 0 ? "#B91C1C" : "#15803D"],
+            ["ยกมา", fmt1(it.opening || 0), "#7a6f5c"],
+            ["รับเข้า", "+" + fmt1(info.recv || 0), "#15803D"],
+            ["เบิกใช้", fmt1(info.used || 0), "#B45309"],
+            ["ราคา/หน่วย", it.price ? fmt(it.price) + " บ." : "—", "#7a6f5c"]].map(([l, v, c], i) => (
+            <div key={i} style={{ flex: 1, minWidth: 96, background: "#FBF8F1", border: "1px solid #eee3cd", borderRadius: 10, padding: "7px 11px" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#9b8e78" }}>{l}</div>
+              <div style={{ fontSize: 15.5, fontWeight: 800, color: c }}>{v}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize: 11.5, color: "#7a6f5c", marginBottom: 8 }}>
+          นับตั้งแต่ <b>{since ? toThaiDate(since, false) : "เริ่มระบบ"}</b>
+          {lastCount ? <> · ตั้งยอดจากการนับจริงเมื่อ {toThaiDate(lastCount.date, false)} โดย {lastCount.by || "—"}</> : null}
+        </div>
+        <div style={{ maxHeight: "44vh", overflowY: "auto", overflowX: "auto", border: "1px solid #eee3cd", borderRadius: 10 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 620 }}>
+            <thead><tr>
+              {["วันที่", "รายการ", "หลัง", "โดย", "เข้า", "ออก", "คงเหลือ", "หมายเหตุ"].map((h, i) => (
+                <th key={i} style={{ padding: "7px 8px", fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", textAlign: i >= 4 && i <= 6 ? "right" : "left", position: "sticky", top: 0, whiteSpace: "nowrap" }}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {ledger.map((r, i) => (
+                <tr key={i} style={r.sign === 0 ? { background: "#FAFAF8" } : undefined}>
+                  <td style={td}>{r.d ? toThaiDate(r.d, false) : "—"}</td>
+                  <td style={{ ...td, fontWeight: 800, color: colOf(r.kind) }}>{r.kind}</td>
+                  <td style={{ ...td, fontWeight: 700 }}>{r.house || "—"}</td>
+                  <td style={{ ...td, color: "#7a6f5c" }}>{r.who || "—"}</td>
+                  <td style={{ ...td, textAlign: "right", color: "#15803D", fontWeight: r.sign === 1 ? 800 : 400 }}>{r.sign === 1 ? "+" + fmt1(r.qty) : ""}</td>
+                  <td style={{ ...td, textAlign: "right", color: "#B45309", fontWeight: r.sign === -1 ? 800 : 400 }}>{r.sign === -1 ? "−" + fmt1(r.qty) : r.sign === 0 ? <span style={{ color: "#c9c0ad" }}>({fmt1(r.qty)})</span> : ""}</td>
+                  <td style={{ ...td, textAlign: "right", fontWeight: 800, color: r.bal < 0 ? "#B91C1C" : INK, background: "#F7FAF8" }}>{fmt1(r.bal)}</td>
+                  <td style={{ ...td, whiteSpace: "normal", minWidth: 150, fontSize: 11.5, color: "#9b8e78" }}>{r.note || ""}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ fontSize: 11.5, color: "#9b8e78", marginTop: 9, lineHeight: 1.7 }}>
+          แถวสีจาง = บันทึกให้ยาหลังเริ่มใช้ใบเบิก ({toThaiDate(MED_ISSUE_SINCE, false)}) — โชว์ไว้ดูว่าเบิกไปใช้จริงไหม <b>ไม่ตัดสต๊อกซ้ำ</b>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* 📋 นับสต๊อกยาตั้งต้นใหม่ — กรอกยอดนับจริง แล้วตั้งเป็นยอดยกมาของวันถัดไป
+   ทำไมต้องมี: ยอดสะสมมาหลายเดือนมักเพี้ยน (ลืมลง/ลงซ้ำ/ยอดยกมาเดิมไม่ตรง) จนคงเหลือติดลบ
+   นับของจริงครั้งเดียวแล้วตั้งต้นใหม่ = ระบบกับของในห้องยาตรงกันตั้งแต่วันนั้น
+   ⚠️ ตั้งแล้วยอดเบิก/รับก่อนวันนับจะไม่ถูกนับอีก (ถือว่ารวมอยู่ในยอดนับแล้ว) */
+function MedCountModal({ medStock = [], medInfo = {}, by = "", onSave, onClose }) {
+  const [date, setDate] = useState("2026-09-30");
+  const [vals, setVals] = useState({});
+  const since = shiftDayISO(date, 1);
+  const rows = medStock.map((it) => {
+    const inf = medInfo[(it.name || "").trim()] || { remain: it.opening || 0 };
+    const raw = vals[it.id];
+    const counted = raw === "" || raw == null ? null : (parseFloat(String(raw).replace(/,/g, "")) || 0);
+    return { it, system: inf.remain, counted, diff: counted == null ? null : counted - inf.remain };
+  });
+  const filled = rows.filter((r) => r.counted != null);
+  const lbl = { fontSize: 12, fontWeight: 800, color: "#7a6f5c", display: "block", marginBottom: 5 };
+  const td = { padding: "6px 8px", fontSize: 12.5, borderBottom: "1px solid #eee7d8", whiteSpace: "nowrap" };
+  const save = () => {
+    if (!filled.length) return;
+    if (!window.confirm(`ตั้งยอดยกมาใหม่ ${filled.length} รายการ\nยอดนับ ณ ${toThaiDate(date, false)} → เป็นยอดยกมาของ ${toThaiDate(since, false)}\n\nยอดเบิก/รับเข้าก่อนวันนี้จะไม่ถูกนำมาคิดอีก ยืนยันไหม?`)) return;
+    onSave({
+      id: "mc" + Date.now(), date, since, by, ts: Date.now(),
+      rows: filled.map((r) => ({ medId: r.it.id, name: r.it.name, unit: r.it.unit || "", system: r.system, counted: r.counted, diff: r.diff })),
+    });
+  };
+  return (
+    <div style={S.modalOverlay} onClick={onClose}>
+      <div style={{ ...S.modal, maxWidth: 680 }} onClick={(e) => e.stopPropagation()}>
+        <div style={S.modalHead}>
+          <div><div style={S.modalTitle}>📋 นับสต๊อกยาตั้งต้นใหม่</div><div style={S.modalSub}>กรอกเฉพาะรายการที่นับ · เว้นว่าง = ไม่แตะ · ผู้นับ: {by || "—"}</div></div>
+          <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <label style={lbl}>📅 วันที่นับของจริง</label>
+          <div style={{ maxWidth: 220 }}><ThaiDateField value={date} onChange={setDate} /></div>
+          <div style={{ fontSize: 12, color: "#5B21B6", marginTop: 6, fontWeight: 700 }}>→ ยอดที่นับจะกลายเป็น<b>ยอดยกมาของ {toThaiDate(since, false)}</b></div>
+        </div>
+        <div style={{ maxHeight: "46vh", overflowY: "auto", border: "1px solid #eee3cd", borderRadius: 10, marginBottom: 12 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead><tr>
+              {["ยา/วิตามิน", "ระบบว่าเหลือ", "นับได้จริง", "ต่าง"].map((h, i) => (
+                <th key={i} style={{ padding: "7px 8px", fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", textAlign: i === 0 ? "left" : "right", position: "sticky", top: 0 }}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.it.id} style={r.system < 0 ? { background: "#FEF2F2" } : undefined}>
+                  <td style={{ ...td, whiteSpace: "normal", minWidth: 150, fontWeight: 700 }}>{r.it.name}<span style={{ fontWeight: 500, color: "#9b8e78", fontSize: 11 }}> · {r.it.unit || "หน่วย"}</span></td>
+                  <td style={{ ...td, textAlign: "right", color: r.system < 0 ? "#B91C1C" : "#7a6f5c", fontWeight: r.system < 0 ? 800 : 500 }}>{fmt1(r.system)}</td>
+                  <td style={{ ...td, textAlign: "right" }}>
+                    <input inputMode="decimal" value={vals[r.it.id] == null ? "" : vals[r.it.id]} placeholder="—"
+                      onChange={(e) => setVals((p) => ({ ...p, [r.it.id]: e.target.value.replace(/[^0-9.]/g, "") }))}
+                      style={{ width: 84, padding: "5px 8px", border: "1.5px solid #e3ddd0", borderRadius: 7, fontSize: 13.5, fontFamily: "inherit", textAlign: "right", outline: "none" }} />
+                  </td>
+                  <td style={{ ...td, textAlign: "right", fontWeight: 800, color: r.diff == null ? "#c9c0ad" : r.diff === 0 ? "#15803D" : r.diff > 0 ? "#1D4ED8" : "#B91C1C" }}>
+                    {r.diff == null ? "·" : (r.diff > 0 ? "+" : "") + fmt1(r.diff)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ fontSize: 11.5, color: "#9b8e78", marginBottom: 10, lineHeight: 1.7 }}>
+          กรอกแล้ว <b>{filled.length}</b> จาก {rows.length} รายการ · แถวแดง = ระบบคิดว่าติดลบอยู่ (ยอดเพี้ยนสะสม) ควรนับก่อน ·
+          ช่อง “ต่าง” คือ นับได้จริง − ระบบว่าเหลือ เก็บไว้เป็นหลักฐานด้วย
+        </div>
+        <button onClick={save} disabled={!filled.length} style={{ ...S.primaryBtn, background: filled.length ? "#7C3AED" : "#cbc4b6", cursor: filled.length ? "pointer" : "default" }}>
+          ตั้งยอดยกมาใหม่ {filled.length ? `${filled.length} รายการ` : ""}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* 🧾 ฟอร์มเบิกยา/วิตามิน — หมอกรอก: วันที่ · หลัง · ยา · จำนวน
+   เลือกยาจากลิสต์เท่านั้น (ผูก medId) ไม่ให้พิมพ์เอง — กันสะกดไม่ตรงแล้วตัดสต๊อกผิดตัว */
+function MedIssueModal({ medStock = [], medInfo = {}, houseIds = [], by = "", onSave, onClose }) {
+  const [date, setDate] = useState(() => isoFromTs(Date.now()));
+  const [houseId, setHouseId] = useState(houseIds[0] || "");
+  const [rows, setRows] = useState([{ medId: "", qty: "" }]);
+  const [note, setNote] = useState("");
+  const setRow = (i, patch) => setRows((p) => p.map((r, j) => j === i ? { ...r, ...patch } : r));
+  const valid = rows.some((r) => r.medId && (parseFloat(r.qty) || 0) > 0);
+  const save = () => {
+    const ts = Date.now();
+    const out = [];
+    rows.forEach((r, i) => {
+      const it = medStock.find((x) => x.id === r.medId);
+      const q = parseFloat(String(r.qty).replace(/,/g, "")) || 0;
+      if (!it || q <= 0) return;
+      out.push({ id: "mi" + ts + i + Math.random().toString(36).slice(2, 5), date, houseId, medId: it.id, name: it.name, unit: it.unit || "", qty: q, by, note: note.trim(), ts, picked: null });
+    });
+    if (!out.length) return;
+    const over = out.filter((r) => { const inf = medInfo[(r.name || "").trim()]; return inf && r.qty > inf.remain; });
+    if (over.length && !window.confirm("⚠️ เบิกเกินยอดคงเหลือ:\n" + over.map((r) => `• ${r.name} เบิก ${fmt1(r.qty)} แต่เหลือ ${fmt1(medInfo[r.name.trim()].remain)}`).join("\n") + "\n\nบันทึกต่อไหม? (สต๊อกจะติดลบ)")) return;
+    onSave(out);
+  };
+  const inp = { width: "100%", padding: "9px 10px", border: "1.5px solid #e3ddd0", borderRadius: 9, fontSize: 14.5, fontFamily: "inherit", outline: "none" };
+  const lbl = { fontSize: 12, fontWeight: 800, color: "#7a6f5c", display: "block", marginBottom: 5 };
+  return (
+    <div style={S.modalOverlay} onClick={onClose}>
+      <div style={{ ...S.modal, maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+        <div style={S.modalHead}>
+          <div><div style={S.modalTitle}>🧾 เบิกยา/วิตามิน</div><div style={S.modalSub}>เบิกแล้วตัดสต๊อกทันที · ผู้เบิก: {by || "—"}</div></div>
+          <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
+        </div>
+        <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 170 }}><label style={lbl}>📅 วันที่เบิก</label><ThaiDateField value={date} onChange={setDate} /></div>
+          <div style={{ flex: 1, minWidth: 150 }}><label style={lbl}>🏠 เบิกให้หลัง</label>
+            <select style={inp} value={houseId} onChange={(e) => setHouseId(e.target.value)}>
+              {houseIds.map((h) => <option key={h} value={h}>{h}</option>)}
+              <option value="ส่วนกลาง">ส่วนกลาง (ไม่ระบุหลัง)</option>
+            </select>
+          </div>
+        </div>
+        {rows.map((r, i) => {
+          const it = medStock.find((x) => x.id === r.medId);
+          const inf = it ? medInfo[(it.name || "").trim()] : null;
+          return (
+            <div key={i} style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+              <div style={{ flex: 2, minWidth: 190 }}>
+                {i === 0 && <label style={lbl}>💊 ยา/วิตามิน</label>}
+                <select style={inp} value={r.medId} onChange={(e) => setRow(i, { medId: e.target.value })}>
+                  <option value="">— เลือกยา —</option>
+                  {medStock.map((m) => { const f = medInfo[(m.name || "").trim()]; return <option key={m.id} value={m.id}>{m.name}{f ? ` (เหลือ ${fmt1(f.remain)} ${m.unit || ""})` : ""}</option>; })}
+                </select>
+              </div>
+              <div style={{ flex: 1, minWidth: 110 }}>
+                {i === 0 && <label style={lbl}>จำนวน{it ? ` (${it.unit || "หน่วย"})` : ""}</label>}
+                <input style={{ ...inp, textAlign: "right", borderColor: inf && (parseFloat(r.qty) || 0) > inf.remain ? "#FCA5A5" : "#e3ddd0" }} inputMode="decimal" value={r.qty}
+                  onChange={(e) => setRow(i, { qty: e.target.value.replace(/[^0-9.]/g, "") })} placeholder="0" />
+              </div>
+              <button onClick={() => setRows((p) => p.length > 1 ? p.filter((_, j) => j !== i) : p)} disabled={rows.length <= 1}
+                style={{ border: "1px solid #f3d3ce", background: rows.length > 1 ? "#FFF5F3" : "#f6f3ee", color: "#B3261E", borderRadius: 8, padding: "9px 11px", cursor: rows.length > 1 ? "pointer" : "default", fontFamily: "inherit" }}>✕</button>
+            </div>
+          );
+        })}
+        <button onClick={() => setRows((p) => [...p, { medId: "", qty: "" }])} style={{ ...S.ghostBtn, marginBottom: 12 }}>＋ เพิ่มอีกรายการ</button>
+        <div style={{ marginBottom: 12 }}><label style={lbl}>หมายเหตุ</label><input style={inp} value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น ใช้ต่อเนื่อง 3 วัน · รักษาหวัด" /></div>
+        <button onClick={save} disabled={!valid} style={{ ...S.primaryBtn, background: valid ? "#0F766E" : "#cbc4b6", cursor: valid ? "pointer" : "default" }}>บันทึกใบเบิก · ตัดสต๊อก</button>
+      </div>
+    </div>
+  );
+}
+
 function MedNamePicker({ value, onChange, medStock = [], medInfo = {}, style }) {
   const [open, setOpen] = useState(false);
   const q = (value || "").trim().toLowerCase();
@@ -9269,11 +9575,95 @@ function TrialView({ medTrials = [], addMedTrial, deleteMedTrial, production = {
 /* ============================================================
    หน้าจอ: ยาและวิตามิน — คลัง/สต๊อกยา + แจ้งเตือนใกล้หมด/หมดอายุ + คลังความรู้
 ============================================================ */
-function MedView({ production = {}, medStock = [], medInfo = {}, medReceipts = [], addMedItem, updateMedItem, addMedReceipt, medCostByMonth = {}, canManage = true }) {
+function MedView({ production = {}, medStock = [], medInfo = {}, medReceipts = [], addMedItem, updateMedItem, addMedReceipt, medCostByMonth = {},
+                   medIssues = [], addMedIssue, updateMedIssue, deleteMedIssue, medOrders = [], addMedOrder, updateMedOrder, rearingByDate = {}, medCounts = [], addMedCount,
+                   canIssue = false, canManage = true }) {
   const prodDates = Object.keys(production).sort();
   const houseIds = [...new Set([...(production[prodDates[prodDates.length - 1]] || []).map((h) => h.id), ...HOUSE_IDS])];   // รวมหลังใหม่ที่ยังไม่มีผลผลิต (เช่น H7)
   const [receiptItem, setReceiptItem] = useState(null);   // รายการยาที่กำลังรับเข้า
   const [showAddMed, setShowAddMed] = useState(false);
+  const [showIssue, setShowIssue] = useState(false);      // 🧾 ฟอร์มเบิกยา
+  const [showCount, setShowCount] = useState(false);      // 📋 ฟอร์มนับสต๊อกตั้งต้น
+  const [histItem, setHistItem] = useState(null);         // 📖 ประวัติยารายตัว (กดชื่อยา)
+  const [useYM, setUseYM] = useState(() => isoFromTs(Date.now()).slice(0, 7));
+  const [issueYM, setIssueYM] = useState(() => isoFromTs(Date.now()).slice(0, 7));
+  const [photoBusy, setPhotoBusy] = useState("");
+  const who = (() => { try { return labelOfAccount(localStorage.getItem("sjfAuthUsername") || "") || ""; } catch (e) { return ""; } })();
+  /* 📷 รูปขวด/บรรจุภัณฑ์ต่อรายการยา (เจ้าของสั่ง 20 ก.ย. 69)
+     เก็บใน bucket "slips" ใต้โฟลเดอร์ meds/ — ใช้ถังเดิมที่พิสูจน์แล้วว่าอัปได้จริง ไม่ต้องตั้งสิทธิ์ใหม่ */
+  const MAX_MED_PHOTOS = 3;
+  const addMedPhotos = async (it, e) => {
+    const files = [...(e.target.files || [])]; e.target.value = "";
+    if (!files.length) return;
+    if (!supabase) { alert("โหมดทดลอง (ยังไม่เชื่อมคลาวด์) — อัพรูปไม่ได้"); return; }
+    const already = (it.photos || []).length;
+    if (already >= MAX_MED_PHOTOS) { alert(`แนบได้สูงสุด ${MAX_MED_PHOTOS} รูปต่อรายการ — ลบรูปเก่าก่อน`); return; }
+    setPhotoBusy(it.id);
+    try {
+      const out = [...(it.photos || [])];
+      for (const f of files.slice(0, MAX_MED_PHOTOS - already)) {
+        if (!f.type.startsWith("image/")) continue;
+        const dataUrl = await fileToScaledDataURL(f, 1000, 0.7);
+        const blob = await (await fetch(dataUrl)).blob();
+        const path = `meds/${it.id}/${Date.now()}-${Math.random().toString(36).slice(2, 6)}.jpg`;
+        const { error } = await supabase.storage.from("slips").upload(path, blob, { contentType: "image/jpeg", upsert: true });
+        if (error) throw error;
+        out.push({ path, url: supabase.storage.from("slips").getPublicUrl(path).data.publicUrl });
+      }
+      updateMedItem(it.id, { photos: out });
+      setPhotoBusy("");
+    } catch (err) { setPhotoBusy(""); alert("อัพรูปไม่สำเร็จ: " + ((err && err.message) || err)); }
+  };
+  const rmMedPhoto = (it, i) => { if (window.confirm("ลบรูปนี้?")) updateMedItem(it.id, { photos: (it.photos || []).filter((_, j) => j !== i) }); };
+  /* 🔁 กระทบยอด: เบิกไปแล้วได้ลงบันทึกให้ยาในหลังนั้นจริงไหม (และกลับกัน)
+     หมอเบิกแล้วมักใช้ภายในวันรุ่งขึ้น → นับบันทึกให้ยาในช่วง วันเบิก ถึง +2 วัน */
+  const doseIndex = useMemo(() => {
+    const m = {};   // "houseId|ชื่อยา|วันที่" -> จำนวนที่ลงให้ยา
+    Object.keys(rearingByDate).forEach((d) => {
+      Object.entries(rearingByDate[d] || {}).forEach(([hid, r]) => {
+        (r?.medsList || []).forEach((x) => {
+          if (x.route === "feed") return;
+          const k = hid + "|" + (x.name || "").trim() + "|" + d;
+          m[k] = (m[k] || 0) + (parseFloat(x.qty) || 0);
+        });
+      });
+    });
+    return m;
+  }, [rearingByDate]);
+  const dosedFor = (iss) => {
+    let s = 0;
+    for (let i = 0; i <= 2; i++) s += doseIndex[(iss.houseId || "") + "|" + (iss.name || "").trim() + "|" + shiftDayISO(iss.date, i)] || 0;
+    return s;
+  };
+  const monthIssues = useMemo(() => medIssues.filter((r) => (r.date || "").slice(0, 7) === issueYM)
+    .sort((a, b) => (b.date || "").localeCompare(a.date || "") || (b.ts || 0) - (a.ts || 0)), [medIssues, issueYM]);
+  const issueMonths = useMemo(() => [...new Set(medIssues.map((r) => (r.date || "").slice(0, 7)).filter(Boolean))].sort(), [medIssues]);
+  /* 📊 สถิติการใช้ยารายเดือน — ใช้แหล่งเดียวกับที่ตัดสต๊อก
+     ก่อน MED_ISSUE_SINCE = บันทึกให้ยารายวัน · ตั้งแต่นั้น = ใบเบิก */
+  const useByMonth = useMemo(() => {
+    const m = {};   // ym -> { name -> {qty, baht, unit, byHouse:{hid:qty}} }
+    const priceOf = (nm) => { const it = medStock.find((x) => (x.name || "").trim() === nm); return it && it.price ? it.price : 0; };
+    const unitOf = (nm) => { const it = medStock.find((x) => (x.name || "").trim() === nm); return (it && it.unit) || ""; };
+    const add = (d, nm, hid, q) => {
+      if (!nm || !q) return;
+      const ym = d.slice(0, 7);
+      m[ym] = m[ym] || {};
+      const r = m[ym][nm] || (m[ym][nm] = { qty: 0, baht: 0, unit: unitOf(nm), byHouse: {} });
+      r.qty += q; r.baht += q * priceOf(nm);
+      r.byHouse[hid || "—"] = (r.byHouse[hid || "—"] || 0) + q;
+    };
+    Object.keys(rearingByDate).forEach((d) => {
+      if (d >= MED_ISSUE_SINCE) return;
+      Object.entries(rearingByDate[d] || {}).forEach(([hid, r]) => {
+        (r?.medsList || []).forEach((x) => { if (x.route === "feed") return; add(d, (x.name || "").trim(), hid, parseFloat(x.qty) || 0); });
+      });
+    });
+    medIssues.forEach((r) => { if ((r.date || "") < MED_ISSUE_SINCE) return; add(r.date, (r.name || "").trim(), r.houseId, parseFloat(r.qty) || 0); });
+    return m;
+  }, [rearingByDate, medIssues, medStock]);
+  const useMonths = useMemo(() => Object.keys(useByMonth).sort(), [useByMonth]);
+  const toPick = medIssues.filter((r) => !r.picked).length;
+  const openOrders = medOrders.filter((r) => r.status === "ขอซื้อ" || r.status === "สั่งแล้ว");
   const [showKB, setShowKB] = useState(false);            // 📚 คลังความรู้ โรค/วัคซีน/วิตามิน
   // เกณฑ์เตือน: ใกล้หมดสต๊อก (คงเหลือ ≤ n) · ใกล้หมดอายุ (เหลือ ≤ n วัน) — ปรับได้ เก็บ localStorage
   const [lowThresh, setLowThresh] = useState(() => { try { const v = localStorage.getItem("eggMedLowStock"); return v != null && v !== "" ? Number(v) : 20; } catch { return 20; } });
@@ -9356,10 +9746,18 @@ function MedView({ production = {}, medStock = [], medInfo = {}, medReceipts = [
                 return (
                   <tr key={it.id} style={rowBg ? { background: rowBg } : undefined}>
                     <td style={{ ...tdm, textAlign: "left", color: "#9b8e78" }}>{idx + 1}</td>
-                    <td style={{ ...tdm, textAlign: "left", whiteSpace: "normal", minWidth: 180, fontWeight: 800 }}>{it.name}{it.desc ? <span style={{ color: "#9b8e78", fontSize: 11.5, fontWeight: 400 }}> · {it.desc}</span> : null}</td>
+                    <td style={{ ...tdm, textAlign: "left", whiteSpace: "normal", minWidth: 180, fontWeight: 800 }}>
+                      <span onClick={() => setHistItem(it)} title="กดดูประวัติเบิก/รับเข้าของยาตัวนี้" style={{ color: "#0F766E", cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: 3 }}>{it.name}</span>
+                      {it.desc ? <span style={{ color: "#9b8e78", fontSize: 11.5, fontWeight: 400 }}> · {it.desc}</span> : null}
+                    </td>
                     <td style={{ ...tdm, fontWeight: 800, color: inf.remain <= 0 ? "#B91C1C" : (ea.stock === "low" ? "#C2410C" : "#15803D") }}>{fmt1(inf.remain)} <span style={{ fontWeight: 500, fontSize: 11, color: "#9b8e78" }}>{it.unit || ""}</span></td>
                     <td style={{ ...tdm, fontWeight: ea.expS ? 800 : 400, color: ea.expS === "expired" ? "#B91C1C" : (ea.expS === "soon" ? "#C2410C" : "#7a6f5c") }}>{it.expiry || "—"}{ea.expS === "expired" ? " ⛔" : ea.expS === "soon" ? ` · อีก ${ea.daysLeft} ว.` : ""}</td>
-                    <td style={{ ...tdm, textAlign: "center" }}>{it.labelImg ? <img src={it.labelImg} alt="ฉลาก" style={{ height: 34, borderRadius: 4, verticalAlign: "middle" }} /> : <span style={{ color: "#c9c0ad", fontSize: 11.5 }}>—</span>}</td>
+                    <td style={{ ...tdm, textAlign: "center" }}>
+                      {(it.photos || []).length
+                        ? <span style={{ display: "inline-flex", gap: 4 }}>{(it.photos || []).map((ph, i) => <img key={i} src={ph.url} alt="รูปยา" onClick={() => window.open(ph.url, "_blank")} style={{ height: 34, width: 34, objectFit: "cover", borderRadius: 6, border: "1px solid #e6ddca", cursor: "pointer" }} />)}</span>
+                        : it.labelImg ? <img src={it.labelImg} alt="ฉลาก" style={{ height: 34, borderRadius: 4, verticalAlign: "middle" }} />
+                        : <span style={{ color: "#c9c0ad", fontSize: 11.5 }}>—</span>}
+                    </td>
                   </tr>
                 );
               })}
@@ -9414,11 +9812,228 @@ function MedView({ production = {}, medStock = [], medInfo = {}, medReceipts = [
         );
       })()}
 
+      {/* 📋 นับสต๊อกตั้งต้นใหม่ */}
+      {canManage && (
+        <div style={{ background: "#F5F3FF", border: "1.5px solid #DDD6FE", borderRadius: 14, padding: "12px 14px", marginBottom: 14, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 250 }}>
+            <div style={{ fontWeight: 800, fontSize: 13.5, color: "#5B21B6" }}>📋 นับสต๊อกตั้งต้นใหม่</div>
+            <div style={{ fontSize: 12, color: "#6D5BA6", marginTop: 2, lineHeight: 1.6 }}>
+              {medCounts.length
+                ? <>นับครั้งล่าสุด <b>{toThaiDate(medCounts[0].date, false)}</b> โดย {medCounts[0].by || "—"} · ตั้งยอดยกมาใหม่ {(medCounts[0].rows || []).length} รายการ</>
+                : <>นับของจริงในห้องยา แล้วระบบจะตั้งเป็น<b>ยอดยกมาใหม่</b>ของวันถัดไป — ล้างยอดเพี้ยนสะสมทิ้งทั้งหมด</>}
+            </div>
+          </div>
+          <button onClick={() => setShowCount(true)} style={{ border: "none", background: "#7C3AED", color: "#fff", borderRadius: 9, padding: "8px 16px", fontWeight: 800, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>เริ่มนับสต๊อก</button>
+        </div>
+      )}
+
+      {/* 🧾 เบิกยา / จัดยา / กระทบยอด / ขอสั่งซื้อ */}
+      <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, padding: 14, marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+          <span style={{ fontWeight: 800, fontSize: 14, color: "#0F766E" }}>🧾 ใบเบิกยา/วิตามิน</span>
+          {canIssue && <button onClick={() => setShowIssue(true)} style={{ border: "none", background: "#0F766E", color: "#fff", borderRadius: 9, padding: "7px 14px", fontWeight: 800, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>＋ เบิกยา</button>}
+          {toPick > 0 && <span style={{ background: "#FFF7ED", border: "1.5px solid #FED7AA", color: "#C2410C", borderRadius: 999, padding: "5px 12px", fontSize: 12.5, fontWeight: 800 }}>📦 รอจัด {toPick} รายการ</span>}
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+            <button onClick={() => { const i = issueMonths.indexOf(issueYM); if (i > 0) setIssueYM(issueMonths[i - 1]); }} disabled={issueMonths.indexOf(issueYM) <= 0} style={{ ...S.ghostBtn, padding: "5px 10px" }}>‹</button>
+            <span style={{ fontWeight: 800, fontSize: 13, color: ACCENT_DK, minWidth: 104, textAlign: "center" }}>{ymTH(issueYM)}</span>
+            <button onClick={() => { const i = issueMonths.indexOf(issueYM); if (i >= 0 && i < issueMonths.length - 1) setIssueYM(issueMonths[i + 1]); }} disabled={issueMonths.indexOf(issueYM) < 0 || issueMonths.indexOf(issueYM) >= issueMonths.length - 1} style={{ ...S.ghostBtn, padding: "5px 10px" }}>›</button>
+          </div>
+        </div>
+        {!monthIssues.length ? (
+          <div style={{ padding: "18px 4px", color: "#9b8e78", fontSize: 13 }}>ยังไม่มีใบเบิกใน{ymTH(issueYM)}{canIssue ? " — กด ＋ เบิกยา เพื่อเริ่ม" : ""}</div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
+              <thead><tr>
+                {["วันที่", "หลัง", "ยา/วิตามิน", "เบิก", "ผู้เบิก", "จัดของ", "ลงให้ยาแล้ว?", ""].map((h, i) => (
+                  <th key={i} style={{ padding: "8px 9px", fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", whiteSpace: "nowrap", textAlign: i === 3 ? "right" : "left" }}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {monthIssues.map((r) => {
+                  const td = { padding: "7px 9px", fontSize: 12.5, borderBottom: "1px solid #eee7d8", whiteSpace: "nowrap" };
+                  const dosed = dosedFor(r);
+                  const q = parseFloat(r.qty) || 0;
+                  const ok = dosed >= q - 0.001;
+                  const some = dosed > 0 && !ok;
+                  return (
+                    <tr key={r.id}>
+                      <td style={td}>{toThaiDate(r.date, false)}</td>
+                      <td style={{ ...td, fontWeight: 800 }}>{r.houseId || "—"}</td>
+                      <td style={{ ...td, whiteSpace: "normal", minWidth: 170 }}>{r.name}</td>
+                      <td style={{ ...td, textAlign: "right", fontWeight: 800, color: "#B45309" }}>{fmt1(q)} <span style={{ fontWeight: 500, fontSize: 11, color: "#9b8e78" }}>{r.unit || ""}</span></td>
+                      <td style={{ ...td, color: "#7a6f5c" }}>{r.by || "—"}</td>
+                      <td style={td}>
+                        {r.picked
+                          ? <span style={{ color: "#15803D", fontWeight: 800 }}>✓ จัดแล้ว<span style={{ fontWeight: 600, color: "#9b8e78", fontSize: 11 }}> · {r.picked.by || ""}</span></span>
+                          : canManage
+                            ? <button onClick={() => updateMedIssue(r.id, { picked: { by: who, at: Date.now() } })} style={{ border: "1px solid #86C99A", background: "#F0FDF4", color: "#15803D", borderRadius: 7, padding: "3px 10px", cursor: "pointer", fontWeight: 800, fontSize: 12, fontFamily: "inherit" }}>จัดแล้ว</button>
+                            : <span style={{ color: "#C2410C", fontWeight: 700 }}>รอจัด</span>}
+                      </td>
+                      <td style={{ ...td, fontWeight: 800, color: ok ? "#15803D" : some ? "#C2410C" : "#B91C1C" }}>
+                        {ok ? "✓ ตรงกัน" : some ? `△ ลงแค่ ${fmt1(dosed)}` : "✗ ยังไม่ลง"}
+                      </td>
+                      <td style={td}>{canIssue && <button onClick={() => { if (window.confirm(`ลบใบเบิก ${r.name} ${fmt1(q)} ${r.unit || ""} ของ ${r.houseId}?\nสต๊อกจะคืนกลับให้อัตโนมัติ`)) deleteMedIssue(r.id); }} style={{ border: "1px solid #f3d3ce", background: "#FFF5F3", color: "#B3261E", borderRadius: 7, padding: "3px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>✕</button>}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {/* 🔁 ทางกลับ: ลงบันทึกให้ยาแล้วแต่ไม่มีใบเบิก — ของหายจากห้องยาโดยไม่มีใบ */}
+        {(() => {
+          const miss = [];
+          Object.keys(rearingByDate).filter((d) => d >= MED_ISSUE_SINCE && d.slice(0, 7) === issueYM).sort().forEach((d) => {
+            Object.entries(rearingByDate[d] || {}).forEach(([hid, r]) => {
+              (r?.medsList || []).forEach((x) => {
+                if (x.route === "feed") return;
+                const nm = (x.name || "").trim(); const q = parseFloat(x.qty) || 0;
+                if (!nm || !q) return;
+                // มีใบเบิกของยา+หลังเดียวกัน ภายใน 2 วันก่อนหน้าถึงวันนั้นไหม
+                let issued = 0;
+                for (let k = 0; k <= 2; k++) {
+                  const dd = shiftDayISO(d, -k);
+                  issued += medIssues.filter((v) => v.date === dd && v.houseId === hid && (v.name || "").trim() === nm).reduce((sm, v) => sm + (parseFloat(v.qty) || 0), 0);
+                }
+                if (issued < q - 0.001) miss.push({ d, hid, nm, q, issued });
+              });
+            });
+          });
+          if (!miss.length) return null;
+          return (
+            <div style={{ marginTop: 10, background: "#FFF7ED", border: "1.5px solid #FED7AA", borderRadius: 10, padding: "9px 12px" }}>
+              <div style={{ fontWeight: 800, fontSize: 12.5, color: "#C2410C", marginBottom: 5 }}>⚠️ ลงบันทึกให้ยาแล้วแต่ไม่มีใบเบิก · {miss.length} รายการ — ของออกจากห้องยาโดยไม่มีใบ</div>
+              <div style={{ fontSize: 12, color: "#7a6f5c", lineHeight: 1.9 }}>
+                {miss.slice(0, 12).map((m, i) => <div key={i}>{toThaiDate(m.d, false)} · <b>{m.hid}</b> · {m.nm} — ให้ยา {fmt1(m.q)} แต่เบิกไว้ {fmt1(m.issued)}</div>)}
+                {miss.length > 12 ? <div style={{ color: "#9b8e78" }}>…และอีก {miss.length - 12} รายการ</div> : null}
+              </div>
+            </div>
+          );
+        })()}
+        <div style={{ fontSize: 11.5, color: "#9b8e78", marginTop: 9, lineHeight: 1.7 }}>
+          เบิกแล้ว <b>ตัดสต๊อกทันที</b> (เริ่มใช้ {toThaiDate(MED_ISSUE_SINCE, false)} — ก่อนหน้านั้นยังตัดจากบันทึกให้ยารายวันเหมือนเดิม) ·
+          ช่อง <b>ลงให้ยาแล้ว?</b> เทียบกับบันทึกให้ยาของหลังนั้นในช่วงวันเบิกถึง +2 วัน · ลบใบเบิก = สต๊อกคืนกลับเอง
+        </div>
+      </div>
+
+      {/* 🛒 ขอสั่งซื้อยา — เสมียนห้องยากดขอเมื่อของถึงเกณฑ์เตือน */}
+      {(canManage || openOrders.length > 0) && (
+        <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, padding: 14, marginBottom: 14 }}>
+          <div style={{ fontWeight: 800, fontSize: 14, color: "#B45309", marginBottom: 8 }}>🛒 ขอสั่งซื้อยา/วิตามิน{openOrders.length ? ` · ค้าง ${openOrders.length} รายการ` : ""}</div>
+          {canManage && (() => {
+            const need = medStock.filter((it) => { const ea = stockAlerts.byId[it.id] || {}; return (ea.stock === "out" || ea.stock === "low") && !medOrders.some((o) => o.medId === it.id && (o.status === "ขอซื้อ" || o.status === "สั่งแล้ว")); });
+            if (!need.length) return <div style={{ fontSize: 12.5, color: "#15803D", fontWeight: 700, marginBottom: 8 }}>✅ ไม่มีรายการที่ต่ำกว่าเกณฑ์และยังไม่ได้ขอซื้อ</div>;
+            return (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 12.5, color: "#7a6f5c", marginBottom: 6 }}>ของที่ถึงเกณฑ์เตือนแล้วแต่ยังไม่ได้ขอซื้อ — กดเพื่อสร้างใบขอ</div>
+                <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+                  {need.map((it) => {
+                    const inf = medInfo[(it.name || "").trim()] || {};
+                    return (
+                      <button key={it.id} onClick={() => {
+                        const q = window.prompt(`ขอสั่งซื้อ "${it.name}"\nคงเหลือ ${fmt1(inf.remain || 0)} ${it.unit || ""}\n\nขอซื้อจำนวนเท่าไร (${it.unit || "หน่วย"})?`, "");
+                        if (q === null) return;
+                        const n = parseFloat(String(q).replace(/,/g, "")) || 0;
+                        if (n <= 0) { alert("ใส่จำนวนให้ถูกต้อง"); return; }
+                        addMedOrder({ id: "mo" + Date.now() + Math.random().toString(36).slice(2, 5), date: isoFromTs(Date.now()), medId: it.id, name: it.name, unit: it.unit || "", qty: n, by: who, note: "", status: "ขอซื้อ", ts: Date.now() });
+                      }} style={{ border: "1px solid #FDBA74", background: "#FFF7ED", color: "#C2410C", borderRadius: 999, padding: "6px 13px", cursor: "pointer", fontWeight: 800, fontSize: 12.5, fontFamily: "inherit" }}>
+                        ＋ {it.name} <span style={{ fontWeight: 600 }}>· เหลือ {fmt1(inf.remain || 0)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+          {!medOrders.length ? <div style={{ fontSize: 12.5, color: "#9b8e78" }}>ยังไม่มีใบขอสั่งซื้อ</div> : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 620 }}>
+                <thead><tr>
+                  {["วันที่", "ยา/วิตามิน", "ขอซื้อ", "ผู้ขอ", "สถานะ", ""].map((h, i) => (
+                    <th key={i} style={{ padding: "8px 9px", fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", whiteSpace: "nowrap", textAlign: i === 2 ? "right" : "left" }}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {medOrders.slice(0, 40).map((o) => {
+                    const td = { padding: "7px 9px", fontSize: 12.5, borderBottom: "1px solid #eee7d8", whiteSpace: "nowrap" };
+                    const col = o.status === "ขอซื้อ" ? "#C2410C" : o.status === "สั่งแล้ว" ? "#1D4ED8" : "#9b8e78";
+                    return (
+                      <tr key={o.id}>
+                        <td style={td}>{toThaiDate(o.date, false)}</td>
+                        <td style={{ ...td, whiteSpace: "normal", minWidth: 170, fontWeight: 700 }}>{o.name}</td>
+                        <td style={{ ...td, textAlign: "right", fontWeight: 800 }}>{fmt1(o.qty)} <span style={{ fontWeight: 500, fontSize: 11, color: "#9b8e78" }}>{o.unit || ""}</span></td>
+                        <td style={{ ...td, color: "#7a6f5c" }}>{o.by || "—"}</td>
+                        <td style={{ ...td, fontWeight: 800, color: col }}>{o.status}</td>
+                        <td style={td}>{canManage && o.status !== "ยกเลิก" && (
+                          <span style={{ display: "inline-flex", gap: 5 }}>
+                            {o.status === "ขอซื้อ" && <button onClick={() => updateMedOrder(o.id, { status: "สั่งแล้ว" })} style={{ border: "1px solid #93C5FD", background: "#EFF6FF", color: "#1D4ED8", borderRadius: 7, padding: "3px 9px", cursor: "pointer", fontWeight: 800, fontSize: 12, fontFamily: "inherit" }}>สั่งแล้ว</button>}
+                            <button onClick={() => { const it = medStock.find((x) => x.id === o.medId); if (it) { setReceiptItem(it); updateMedOrder(o.id, { status: "ยกเลิก", doneAt: Date.now() }); } else alert("ไม่พบรายการยานี้ในสต๊อก"); }} title="รับของเข้าสต๊อก แล้วปิดใบขอนี้" style={{ border: "1px solid #86C99A", background: "#F0FDF4", color: "#15803D", borderRadius: 7, padding: "3px 9px", cursor: "pointer", fontWeight: 800, fontSize: 12, fontFamily: "inherit" }}>รับเข้า</button>
+                            <button onClick={() => { if (window.confirm("ยกเลิกใบขอนี้?")) updateMedOrder(o.id, { status: "ยกเลิก", doneAt: Date.now() }); }} style={{ border: "1px solid #e0d7c3", background: "#fff", color: "#7a6f5c", borderRadius: 7, padding: "3px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>✕</button>
+                          </span>
+                        )}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 📊 สถิติการใช้ยา/วิตามิน รายเดือน — ตัวไหนใช้มากสุด */}
+      {useMonths.length > 0 && (() => {
+        const ym = useByMonth[useYM] ? useYM : useMonths[useMonths.length - 1];
+        const rows = Object.entries(useByMonth[ym] || {}).map(([name, v]) => ({ name, ...v })).sort((a, b) => b.baht - a.baht || b.qty - a.qty);
+        const topBaht = rows.length ? Math.max(...rows.map((r) => r.baht)) : 0;
+        const totBaht = rows.reduce((s, r) => s + r.baht, 0);
+        const i = useMonths.indexOf(ym);
+        return (
+          <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, padding: 14, marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+              <span style={{ fontWeight: 800, fontSize: 14, color: "#1D4ED8" }}>📊 สถิติการใช้ยา/วิตามิน · เรียงจากใช้เงินมากสุด</span>
+              <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+                <button onClick={() => { if (i > 0) setUseYM(useMonths[i - 1]); }} disabled={i <= 0} style={{ ...S.ghostBtn, padding: "5px 10px" }}>‹</button>
+                <span style={{ fontWeight: 800, fontSize: 13, color: ACCENT_DK, minWidth: 104, textAlign: "center" }}>{ymTH(ym)}</span>
+                <button onClick={() => { if (i >= 0 && i < useMonths.length - 1) setUseYM(useMonths[i + 1]); }} disabled={i < 0 || i >= useMonths.length - 1} style={{ ...S.ghostBtn, padding: "5px 10px" }}>›</button>
+              </div>
+            </div>
+            {!rows.length ? <div style={{ color: "#9b8e78", fontSize: 13 }}>เดือนนี้ยังไม่มีการใช้ยา</div> : (
+              <>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {rows.slice(0, 12).map((r, idx) => (
+                    <div key={r.name} onClick={() => { const it = medStock.find((x) => (x.name || "").trim() === r.name); if (it) setHistItem(it); }}
+                      title="กดดูประวัติยาตัวนี้" style={{ cursor: "pointer" }}>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 12.5 }}>
+                        <span style={{ width: 20, color: "#9b8e78", fontWeight: 800 }}>{idx + 1}</span>
+                        <span style={{ fontWeight: 800, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
+                        <span style={{ color: "#7a6f5c", fontWeight: 700 }}>{fmt1(r.qty)} {r.unit}</span>
+                        <span style={{ color: "#B45309", fontWeight: 800, minWidth: 74, textAlign: "right" }}>{r.baht ? fmt(Math.round(r.baht)) + " บ." : "—"}</span>
+                      </div>
+                      <div style={{ height: 7, background: "#F3EFE6", borderRadius: 4, overflow: "hidden", marginTop: 3 }}>
+                        <div style={{ width: (topBaht > 0 ? Math.max(3, (r.baht / topBaht) * 100) : 3) + "%", height: "100%", background: idx === 0 ? "#B45309" : "#D8A25E" }} />
+                      </div>
+                      <div style={{ fontSize: 10.5, color: "#9b8e78", marginTop: 2 }}>
+                        {Object.entries(r.byHouse).sort((a, b) => b[1] - a[1]).map(([h, q]) => `${h} ${fmt1(q)}`).join(" · ")}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize: 12, color: "#7a6f5c", marginTop: 10, fontWeight: 700 }}>
+                  รวมทั้งเดือน {rows.length} ชนิด · {fmt(Math.round(totBaht))} บาท{rows.length > 12 ? ` (แสดง 12 อันดับแรก)` : ""}
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })()}
+
       {/* 📦 ตารางสต๊อกยา — โครงตามชีตจริง: ยกมา/รับเข้า/เบิกใช้/คงเหลือ/ราคา/มูลค่า ; เบิกใช้ดึงจากบันทึกให้ยารายวันอัตโนมัติ */}
       <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflow: "auto", marginBottom: 14 }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 980 }}>
           <thead><tr>
-            {["ลำดับ", "ชื่อยา", "ยกมา", "รับเข้า", "เบิกใช้", "คงเหลือ", "ราคา/หน่วย", "มูลค่าคงเหลือ", "บริษัท", "หมดอายุ", ""].map((h, i) => (
+            {["ลำดับ", "ชื่อยา", "รูปขวด", "ยกมา", "รับเข้า", "เบิกใช้", "คงเหลือ", "ราคา/หน่วย", "มูลค่าคงเหลือ", "บริษัท", "หมดอายุ", ""].map((h, i) => (
               <th key={i} style={{ padding: "8px 8px", fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", whiteSpace: "nowrap", textAlign: i <= 1 ? "left" : "right", position: "sticky", top: 0 }}>{h}</th>
             ))}
           </tr></thead>
@@ -9433,8 +10048,25 @@ function MedView({ production = {}, medStock = [], medInfo = {}, medReceipts = [
                 <tr key={it.id} style={rowBg ? { background: rowBg } : undefined}>
                   <td style={{ ...tdm, textAlign: "left", color: "#9b8e78" }}>{idx + 1}</td>
                   <td style={{ ...tdm, textAlign: "left", whiteSpace: "normal", minWidth: 190 }}>
-                    <span style={{ fontWeight: 800 }}>{it.name}</span>
+                    <span onClick={() => setHistItem(it)} title="กดดูประวัติเบิก/รับเข้าของยาตัวนี้"
+                      style={{ fontWeight: 800, color: "#0F766E", cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: 3 }}>{it.name}</span>
                     {it.desc ? <span style={{ color: "#9b8e78", fontSize: 11.5 }}> · {it.desc}</span> : null}
+                  </td>
+                  <td style={{ ...tdm, textAlign: "center" }}>
+                    <span style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
+                      {(it.photos || []).map((ph, i) => (
+                        <img key={i} src={ph.url} alt="รูปยา" onClick={() => window.open(ph.url, "_blank")} onContextMenu={(e) => { e.preventDefault(); if (canManage) rmMedPhoto(it, i); }}
+                          title={canManage ? "คลิกดูรูปใหญ่ · คลิกขวาเพื่อลบ" : "คลิกดูรูปใหญ่"}
+                          style={{ height: 34, width: 34, objectFit: "cover", borderRadius: 6, border: "1px solid #e6ddca", cursor: "pointer" }} />
+                      ))}
+                      {canManage && (it.photos || []).length < MAX_MED_PHOTOS && (
+                        <label title="เพิ่มรูปขวด/บรรจุภัณฑ์" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", height: 34, width: 34, border: "1px dashed #d8cfbb", borderRadius: 6, cursor: photoBusy === it.id ? "wait" : "pointer", color: "#9b8e78", fontSize: 15 }}>
+                          {photoBusy === it.id ? "⏳" : "📷"}
+                          <input type="file" accept="image/*" multiple style={{ display: "none" }} onChange={(e) => addMedPhotos(it, e)} />
+                        </label>
+                      )}
+                      {!canManage && !(it.photos || []).length && <span style={{ color: "#c9c0ad", fontSize: 11.5 }}>—</span>}
+                    </span>
                   </td>
                   <td style={tdm}>{fmt1(it.opening || 0)}</td>
                   <td style={{ ...tdm, color: inf.recv ? "#15803D" : "#c9c0ad", fontWeight: inf.recv ? 700 : 400 }}>{inf.recv ? "+" + fmt1(inf.recv) : "0"}</td>
@@ -9456,7 +10088,7 @@ function MedView({ production = {}, medStock = [], medInfo = {}, medReceipts = [
           </tbody>
         </table>
       </div>
-      <div style={{ fontSize: 12, color: "#9b8e78", margin: "-6px 2px 14px" }}>เบิกใช้ = ระบบรวมจากบันทึกให้ยารายวันของสัตวบาล (แท็บ เก็บข้อมูลการเลี้ยง — พิมพ์ชื่อตรงกับสต๊อก) ตั้งแต่ 24 ก.ค. 69 (รีเซ็ตยอดตามชีตนับจริง 23/7/69) · คงเหลือ = ยกมา + รับเข้า − เบิกใช้ · ค่ายาเข้าบัญชีต้นทุนหมวด "ค่ายา+วัสดุสิ้นเปลือง" อัตโนมัติ</div>
+      <div style={{ fontSize: 12, color: "#9b8e78", margin: "-6px 2px 14px" }}>เบิกใช้ = ตั้งแต่ {toThaiDate(MED_ISSUE_SINCE, false)} นับจาก <b>ใบเบิกของหมอ</b> · ก่อนหน้านั้นนับจากบันทึกให้ยารายวันของสัตวบาล (แท็บ เก็บข้อมูลการเลี้ยง — พิมพ์ชื่อตรงกับสต๊อก) ตั้งแต่ 24 ก.ค. 69 (รีเซ็ตยอดตามชีตนับจริง 23/7/69) · คงเหลือ = ยกมา + รับเข้า − เบิกใช้ · ค่ายาเข้าบัญชีต้นทุนหมวด "ค่ายา+วัสดุสิ้นเปลือง" อัตโนมัติ</div>
 
       {/* 📅 สรุปค่ายารายเดือน (จากบันทึกให้ยา × ราคาสต๊อก) แยกต่อหลัง */}
       {Object.keys(medCostByMonth).length > 0 && (
@@ -9490,6 +10122,18 @@ function MedView({ production = {}, medStock = [], medInfo = {}, medReceipts = [
           onSave={(r) => { addMedReceipt(r); setReceiptItem(null); }} onClose={() => setReceiptItem(null)} />
       )}
       {showKB && <KnowledgeModal onClose={() => setShowKB(false)} />}
+      {histItem && (
+        <MedHistoryModal it={histItem} info={medInfo[(histItem.name || "").trim()] || {}} medReceipts={medReceipts}
+          medIssues={medIssues} rearingByDate={rearingByDate} medCounts={medCounts} onClose={() => setHistItem(null)} />
+      )}
+      {showCount && (
+        <MedCountModal medStock={medStock} medInfo={medInfo} by={who}
+          onSave={(rec) => { addMedCount(rec); setShowCount(false); }} onClose={() => setShowCount(false)} />
+      )}
+      {showIssue && (
+        <MedIssueModal medStock={medStock} medInfo={medInfo} houseIds={houseIds} by={who}
+          onSave={(list) => { list.forEach((r) => addMedIssue(r)); setShowIssue(false); }} onClose={() => setShowIssue(false)} />
+      )}
       {showAddMed && (
         <AddMedModal onSave={(it) => { addMedItem(it); setShowAddMed(false); }} onClose={() => setShowAddMed(false)} />
       )}
