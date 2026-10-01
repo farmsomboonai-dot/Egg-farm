@@ -7999,7 +7999,7 @@ function MedHistoryModal({ it, info = {}, medReceipts = [], medIssues = [], rear
         <div style={S.modalHead}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={S.modalTitle}>📖 {it.name}</div>
-            <div style={S.modalSub}>{it.desc || ""}{it.company ? " · " + it.company : ""}{it.expiry ? " · หมดอายุ " + it.expiry : ""}</div>
+            <div style={S.modalSub}>{it.desc || ""}{it.pack ? " · ขนาดบรรจุ " + it.pack : ""}{it.company ? " · " + it.company : ""}{it.expiry ? " · หมดอายุ " + it.expiry : ""}</div>
           </div>
           <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
         </div>
@@ -8102,7 +8102,7 @@ function MedCountModal({ medStock = [], medInfo = {}, by = "", onSave, onClose }
             <tbody>
               {rows.map((r) => (
                 <tr key={r.it.id} style={r.system < 0 ? { background: "#FEF2F2" } : undefined}>
-                  <td style={{ ...td, whiteSpace: "normal", minWidth: 150, fontWeight: 700 }}>{r.it.name}<span style={{ fontWeight: 500, color: "#9b8e78", fontSize: 11 }}> · {r.it.unit || "หน่วย"}</span></td>
+                  <td style={{ ...td, whiteSpace: "normal", minWidth: 150, fontWeight: 700 }}>{r.it.name}<span style={{ fontWeight: 500, color: "#9b8e78", fontSize: 11 }}> · นับเป็น{r.it.unit || "หน่วย"}</span>{r.it.pack ? <span style={{ fontWeight: 600, color: "#0F766E", fontSize: 10.5 }}> · 📦 {r.it.pack}</span> : null}</td>
                   <td style={{ ...td, textAlign: "right", color: r.system < 0 ? "#B91C1C" : "#7a6f5c", fontWeight: r.system < 0 ? 800 : 500 }}>{fmt1(r.system)}</td>
                   <td style={{ ...td, textAlign: "right" }}>
                     <input inputMode="decimal" value={vals[r.it.id] == null ? "" : vals[r.it.id]} placeholder="—"
@@ -8179,7 +8179,7 @@ function MedIssueModal({ medStock = [], medInfo = {}, houseIds = [], by = "", on
                 {i === 0 && <label style={lbl}>💊 ยา/วิตามิน</label>}
                 <select style={inp} value={r.medId} onChange={(e) => setRow(i, { medId: e.target.value })}>
                   <option value="">— เลือกยา —</option>
-                  {medStock.map((m) => { const f = medInfo[(m.name || "").trim()]; return <option key={m.id} value={m.id}>{m.name}{f ? ` (เหลือ ${fmt1(f.remain)} ${m.unit || ""})` : ""}</option>; })}
+                  {medStock.map((m) => { const f = medInfo[(m.name || "").trim()]; return <option key={m.id} value={m.id}>{m.name}{m.pack ? ` [${m.pack}]` : ""}{f ? ` — เหลือ ${fmt1(f.remain)} ${m.unit || ""}` : ""}</option>; })}
                 </select>
               </div>
               <div style={{ flex: 1, minWidth: 110 }}>
@@ -9635,6 +9635,36 @@ function MedView({ production = {}, medStock = [], medInfo = {}, medReceipts = [
     for (let i = 0; i <= 2; i++) s += doseIndex[(iss.houseId || "") + "|" + (iss.name || "").trim() + "|" + shiftDayISO(iss.date, i)] || 0;
     return s;
   };
+  /* ⚖️ กระทบยอดแบบ "ยาค้างอยู่ที่เล้า" — เจ้าของแจ้ง 1 ต.ค. 69 ว่ายาบางตัวใช้ไม่ถึงขวดต่อวัน
+     เบิก 1 ขวด แล้วใช้วันละ 0.5 เป็นเรื่องปกติ ไม่ใช่ความผิดพลาด
+     จึงเลิกเทียบรายวัน เปลี่ยนเป็นยอดสะสม: เบิกสะสม − ใช้สะสม = ยาที่ยังค้างอยู่ที่เล้า
+     ผิดจริงมีกรณีเดียว = ใช้เกินที่เบิก (ของออกจากห้องยาโดยไม่มีใบ) */
+  const poolRows = useMemo(() => {
+    const m = {};   // "หลัง|ยา" -> {issued, dosed}
+    medIssues.forEach((r) => {
+      if ((r.date || "") < MED_ISSUE_SINCE) return;
+      const k = (r.houseId || "—") + "|" + (r.name || "").trim();
+      (m[k] = m[k] || { issued: 0, dosed: 0, unit: r.unit || "", last: "" }).issued += parseFloat(r.qty) || 0;
+      if ((r.date || "") > m[k].last) m[k].last = r.date;
+    });
+    Object.keys(rearingByDate).forEach((d) => {
+      if (d < MED_ISSUE_SINCE) return;
+      Object.entries(rearingByDate[d] || {}).forEach(([hid, r]) => {
+        (r?.medsList || []).forEach((x) => {
+          if (x.route === "feed") return;
+          const nm = (x.name || "").trim(); const q = parseFloat(x.qty) || 0;
+          if (!nm || !q) return;
+          const k = hid + "|" + nm;
+          (m[k] = m[k] || { issued: 0, dosed: 0, unit: "", last: "" }).dosed += q;
+          if (d > m[k].last) m[k].last = d;
+        });
+      });
+    });
+    return Object.entries(m).map(([k, v]) => {
+      const [house, name] = k.split("|");
+      return { house, name, ...v, left: v.issued - v.dosed };
+    }).sort((a, b) => a.left - b.left || a.house.localeCompare(b.house));
+  }, [medIssues, rearingByDate]);
   const monthIssues = useMemo(() => medIssues.filter((r) => (r.date || "").slice(0, 7) === issueYM)
     .sort((a, b) => (b.date || "").localeCompare(a.date || "") || (b.ts || 0) - (a.ts || 0)), [medIssues, issueYM]);
   const issueMonths = useMemo(() => [...new Set(medIssues.map((r) => (r.date || "").slice(0, 7)).filter(Boolean))].sort(), [medIssues]);
@@ -9749,6 +9779,7 @@ function MedView({ production = {}, medStock = [], medInfo = {}, medReceipts = [
                     <td style={{ ...tdm, textAlign: "left", whiteSpace: "normal", minWidth: 180, fontWeight: 800 }}>
                       <span onClick={() => setHistItem(it)} title="กดดูประวัติเบิก/รับเข้าของยาตัวนี้" style={{ color: "#0F766E", cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: 3 }}>{it.name}</span>
                       {it.desc ? <span style={{ color: "#9b8e78", fontSize: 11.5, fontWeight: 400 }}> · {it.desc}</span> : null}
+                      {it.pack ? <div style={{ fontSize: 10.5, color: "#0F766E", fontWeight: 700 }}>📦 {it.pack}</div> : null}
                     </td>
                     <td style={{ ...tdm, fontWeight: 800, color: inf.remain <= 0 ? "#B91C1C" : (ea.stock === "low" ? "#C2410C" : "#15803D") }}>{fmt1(inf.remain)} <span style={{ fontWeight: 500, fontSize: 11, color: "#9b8e78" }}>{it.unit || ""}</span></td>
                     <td style={{ ...tdm, fontWeight: ea.expS ? 800 : 400, color: ea.expS === "expired" ? "#B91C1C" : (ea.expS === "soon" ? "#C2410C" : "#7a6f5c") }}>{it.expiry || "—"}{ea.expS === "expired" ? " ⛔" : ea.expS === "soon" ? ` · อีก ${ea.daysLeft} ว.` : ""}</td>
@@ -9856,6 +9887,7 @@ function MedView({ production = {}, medStock = [], medInfo = {}, medReceipts = [
                   const q = parseFloat(r.qty) || 0;
                   const ok = dosed >= q - 0.001;
                   const some = dosed > 0 && !ok;
+                  const stale = !dosed && shiftDayISO(r.date, 2) < isoFromTs(Date.now());   // เบิกเกิน 2 วันแล้วยังไม่ลงใช้เลย
                   return (
                     <tr key={r.id}>
                       <td style={td}>{toThaiDate(r.date, false)}</td>
@@ -9870,8 +9902,8 @@ function MedView({ production = {}, medStock = [], medInfo = {}, medReceipts = [
                             ? <button onClick={() => updateMedIssue(r.id, { picked: { by: who, at: Date.now() } })} style={{ border: "1px solid #86C99A", background: "#F0FDF4", color: "#15803D", borderRadius: 7, padding: "3px 10px", cursor: "pointer", fontWeight: 800, fontSize: 12, fontFamily: "inherit" }}>จัดแล้ว</button>
                             : <span style={{ color: "#C2410C", fontWeight: 700 }}>รอจัด</span>}
                       </td>
-                      <td style={{ ...td, fontWeight: 800, color: ok ? "#15803D" : some ? "#C2410C" : "#B91C1C" }}>
-                        {ok ? "✓ ตรงกัน" : some ? `△ ลงแค่ ${fmt1(dosed)}` : "✗ ยังไม่ลง"}
+                      <td style={{ ...td, fontWeight: 800, color: ok ? "#15803D" : some ? "#1D4ED8" : stale ? "#B91C1C" : "#9b8e78" }}>
+                        {ok ? "✓ ใช้หมดแล้ว" : some ? `🔵 ใช้ไป ${fmt1(dosed)} · ค้าง ${fmt1(q - dosed)}` : stale ? "⚠️ ยังไม่ลงใช้" : "· รอใช้"}
                       </td>
                       <td style={td}>{canIssue && <button onClick={() => { if (window.confirm(`ลบใบเบิก ${r.name} ${fmt1(q)} ${r.unit || ""} ของ ${r.houseId}?\nสต๊อกจะคืนกลับให้อัตโนมัติ`)) deleteMedIssue(r.id); }} style={{ border: "1px solid #f3d3ce", background: "#FFF5F3", color: "#B3261E", borderRadius: 7, padding: "3px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>✕</button>}</td>
                     </tr>
@@ -9881,39 +9913,35 @@ function MedView({ production = {}, medStock = [], medInfo = {}, medReceipts = [
             </table>
           </div>
         )}
-        {/* 🔁 ทางกลับ: ลงบันทึกให้ยาแล้วแต่ไม่มีใบเบิก — ของหายจากห้องยาโดยไม่มีใบ */}
-        {(() => {
-          const miss = [];
-          Object.keys(rearingByDate).filter((d) => d >= MED_ISSUE_SINCE && d.slice(0, 7) === issueYM).sort().forEach((d) => {
-            Object.entries(rearingByDate[d] || {}).forEach(([hid, r]) => {
-              (r?.medsList || []).forEach((x) => {
-                if (x.route === "feed") return;
-                const nm = (x.name || "").trim(); const q = parseFloat(x.qty) || 0;
-                if (!nm || !q) return;
-                // มีใบเบิกของยา+หลังเดียวกัน ภายใน 2 วันก่อนหน้าถึงวันนั้นไหม
-                let issued = 0;
-                for (let k = 0; k <= 2; k++) {
-                  const dd = shiftDayISO(d, -k);
-                  issued += medIssues.filter((v) => v.date === dd && v.houseId === hid && (v.name || "").trim() === nm).reduce((sm, v) => sm + (parseFloat(v.qty) || 0), 0);
-                }
-                if (issued < q - 0.001) miss.push({ d, hid, nm, q, issued });
-              });
-            });
-          });
-          if (!miss.length) return null;
+        {/* ⚖️ ยาที่เบิกไปแล้วค้างอยู่ที่เล้า + ตัวที่ใช้เกินใบเบิก */}
+        {poolRows.length > 0 && (() => {
+          const over = poolRows.filter((r) => r.left < -0.001);
+          const left = poolRows.filter((r) => r.left > 0.001);
           return (
-            <div style={{ marginTop: 10, background: "#FFF7ED", border: "1.5px solid #FED7AA", borderRadius: 10, padding: "9px 12px" }}>
-              <div style={{ fontWeight: 800, fontSize: 12.5, color: "#C2410C", marginBottom: 5 }}>⚠️ ลงบันทึกให้ยาแล้วแต่ไม่มีใบเบิก · {miss.length} รายการ — ของออกจากห้องยาโดยไม่มีใบ</div>
-              <div style={{ fontSize: 12, color: "#7a6f5c", lineHeight: 1.9 }}>
-                {miss.slice(0, 12).map((m, i) => <div key={i}>{toThaiDate(m.d, false)} · <b>{m.hid}</b> · {m.nm} — ให้ยา {fmt1(m.q)} แต่เบิกไว้ {fmt1(m.issued)}</div>)}
-                {miss.length > 12 ? <div style={{ color: "#9b8e78" }}>…และอีก {miss.length - 12} รายการ</div> : null}
-              </div>
+            <div style={{ marginTop: 10 }}>
+              {over.length > 0 && (
+                <div style={{ background: "#FFF7ED", border: "1.5px solid #FED7AA", borderRadius: 10, padding: "9px 12px", marginBottom: 8 }}>
+                  <div style={{ fontWeight: 800, fontSize: 12.5, color: "#C2410C", marginBottom: 4 }}>⚠️ ใช้เกินที่เบิก · {over.length} รายการ — ของออกจากห้องยาโดยไม่มีใบเบิก</div>
+                  <div style={{ fontSize: 12, color: "#7a6f5c", lineHeight: 1.9 }}>
+                    {over.slice(0, 10).map((r, i) => <div key={i}><b>{r.house}</b> · {r.name} — เบิก {fmt1(r.issued)} แต่ใช้ไป {fmt1(r.dosed)} (<b style={{ color: "#B91C1C" }}>ขาด {fmt1(-r.left)}</b>)</div>)}
+                  </div>
+                </div>
+              )}
+              {left.length > 0 && (
+                <div style={{ background: "#F0F9FF", border: "1.5px solid #BAE6FD", borderRadius: 10, padding: "9px 12px" }}>
+                  <div style={{ fontWeight: 800, fontSize: 12.5, color: "#0369A1", marginBottom: 4 }}>🔵 ยาที่เบิกไปแล้วยังค้างอยู่ที่เล้า · {left.length} รายการ (ปกติ — ยาบางตัวใช้ไม่ถึงขวดต่อวัน)</div>
+                  <div style={{ fontSize: 12, color: "#7a6f5c", lineHeight: 1.9 }}>
+                    {left.slice(0, 10).map((r, i) => <div key={i}><b>{r.house}</b> · {r.name} — เบิก {fmt1(r.issued)} ใช้ไป {fmt1(r.dosed)} · <b style={{ color: "#0369A1" }}>ค้าง {fmt1(r.left)} {r.unit}</b></div>)}
+                  </div>
+                </div>
+              )}
             </div>
           );
         })()}
         <div style={{ fontSize: 11.5, color: "#9b8e78", marginTop: 9, lineHeight: 1.7 }}>
           เบิกแล้ว <b>ตัดสต๊อกทันที</b> (เริ่มใช้ {toThaiDate(MED_ISSUE_SINCE, false)} — ก่อนหน้านั้นยังตัดจากบันทึกให้ยารายวันเหมือนเดิม) ·
-          ช่อง <b>ลงให้ยาแล้ว?</b> เทียบกับบันทึกให้ยาของหลังนั้นในช่วงวันเบิกถึง +2 วัน · ลบใบเบิก = สต๊อกคืนกลับเอง
+ยาบางตัวใช้ไม่ถึงขวดต่อวัน <b>เบิก 1 ขวดแล้วใช้วันละ 0.5 เป็นเรื่องปกติ</b> — ส่วนที่เหลือนับเป็น "ยาค้างอยู่ที่เล้า" ไม่ใช่ความผิดพลาด ·
+          ที่ต้องตามคือ <b>ใช้เกินที่เบิก</b> เท่านั้น (กรอบส้ม) · ลบใบเบิก = สต๊อกคืนกลับเอง
         </div>
       </div>
 
@@ -10051,6 +10079,7 @@ function MedView({ production = {}, medStock = [], medInfo = {}, medReceipts = [
                     <span onClick={() => setHistItem(it)} title="กดดูประวัติเบิก/รับเข้าของยาตัวนี้"
                       style={{ fontWeight: 800, color: "#0F766E", cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: 3 }}>{it.name}</span>
                     {it.desc ? <span style={{ color: "#9b8e78", fontSize: 11.5 }}> · {it.desc}</span> : null}
+                    {it.pack ? <div style={{ fontSize: 10.5, color: "#0F766E", fontWeight: 700 }}>📦 {it.pack}</div> : null}
                   </td>
                   <td style={{ ...tdm, textAlign: "center" }}>
                     <span style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
