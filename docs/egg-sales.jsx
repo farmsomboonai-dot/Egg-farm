@@ -2305,7 +2305,8 @@ export default function App() {
         medCounts={medCounts} addMedCount={guard(addMedCount)}
         canIssue={!viewOnly && (currentRole === "owner" || currentRole === "farm")}
         canManage={!viewOnly && (currentRole === "owner" || currentRole === "medclerk")}
-        canSeeCost={currentRole === "owner" || currentRole === "medclerk"} />}
+        canSeeCost={currentRole === "owner" || currentRole === "medclerk"}
+        canCount={!viewOnly && currentRole === "owner"} />}
       {view === "trial" && <TrialView medTrials={medTrials} addMedTrial={guard(addMedTrial)} deleteMedTrial={guard(deleteMedTrial)} production={productionByDate} rearingByDate={rearingByDate} />}
       {view === "health" && <HealthHubView production={productionByDate} flocks={flocks} vaccines={vaccines} addVaccine={guard(addVaccine)} deleteVaccine={guard(deleteVaccine)} />}
       {view === "salesum" && <MonthlySalesView bills={activeBills} />}
@@ -9868,7 +9869,7 @@ function TrialView({ medTrials = [], addMedTrial, deleteMedTrial, production = {
 ============================================================ */
 function MedView({ production = {}, medStock = [], medInfo = {}, medReceipts = [], addMedItem, updateMedItem, addMedReceipt, medCostByMonth = {},
                    medIssues = [], addMedIssue, updateMedIssue, deleteMedIssue, medOrders = [], addMedOrder, updateMedOrder, rearingByDate = {}, medCounts = [], addMedCount,
-                   canIssue = false, canManage = true, canSeeCost = true }) {
+                   canIssue = false, canManage = true, canSeeCost = true, canCount = true }) {
   const prodDates = Object.keys(production).sort();
   const houseIds = [...new Set([...(production[prodDates[prodDates.length - 1]] || []).map((h) => h.id), ...HOUSE_IDS])];   // รวมหลังใหม่ที่ยังไม่มีผลผลิต (เช่น H7)
   const [receiptItem, setReceiptItem] = useState(null);   // รายการยาที่กำลังรับเข้า
@@ -10162,9 +10163,12 @@ function MedView({ production = {}, medStock = [], medInfo = {}, medReceipts = [
               {medCounts.length
                 ? <>นับครั้งล่าสุด <b>{toThaiDate(medCounts[0].date, false)}</b> โดย {medCounts[0].by || "—"} · ตั้งยอดยกมาใหม่ {(medCounts[0].rows || []).length} รายการ</>
                 : <>นับของจริงในห้องยา แล้วระบบจะตั้งเป็น<b>ยอดยกมาใหม่</b>ของวันถัดไป — ล้างยอดเพี้ยนสะสมทิ้งทั้งหมด</>}
+              {!canCount && <div style={{ marginTop: 3 }}>การตั้งยอดยกมาใหม่ทำได้โดย<b>เจ้าของ</b>เท่านั้น — นับเสร็จแล้วส่งใบนับให้เจ้าของตั้งยอดให้</div>}
             </div>
           </div>
-          <button onClick={() => setShowCount(true)} style={{ border: "none", background: "#7C3AED", color: "#fff", borderRadius: 9, padding: "8px 16px", fontWeight: 800, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>เริ่มนับสต๊อก</button>
+          {canCount
+            ? <button onClick={() => setShowCount(true)} style={{ border: "none", background: "#7C3AED", color: "#fff", borderRadius: 9, padding: "8px 16px", fontWeight: 800, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>เริ่มนับสต๊อก</button>
+            : <span style={{ fontSize: 12, fontWeight: 800, color: "#6D5BA6", background: "#EDE9FE", border: "1px solid #DDD6FE", borderRadius: 9, padding: "8px 14px" }}>🔒 เจ้าของเท่านั้น</span>}
         </div>
       )}
 
@@ -10484,7 +10488,7 @@ function MedView({ production = {}, medStock = [], medInfo = {}, medReceipts = [
         <MedHistoryModal it={histItem} canSeeCost={canSeeCost} info={medInfo[(histItem.name || "").trim()] || {}} medReceipts={medReceipts}
           medIssues={medIssues} rearingByDate={rearingByDate} medCounts={medCounts} onClose={() => setHistItem(null)} />
       )}
-      {showCount && (
+      {showCount && canCount && (
         <MedCountModal medStock={medStock} medInfo={medInfo} by={who}
           onSave={(rec) => { addMedCount(rec); setShowCount(false); }} onClose={() => setShowCount(false)} />
       )}
