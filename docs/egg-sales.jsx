@@ -1486,7 +1486,7 @@ async function loadAccounts() {
   } catch (e) { return __ACCOUNTS; }
 }
 
-function RolePickerModal({ roles, current, onPick, onClose }) {
+function RolePickerModal({ roles, current, canSwitch = false, onPick, onClose }) {
   const [sel, setSel] = useState(null);
   const [pin, setPin] = useState("");
   const [err, setErr] = useState("");
@@ -1509,6 +1509,7 @@ function RolePickerModal({ roles, current, onPick, onClose }) {
   };
   const choose = (r) => {
     if (r.id === current) { onClose(); return; }        // เลือกบทบาทเดิม = ปิดเฉยๆ
+    if (canSwitch) { onPick(r.id); return; }             // 👑 เจ้าของ (ยืนยันตัวตนด้วยบัญชีแล้ว) → สลับดูได้เลย ไม่ต้องถาม PIN ซ้ำ
     if (!r.pin) { onPick(r.id); return; }                // ไม่มี PIN → เข้าเลย
     setSel(r); setPin(""); setErr("");
   };
@@ -1517,12 +1518,18 @@ function RolePickerModal({ roles, current, onPick, onClose }) {
     <div style={S.modalOverlay} onClick={onClose}>
       <div style={{ ...S.modal, maxWidth: 430 }} onClick={(e) => e.stopPropagation()}>
         <div style={S.modalHead}>
-          <div><div style={S.modalTitle}>เลือกผู้ใช้งาน</div><div style={S.modalSub}>เข้าใช้งานตามสิทธิ์ของบทบาท</div></div>
+          <div><div style={S.modalTitle}>เลือกผู้ใช้งาน</div><div style={S.modalSub}>{canSwitch ? "👑 เจ้าของ — กดดูมุมของใครก็ได้ เพื่อตรวจสิทธิ์การเข้าถึง (ไม่ต้องใส่รหัส)" : "เข้าใช้งานตามสิทธิ์ของบทบาท"}</div></div>
           <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
         </div>
         {!sel ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {roleOfAccount(authUser) ? (() => {
+            {canSwitch && (
+              <div style={{ fontSize: 11.5, color: "#6D28D9", background: "#F5F3FF", border: "1px solid #DDD6FE", borderRadius: 10, padding: "8px 11px", lineHeight: 1.55 }}>
+                กดชื่อบทบาทเพื่อ <b>ดูหน้าจอเหมือนที่คนนั้นเห็น</b> — เมนู ปุ่ม และตัวเลขจะถูกจำกัดตามสิทธิ์ของเขาจริง ๆ<br />
+                กลับเป็นเจ้าของได้จากแถบม่วงด้านบน หรือรีเฟรชหน้าเว็บ · บัญชีที่ใช้ล็อกอินยังเป็นของเจ้าของเหมือนเดิม
+              </div>
+            )}
+            {(roleOfAccount(authUser) && !canSwitch) ? (() => {
               // 🔒 ล็อกอินอยู่ → บทบาทผูกกับบัญชี สลับไม่ได้ (ชั้นเดียวจบ) — เปลี่ยนบทบาท = ออกจากระบบแล้วเข้าบัญชีอื่น
               const cur = roles.find((r) => r.id === current) || roles[0];
               return (
@@ -1724,6 +1731,9 @@ export default function App() {
   useEffect(() => { try { localStorage.setItem("eggCurrentRole", currentRole); } catch {} }, [currentRole]);
   // 🔒 บทบาทผูกกับบัญชีล็อกอิน: บังคับบทบาทตามบัญชีเสมอ — เช็คซ้ำทุก 2 นาที + ทุกครั้งที่สลับกลับมาที่แอป
   // (กันค่าเก่าค้างจากยุคสลับด้วย PIN และกันหน้าเว็บเก่าค้างแคชที่เคยสลับบทบาทได้อิสระ)
+  /* บทบาทจริงของบัญชีที่ล็อกอิน (ไม่ใช่บทบาทที่กำลังแสดงผล)
+     เจ้าของเท่านั้นที่สลับไปดูมุมคนอื่นได้ — คนอื่นยังโดนบังคับกลับบทบาทตัวเองทุก 2 นาทีเหมือนเดิม */
+  const [realRole, setRealRole] = useState(() => { try { return roleOfAccount(localStorage.getItem("sjfAuthUsername") || "") || null; } catch (e) { return null; } });
   useEffect(() => {
     if (!supabase) return;
     const enforceRole = () => {
@@ -1732,7 +1742,9 @@ export default function App() {
         const uname = em.replace(/@sjffarm\.app$/, "");
         const locked = roleOfAccount(uname);
         if (locked) {
-          setCurrentRole((c) => (c === locked ? c : locked));
+          setRealRole(locked);
+          // เจ้าของ = ปล่อยให้ส่องมุมอื่นได้ · คนอื่น = ดึงกลับบทบาทตัวเองเสมอ
+          if (locked !== "owner") setCurrentRole((c) => (c === locked ? c : locked));
           try { localStorage.setItem("sjfAuthUsername", uname); } catch (e) {}   // เครื่องที่ล็อกอินค้างอยู่ก่อนฟีเจอร์นี้ ก็ให้รู้ชื่อบัญชี
         }
       }).catch(() => {});
@@ -1767,7 +1779,14 @@ export default function App() {
   const guard = (fn) => (viewOnly ? undefined : fn);   // แขก → ส่ง undefined แทนฟังก์ชันบันทึก ปุ่มจะหายไปเอง
   const allowedTopics = roleObj.id === "owner" ? ALL_TOPIC_IDS : (roleObj.topics || []);
   const roleCustGroup = roleObj.id === "owner" ? null : (roleObj.custGroup || null);   // บทบาทร้านค้า → จำกัดให้เห็นเฉพาะกลุ่มลูกค้านี้
-  const pickRole = (rid) => { const r = roles.find((x) => x.id === rid); if (!r) return; setCurrentRole(rid); setShowRolePicker(false); setAccessLog((prev) => [{ id: rid, name: r.name, emoji: r.emoji, at: new Date().toLocaleString("th-TH") }, ...prev].slice(0, 50)); };
+  const canSwitchRole = realRole === "owner";          // 👑 เจ้าของสลับดูมุมคนอื่นได้ ไม่ต้องใส่รหัส
+  const previewing = canSwitchRole && currentRole !== "owner";   // กำลังส่องมุมคนอื่นอยู่
+  const pickRole = (rid) => {
+    const r = roles.find((x) => x.id === rid); if (!r) return;
+    if (!canSwitchRole && realRole) return;            // บัญชีทั่วไป = ล็อกตามบัญชีเหมือนเดิม
+    setCurrentRole(rid); setShowRolePicker(false);
+    setAccessLog((prev) => [{ id: rid, name: r.name, emoji: r.emoji, at: new Date().toLocaleString("th-TH") }, ...prev].slice(0, 50));
+  };
   const [view, setView] = useState(() => allowedTopics.includes("sales") ? "sales" : (allowedTopics[0] || "sales"));
   useEffect(() => { setView((v) => allowedTopics.includes(v) ? v : (allowedTopics[0] || v)); }, [currentRole, roles]);   // สลับบทบาทแล้ว view หลุดสิทธิ์ → เด้งไปหัวข้อแรกที่เข้าได้
 
@@ -2213,6 +2232,13 @@ export default function App() {
             <SyncStatusButton />
           </div>
         </div>
+        {previewing && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "#4C1D95", color: "#fff", padding: "7px 16px" }}>
+            <span style={{ fontSize: 13, fontWeight: 800 }}>👁️ กำลังดูในมุมของ “{roleObj.emoji} {roleObj.name}”</span>
+            <span style={{ fontSize: 11.5, color: "#DDD6FE" }}>ดูเหมือนที่เขาเห็นจริง ๆ — ระวังอย่าเผลอกดบันทึกข้อมูลแทนเขา</span>
+            <button onClick={() => pickRole("owner")} style={{ marginLeft: "auto", border: "1.5px solid #C4B5FD", background: "#fff", color: "#4C1D95", borderRadius: 999, padding: "5px 14px", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>↩ กลับเป็นเจ้าของ</button>
+          </div>
+        )}
         <nav className="mainNav" style={S.nav}>
           {(() => {
             const TOPIC_META = {
@@ -2318,7 +2344,7 @@ export default function App() {
       {view === "booking" && <BookingEntry bookings={bookings} addBooking={addBooking} updateBooking={updateBooking} deleteBooking={deleteBooking} production={productionByDate} planEstimates={planEstimates} custGroup={roleCustGroup} />}
       {view === "plan" && <PlanBoard bookings={bookings} production={productionByDate} planEstimates={planEstimates} setPlanEstimate={setPlanEstimate} />}
 
-      {showRolePicker && <RolePickerModal roles={roles} current={currentRole} onPick={pickRole} onClose={() => setShowRolePicker(false)} />}
+      {showRolePicker && <RolePickerModal roles={roles} current={currentRole} canSwitch={canSwitchRole} onPick={pickRole} onClose={() => setShowRolePicker(false)} />}
       {showRoleSettings && <RoleSettingsModal roles={roles} accessLog={accessLog} onSave={setRoles} onClose={() => setShowRoleSettings(false)} />}
     </div>
   );
@@ -6105,6 +6131,11 @@ const offLabel = (k) => OFF_LABEL[k] || k;
    เพิ่ม "เปื้อนไข่" (ป.ไข่) 8 ก.ย. 69 ตามที่เจ้าของสั่ง — เรียงต่อจากเปื้อนน้อย ให้ตรงกับตารางรายงาน */
 const PICKBACK_KEYS = ["บุบ", "หัวทราย", "นวล", "เปื้อนมาก", "เปื้อนน้อย", "เปื้อนไข่"];   // เรียงตามลำดับตารางรายงานผลผลิต
 const BER_KEYS = [0, 1, 2, 3, 4, 5];
+/* ยอดแผงในวงเล็บใต้ตัวเลขฟอง — เจ้าของสั่ง 3 ต.ค. 69 ("เพิ่มเป็นวงเล็บล่างตัวเลขฟองก็ได้")
+   ตัวเลขฟองหลักหมื่นดูไม่ออกว่ากี่แผง ต้องหาร 30 ในหัวทุกครั้ง */
+const prangSub = (fong, col) => (
+  <div style={{ fontSize: 10, fontWeight: 700, color: col, lineHeight: 1.1, marginTop: 1 }}>({fmt(Math.round((fong || 0) / PER_PRADANG))} แผง)</div>
+);
 // สีหมวดหมู่ในตารางผลผลิต: ตกเกรด(ส้ม) · ไข่ดี(เขียว) · สรุป(ฟ้า) — D = เข้มขึ้นสำหรับช่อง %
 const PROD_C = { off: "#F7C57C", offD: "#FBE1C2", good: "#93E1AC", sum: "#95BAF6", sumD: "#D2E1FB" };
 // ผลผลิตไข่รายหลัง — ข้อมูลจริงวันที่ 3/7/69 (ตกเกรด+ยอดไก่จากรายงานผลผลิต;
@@ -6940,7 +6971,7 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
               <th colSpan={BER_KEYS.length + activeKla.length + 1} style={{ ...S.th, ...S.thTop, background: PROD_C.good }}>รายการไข่ดี (แผง) <span style={{ fontWeight: 600, fontSize: 11.5, opacity: 0.85 }}>· <span style={{ color: "#15803D" }}>เบอร์</span> + <span style={{ color: "#0F5F55" }}>คละ</span></span></th>
               <th rowSpan={2} style={{ ...S.th, ...S.thTop, background: "#DBEAFE", color: "#1D4ED8" }}>เก็บมือ<br />หลังเครื่อง (แผง)</th>
               <th rowSpan={2} style={{ ...S.th, ...S.thTop, background: "#DBEAFE", color: "#1D4ED8" }}>ไข่ดี<br />คงเหลือ (ฟอง)</th>
-              <th rowSpan={2} style={{ ...S.th, ...S.thTop, background: PROD_C.sum }}>รวมไข่ไก่<br />(ดี+ตกเกรด)</th>
+              <th rowSpan={2} style={{ ...S.th, ...S.thTop, background: PROD_C.sum }}>รวมไข่ไก่<br />(ดี+ตกเกรด) ฟอง</th>
               <th rowSpan={2} style={{ ...S.th, ...S.thTop, background: PROD_C.sum }}>ยอดไก่<br />คงเหลือ</th>
               <th rowSpan={2} style={{ ...S.th, ...S.thTop, background: "#15803D", color: "#fff", fontSize: 14.5, fontFamily: "'Prompt', sans-serif", letterSpacing: 0.3 }}>%ไข่<br />รวม</th>
               <th rowSpan={2} style={{ ...S.th, ...S.thTop, background: "#8C7B5E", color: "#fff", fontSize: 13 }}>%มฐ<br />Hy-Line</th>
@@ -6985,8 +7016,8 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
                   {activeKla.map((k) => <td key={k} style={{ ...S.td, fontWeight: 700, color: "#0F766E", background: "#E3F8F2" }}>{(h.grade.คละ || {})[k] ? fmt(h.grade.คละ[k]) : "·"}</td>)}
                   <td style={{ ...S.td, fontWeight: 800, color: "#15803D", background: "#DBF5E4", ...flag(h.id, "rate:good") }}>{fmt(Math.round(c.goodPrang) + Math.round(c.klaPrang))}</td>
                   <td style={{ ...S.td, background: "#EFF5FE", fontWeight: 700, color: c.pickBackPrang > 0 ? "#1D4ED8" : "#c9c0ad" }}>{c.pickBackPrang > 0 ? "−" + fmt(c.pickBackPrang) : "·"}</td>
-                  <td style={{ ...S.td, background: "#EFF5FE", fontWeight: 800, color: "#1D4ED8" }}>{fmt(c.goodNetFong)}</td>
-                  <td style={{ ...S.td, fontWeight: 600 }}>{fmt(c.totalFong)}</td>
+                  <td style={{ ...S.td, background: "#EFF5FE", fontWeight: 800, color: "#1D4ED8" }}>{fmt(c.goodNetFong)}{prangSub(c.goodNetFong, "#7E9AD1")}</td>
+                  <td style={{ ...S.td, fontWeight: 600 }}>{fmt(c.totalFong)}{prangSub(c.totalFong, "#9b8e78")}</td>
                   <td style={S.td}>{fmt(h.chickens)}</td>
                   <td style={{ ...S.td, background: "#DCFCE7", fontWeight: 800, color: "#166534", fontSize: 14, ...flag(h.id, "rate:total") }}>{c.pctTotal.toFixed(2)}%</td>
                   {(() => {
@@ -7047,8 +7078,8 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
               {activeKla.map((k) => <td key={k} style={{ ...S.td, ...S.tfoot, color: "#0F766E", background: "#D5F2EA" }}>{fmt(grand.klaByKey[k] || 0)}</td>)}
               <td style={{ ...S.td, ...S.tfoot, background: "#DBF5E4", color: "#15803D" }}>{fmt(Math.round(grand.good / PER_PRADANG) + Math.round(grand.kla))}</td>
               <td style={{ ...S.td, ...S.tfoot, color: "#1D4ED8" }}>{grand.pickBack > 0 ? "−" + fmt(grand.pickBack) : "·"}</td>
-              <td style={{ ...S.td, ...S.tfoot, color: "#1D4ED8" }}>{fmt(grand.goodNet)}</td>
-              <td style={{ ...S.td, ...S.tfoot }}>{fmt(grand.total)}</td>
+              <td style={{ ...S.td, ...S.tfoot, color: "#1D4ED8" }}>{fmt(grand.goodNet)}{prangSub(grand.goodNet, "#7E9AD1")}</td>
+              <td style={{ ...S.td, ...S.tfoot }}>{fmt(grand.total)}{prangSub(grand.total, "#9b8e78")}</td>
               <td style={{ ...S.td, ...S.tfoot }}>{fmt(grand.chickens)}</td>
               <td style={{ ...S.td, ...S.tfoot, background: "#BBF7D0", color: "#166534", fontSize: 14 }}>{grand.chickens ? ((grand.total / grand.chickens) * 100).toFixed(2) : 0}%</td>
               {(() => {
@@ -7102,7 +7133,7 @@ function ProductionView({ houses = [], setHouses, prodDate, setProdDate, product
         </table>
       </div>
       )}
-      <div style={S.hint}>กด ✎ ที่ชื่อหลังเพื่อ "กรอก/แก้ไข" จำนวนไข่วันนี้ (เบอร์ 0-5 + ตกเกรด) · <b style={{ color: "#15803D" }}>ผลผลิตเข้าสต็อกคลังของวันนั้นอัตโนมัติ</b> (ไม่ต้องกดรับเข้า) · <b>แก้ผิด?</b> กด "↩ ย้อนการแก้" (มุมขวาบน) เพื่อคืนค่าเดิม · <b style={{ color: "#1D4ED8" }}>ช่องตกเกรดแยกประเภท</b> = เก็บมือในเล้า + เก็บมือหลังเครื่อง (เลขสีน้ำเงินตัวเล็กคือส่วนที่มาจากหลังเครื่อง) · <b style={{ color: "#B91C1C" }}>ช่องแดง</b> = เกินเกณฑ์ที่ตั้งไว้ (กด <b>🔔 เกณฑ์เตือน</b> เพื่อปรับตัวเลข) · %ไข่ตกเกรด = ตกเกรด(ฟอง) ÷ ไข่รวม · %ไข่รวม = ไข่รวม ÷ ยอดไก่ · <b>เฉลี่ย 3 วัน</b> = %ไข่รวมเฉลี่ยของวันนี้กับ 2 วันก่อน (นับเฉพาะวันที่ลงข้อมูลแล้ว) — ไก่ไข่ไม่ตรงเวลากันทุกวัน ดูค่าเฉลี่ยจะเห็นระดับจริงกว่าดูวันเดียว</div>
+      <div style={S.hint}>กด ✎ ที่ชื่อหลังเพื่อ "กรอก/แก้ไข" จำนวนไข่วันนี้ (เบอร์ 0-5 + ตกเกรด) · <b style={{ color: "#15803D" }}>ผลผลิตเข้าสต็อกคลังของวันนั้นอัตโนมัติ</b> (ไม่ต้องกดรับเข้า) · <b>แก้ผิด?</b> กด "↩ ย้อนการแก้" (มุมขวาบน) เพื่อคืนค่าเดิม · <b style={{ color: "#1D4ED8" }}>ช่องตกเกรดแยกประเภท</b> = เก็บมือในเล้า + เก็บมือหลังเครื่อง (เลขสีน้ำเงินตัวเล็กคือส่วนที่มาจากหลังเครื่อง) · <b style={{ color: "#B91C1C" }}>ช่องแดง</b> = เกินเกณฑ์ที่ตั้งไว้ (กด <b>🔔 เกณฑ์เตือน</b> เพื่อปรับตัวเลข) · %ไข่ตกเกรด = ตกเกรด(ฟอง) ÷ ไข่รวม · %ไข่รวม = ไข่รวม ÷ ยอดไก่ · <b>เลขในวงเล็บ</b> = ยอดเดียวกันคิดเป็นแผง (ฟอง ÷ 30) · <b>เฉลี่ย 3 วัน</b> = %ไข่รวมเฉลี่ยของวันนี้กับ 2 วันก่อน (นับเฉพาะวันที่ลงข้อมูลแล้ว) — ไก่ไข่ไม่ตรงเวลากันทุกวัน ดูค่าเฉลี่ยจะเห็นระดับจริงกว่าดูวันเดียว</div>
       {!readOnly && !lockClosed && showMachine && <MachinePullModal prodDate={prodDate} existing={housesAll}
         onClose={() => setShowMachine(false)}
         onApply={(byHouse) => {
@@ -8229,6 +8260,16 @@ function MedSlipModal({ rows = [], onClose }) {
   const [busy, setBusy] = useState("");
   const date = (rows[0] || {}).date || "";
   const by = (rows[0] || {}).by || "";
+  /* เวลาที่กดบันทึกเข้าระบบ — ไม่ใช่วันที่เบิกที่หมอเลือกเอง (ลงย้อนหลังได้)
+     ถ้าคีย์คนละวันกับวันที่เบิก โชว์วันที่คีย์ด้วย จะได้รู้ว่าเป็นการลงย้อนหลัง */
+  const keyedAt = (() => {
+    const ts = (rows[0] || {}).ts;
+    if (!ts) return "";
+    const d = new Date(ts);
+    const hm = d.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" });
+    const iso = isoFromTs(ts);
+    return iso === date ? `คีย์เข้าระบบ ${hm} น.` : `คีย์เข้าระบบ ${toThaiDate(iso, false)} ${hm} น.`;
+  })();
   // รวมยาตัวเดียวกันเป็นบรรทัดเดียว แยกหลังต่อท้าย (เหมือนใบเบิกกระดาษของฟาร์ม)
   const groups = [];
   rows.forEach((r) => {
@@ -8238,12 +8279,13 @@ function MedSlipModal({ rows = [], onClose }) {
     g.total += parseFloat(r.qty) || 0;
   });
   const asText = () => ["🧾 ใบเบิกยา/วิตามิน · เอสเจเอฟ ฟาร์ม",
-    `วันที่ ${toThaiDate(date, false)} · ผู้เบิก ${by || "—"}`, ""]
+    `วันที่ ${toThaiDate(date, false)} · ผู้เบิก ${by || "—"}`,
+    keyedAt ? "⏱ " + keyedAt : "", ""]
     .concat(groups.map((g, i) => `${i + 1}. ${g.name} — รวม ${fmt1(g.total)} ${g.unit}\n    (${g.per.join(" · ")})`))
     .concat(["", "ฝากเสมียนห้องยาจัดของให้ด้วยค่ะ 🙏"]).join("\n");
 
   const draw = () => {
-    const W = 760, PAD = 30, ROW = 62, HEAD = 112, SUB = 56, FOOT = 78;
+    const W = 760, PAD = 30, ROW = 62, HEAD = 112, SUB = keyedAt ? 80 : 56, FOOT = 78;
     const H = HEAD + SUB + 16 + groups.length * ROW + FOOT;
     const K = 2;   // ความละเอียด 2 เท่า จะได้ไม่แตกตอนซูมในไลน์
     const cv = document.createElement("canvas");
@@ -8266,6 +8308,10 @@ function MedSlipModal({ rows = [], onClose }) {
     font(700, 19); g2.fillStyle = "#5c5347";
     const bt = `ผู้เบิก: ${by || "—"}`;
     g2.fillText(bt, W - PAD - g2.measureText(bt).width, HEAD + 36);
+    if (keyedAt) {
+      font(600, 16); g2.fillStyle = "#8a8170";
+      g2.fillText("\u23F1 " + keyedAt, PAD, HEAD + 62);
+    }
     // รายการ
     let y = HEAD + SUB + 16;
     groups.forEach((g, i) => {
