@@ -8275,13 +8275,15 @@ function MedSlipModal({ rows = [], onClose }) {
   rows.forEach((r) => {
     let g = groups.find((x) => x.name === r.name);
     if (!g) groups.push(g = { name: r.name, unit: r.unit || "", per: [], total: 0, note: r.note || "", noStock: !!r.noStock });
-    g.per.push(`${r.houseId} ${fmt1(r.qty)}`);
+    g.per.push({ h: r.houseId || "—", q: fmt1(r.qty) });
     g.total += parseFloat(r.qty) || 0;
   });
+  // เรียงหลังจากน้อยไปมาก (H2 → H7) ให้ตรงกับที่เสมียนเดินจัดของ
+  groups.forEach((g) => g.per.sort((a, b) => String(a.h).localeCompare(String(b.h), "en", { numeric: true })));
   const asText = () => ["🧾 ใบเบิกยา/วิตามิน · เอสเจเอฟ ฟาร์ม",
     `วันที่ ${toThaiDate(date, false)} · ผู้เบิก ${by || "—"}`,
     keyedAt ? "⏱ " + keyedAt : "", ""]
-    .concat(groups.map((g, i) => `${i + 1}. ${g.name} — รวม ${fmt1(g.total)} ${g.unit}\n    (${g.per.join(" · ")})`))
+    .concat(groups.map((g, i) => `${i + 1}. ${g.name} — รวม ${fmt1(g.total)} ${g.unit}\n    ${g.per.map((p) => `${p.h}-${p.q} ${g.unit}`).join(" · ")}`))
     .concat(["", "ฝากเสมียนห้องยาจัดของให้ด้วยค่ะ 🙏"]).join("\n");
 
   const draw = () => {
@@ -8322,8 +8324,15 @@ function MedSlipModal({ rows = [], onClose }) {
       while (g2.measureText(nm).width > W - 300 && nm.length > 4) nm = nm.slice(0, -2);
       if (nm !== g.name) nm += "…";
       g2.fillText(nm, PAD + 30, y + 26);
+      /* "H2-8 ถุง · H3-8 ถุง" — มีขีดคั่น เลขไม่ไปติดกับชื่อหลัง
+         หลายหลังแล้วยาวเกินช่อง: ตัดหน่วยทิ้งก่อน (หน่วยมีบอกตัวใหญ่ด้านขวาอยู่แล้ว) แล้วค่อยย่อตัวอักษร */
+      const tail = g.noStock ? "   📍 ของอยู่ที่เล้าแล้ว" : "";
+      const maxW = W - (PAD + 30) - 190;
       g2.fillStyle = "#7a6f5c"; font(600, 16);
-      g2.fillText(g.per.join("  ·  ") + (g.noStock ? "   📍 ของอยู่ที่เล้าแล้ว" : ""), PAD + 30, y + 48);
+      let line = g.per.map((p) => `${p.h}-${p.q} ${g.unit}`).join("  ·  ") + tail;
+      if (g2.measureText(line).width > maxW) line = g.per.map((p) => `${p.h}-${p.q}`).join("  ·  ") + tail;
+      if (g2.measureText(line).width > maxW) font(600, 13.5);
+      g2.fillText(line, PAD + 30, y + 48);
       const tot = `${fmt1(g.total)} ${g.unit}`;
       g2.fillStyle = "#B45309"; font(800, 25);
       g2.fillText(tot, W - PAD - g2.measureText(tot).width, y + 32);
