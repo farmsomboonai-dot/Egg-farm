@@ -3877,14 +3877,14 @@ function AccountView({ bills, payments, recordPayment, isOwner }) {
         <div style={S.tableScroll}>
           <table style={S.table}>
             <thead><tr>
-              <th style={{ ...S.th, textAlign: "left" }}>เลขที่บิล</th>
-              <th style={{ ...S.th, textAlign: "left" }}>ลูกค้า</th>
-              <th style={S.th}>วันที่</th>
-              <th style={S.th}>ยอดบิล</th>
-              <th style={S.th}>ชำระแล้ว</th>
-              <th style={S.th}>คงค้าง</th>
-              <th style={S.th}>สถานะ</th>
-              <th style={S.th}></th>
+              <th style={{ ...S.th, ...S.thTop, textAlign: "left" }}>เลขที่บิล</th>
+              <th style={{ ...S.th, ...S.thTop, textAlign: "left" }}>ลูกค้า</th>
+              <th style={{ ...S.th, ...S.thTop }}>วันที่</th>
+              <th style={{ ...S.th, ...S.thTop }}>ยอดบิล</th>
+              <th style={{ ...S.th, ...S.thTop }}>ชำระแล้ว</th>
+              <th style={{ ...S.th, ...S.thTop }}>คงค้าง</th>
+              <th style={{ ...S.th, ...S.thTop }}>สถานะ</th>
+              <th style={{ ...S.th, ...S.thTop }}></th>
             </tr></thead>
             <tbody>
               {rows.length === 0 ? (
@@ -7588,7 +7588,7 @@ function VaccineModal({ houseId, rows = [], info, onAdd, onDelete, onClose }) {
   const sorted = rows.slice().sort((a, b) => (a.date || "").localeCompare(b.date || "") || String(a.id).localeCompare(String(b.id)));
   const inp = { width: "100%", padding: "7px 8px", border: "1.5px solid #e3ddd0", borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: "#fff" };
   const lbl = { display: "block", fontSize: 11, fontWeight: 700, color: "#7a6f5c", marginBottom: 2 };
-  const th = { padding: "7px 8px", fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", textAlign: "left", whiteSpace: "nowrap" };
+  const th = { padding: "7px 8px", fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", textAlign: "left", whiteSpace: "nowrap", position: "sticky", top: 0, zIndex: 3 };   // 📌 ล็อกหัวตาราง
   const td = { padding: "6px 8px", fontSize: 12, borderBottom: "1px solid #f3eee2", verticalAlign: "top" };
   const valid = f.date && f.name.trim();
   const submit = () => {
@@ -7610,7 +7610,7 @@ function VaccineModal({ houseId, rows = [], info, onAdd, onDelete, onClose }) {
         {sorted.length === 0 ? (
           <div style={{ padding: "26px 16px", textAlign: "center", color: "#9b8e78", fontWeight: 600, marginBottom: 12 }}>ยังไม่มีบันทึกวัคซีนของหลังนี้ — เพิ่มรายการแรกด้านล่าง</div>
         ) : (
-          <div style={{ overflowX: "auto", marginBottom: 14 }}>
+          <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "56vh", marginBottom: 14 }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 840 }}>
               <thead><tr>
                 <th style={th}>วันที่</th><th style={th}>อายุ</th><th style={{ ...th, textAlign: "right" }}>จำนวนไก่</th><th style={th}>วัคซีน</th><th style={th}>ป้องกันโรค</th><th style={th}>ชนิด</th><th style={th}>วิธีใช้</th><th style={th}>ขวด · โด๊ส</th><th style={th}>Lot · หมดอายุ</th><th style={th}>ผู้ทำ</th><th style={th}></th>
@@ -7726,7 +7726,7 @@ function MedBookModal({ rearingByDate = {}, vaccines = {}, houseIds = [], initia
     });
   }
   rows.sort((a, b) => String(b.d).localeCompare(String(a.d)));
-  const th = { padding: "7px 9px", fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", textAlign: "left", whiteSpace: "nowrap" };
+  const th = { padding: "7px 9px", fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", textAlign: "left", whiteSpace: "nowrap", position: "sticky", top: 0, zIndex: 3 };   // 📌 ล็อกหัวตาราง
   const td = { padding: "7px 9px", fontSize: 12.5, borderBottom: "1px solid #f3eee2", verticalAlign: "top" };
   const chipB = (on, color = "#0E7490") => ({ padding: "6px 13px", borderRadius: 999, border: on ? `1.5px solid ${color}` : "1.5px solid #e3ddd0", background: on ? color : "#fff", color: on ? "#fff" : "#6b6358", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" });
   const typeBadge = (t) => t === "vac"
@@ -7756,7 +7756,7 @@ function MedBookModal({ rearingByDate = {}, vaccines = {}, houseIds = [], initia
             ยังไม่มีบันทึก{kind === "vac" ? "วัคซีน" : kind === "med" ? "ยา/วิตามิน" : ""}{scope === "all" ? "" : ` ของโรงเรือน ${scope}`} — ยา/วิตามินบันทึกในฟอร์มการเลี้ยงรายวัน · วัคซีนบันทึกในสมุดวัคซีน
           </div>
         ) : (
-          <div style={{ overflowX: "auto" }}>
+          <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "56vh" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 680 }}>
               <thead><tr>
                 <th style={th}>วันที่</th>
@@ -7803,7 +7803,7 @@ function HealthPlanModal({ plan = [], houseIds = [], onAdd, onToggle, onDelete, 
     : p.date < todayISO ? ["⚠️ เลยกำหนด", "#B91C1C", "#FEF2F2"]
     : p.date === todayISO ? ["🔔 วันนี้", "#B45309", "#FFF7EC"]
     : ["รอถึงกำหนด", "#6b7280", "#F9FAFB"];
-  const th = { padding: "7px 9px", fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", textAlign: "left", whiteSpace: "nowrap" };
+  const th = { padding: "7px 9px", fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", textAlign: "left", whiteSpace: "nowrap", position: "sticky", top: 0, zIndex: 3 };   // 📌 ล็อกหัวตาราง
   const td = { padding: "7px 9px", fontSize: 12.5, borderBottom: "1px solid #f3eee2", verticalAlign: "top" };
   const inp = { width: "100%", padding: "8px 9px", border: "1.5px solid #e3ddd0", borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: "#fff" };
   const lbl = { display: "block", fontSize: 11, fontWeight: 700, color: "#7a6f5c", marginBottom: 2 };
@@ -7833,7 +7833,7 @@ function HealthPlanModal({ plan = [], houseIds = [], onAdd, onToggle, onDelete, 
         {items.length === 0 ? (
           <div style={{ padding: "24px 16px", textAlign: "center", color: "#9b8e78", fontWeight: 600, marginBottom: 12 }}>ยังไม่มีแผนของ{monthTH(month)} — เพิ่มรายการแรกด้านล่าง</div>
         ) : (
-          <div style={{ overflowX: "auto", marginBottom: 14 }}>
+          <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "56vh", marginBottom: 14 }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
               <thead><tr>
                 <th style={th}>วันที่</th><th style={th}>โรงเรือน</th><th style={th}>ประเภท</th><th style={th}>รายการ</th><th style={th}>หมายเหตุ</th><th style={th}>สถานะ</th><th style={th}></th>
@@ -10242,11 +10242,11 @@ function MedView({ production = {}, medStock = [], medInfo = {}, medReceipts = [
         {!monthIssues.length ? (
           <div style={{ padding: "18px 4px", color: "#9b8e78", fontSize: 13 }}>ยังไม่มีใบเบิกใน{ymTH(issueYM)}{canIssue ? " — กด ＋ เบิกยา เพื่อเริ่ม" : ""}</div>
         ) : (
-          <div style={{ overflowX: "auto" }}>
+          <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "62vh" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
               <thead><tr>
                 {["วันที่", "หลัง", "ยา/วิตามิน", "เบิก", "ผู้เบิก", "จัดของ", "ลงให้ยาแล้ว?", ""].map((h, i) => (
-                  <th key={i} style={{ padding: "8px 9px", fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", whiteSpace: "nowrap", textAlign: i === 3 ? "right" : "left" }}>{h}</th>
+                  <th key={i} style={{ padding: "8px 9px", fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", whiteSpace: "nowrap", textAlign: i === 3 ? "right" : "left", position: "sticky", top: 0, zIndex: 3 }}>{h}</th>
                 ))}
               </tr></thead>
               <tbody>
@@ -12261,13 +12261,13 @@ function TraySortReport({ trays, custName, waitingSort = 0 }) {
       <div style={S.tableScroll}>
         <table style={S.table}>
           <thead><tr>
-            <th style={{ ...S.th, textAlign: "left" }}>ใบรับคืน</th>
-            <th style={{ ...S.th, textAlign: "left" }}>ลูกค้า</th>
-            <th style={S.th}>รับคืน</th>
-            <th style={S.th}>คัดดี</th>
-            <th style={S.th}>ชำรุด</th>
-            <th style={S.th}>แลกแล้ว</th>
-            <th style={S.th}>สถานะ</th>
+            <th style={{ ...S.th, ...S.thTop, textAlign: "left" }}>ใบรับคืน</th>
+            <th style={{ ...S.th, ...S.thTop, textAlign: "left" }}>ลูกค้า</th>
+            <th style={{ ...S.th, ...S.thTop }}>รับคืน</th>
+            <th style={{ ...S.th, ...S.thTop }}>คัดดี</th>
+            <th style={{ ...S.th, ...S.thTop }}>ชำรุด</th>
+            <th style={{ ...S.th, ...S.thTop }}>แลกแล้ว</th>
+            <th style={{ ...S.th, ...S.thTop }}>สถานะ</th>
             <th style={S.th}>คัดเมื่อ / ผู้คัด</th>
           </tr></thead>
           <tbody>
