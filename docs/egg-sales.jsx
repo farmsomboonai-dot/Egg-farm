@@ -31,11 +31,12 @@ const SB_SYNC_RE = /^egg/;
 const SB_SKIP = new Set(["eggDeviceId", "eggSyncMeta", "eggCurrentRole", "eggAccessLog"]);
 // ลิสต์ (อาเรย์) ที่ให้รวมแบบ union ตาม id/เลขบิล แทนการทับทั้งก้อน — เฉพาะลิสต์ที่ "ไม่เคยลบสมาชิกออก"
 // (บิล: ยกเลิก = ติดธง cancelled ไม่ได้ลบออก) จึง union ปลอดภัย กัน 2 คนเพิ่มพร้อมกันแล้วหาย
-const SB_MERGE_ARRAY_KEYS = new Set(["eggBills", "eggMedIssues", "eggMedOrders", "eggMedCounts"]);
+const SB_MERGE_ARRAY_KEYS = new Set(["eggBills", "eggMedIssues", "eggMedOrders", "eggMedCounts", "eggEnvChecks"]);
 // 📋 บันทึกกิจกรรม: ป้ายชื่อไทยของแต่ละคีย์ข้อมูล (ไว้โชว์ว่า "แก้อะไร" ในหน้าใครแก้อะไร)
 const ACTIVITY_KEY_LABELS = {
   eggBills: "บิลขาย", eggPayments: "รับชำระเงิน", eggProduction: "ผลผลิตประจำวัน",
   eggRearing: "บันทึกการเลี้ยง", eggFlocks: "รุ่นการเลี้ยง", eggVaccines: "วัคซีน", eggLabTests: "ผลตรวจแล็บ",
+  eggEnvChecks: "ตรวจวัดโรงเรือน",
   eggMedStock: "สต๊อกยา", eggMedReceipts: "รับยาเข้าสต๊อก", eggMedTrials: "ทดลอง·ติดตามผล",
   eggMedIssues: "ใบเบิกยา", eggMedOrders: "ขอสั่งซื้อยา", eggMedCounts: "นับสต๊อกยา",
   eggFeedDeliveries: "รับอาหาร", eggFeedPrice: "ราคาอาหาร", eggStockCounts: "ปิดยอดสต๊อกไข่", eggCloseMeta: "ปิดยอดสิ้นวัน", eggWashLogs: "ล้างไข่เปื้อน",
@@ -1112,6 +1113,41 @@ const FEED_SUPPLIERS = ["JBF", "หนองบัวฟีดมิลล์"];
 
 // ---------- สต๊อกยาและวิตามิน — รีเซ็ตยอดตามชีต "สรุปยอดคงเหลือ ยา" ณ 23/7/69 (ยารักษา) ----------
 // opening = คงเหลือจริง ณ วันตั้งต้น (since=24/7 → ยอดนับ 23/7 เป็นยกมาของวันถัดไป) ; เบิกใช้ = ระบบดึงจากบันทึกให้ยารายวัน (จับคู่ด้วยชื่อ ตั้งแต่ since) ; ราคา = บาท/หน่วย
+/* 🌬️ ตรวจวัดสภาพแวดล้อมในโรงเรือน — แรงลม (ฟุต/นาที) · อุณหภูมิ · ความชื้น
+   ใบกระดาษเดิมวัด 3 จุดตามยาวเล้า แต่ละจุดวัด Row 1/3/5 และวัด 2 แนว (ทางเดิน · หน้ากรง)
+   ในระบบเก็บ "ค่าเฉลี่ยของจุดนั้น" พอ — รายละเอียดรายแถวอยู่ในรูปใบกระดาษที่แนบ */
+const ENV_ZONES = [
+  { id: "head", name: "หน้าเล้า 10 ม.", short: "หน้า" },
+  { id: "mid", name: "กลางเล้า", short: "กลาง" },
+  { id: "tail", name: "ท้ายเล้า 10 ม.", short: "ท้าย" },
+];
+const ENV_ROWS = ["Row 1", "Row 3", "Row 5"];
+const ENV_LINES = [{ id: "walk", name: "ทางเดิน" }, { id: "cage", name: "หน้ากรง" }];
+/* CFM = แรงลมเฉลี่ย (FPM) × พื้นที่หน้าพัดลม (ตร.ฟุต)
+   ⚠️ ใบกระดาษเดิมพิมพ์ "× 28.868" (= พัดลม 6 ฟุต) แต่เลข CFM ที่หมอคำนวณจริงทุกใบใช้ × 24.2
+   ยึดตามที่คำนวณจริง และเปิดให้แก้ได้ เผื่อพัดลมแต่ละหลังขนาดไม่เท่ากัน */
+const ENV_FAN_AREA = 24.2;   // พัดลมฟาร์มเรา 150×150 ซม. = 2.25 ตร.ม. = 24.22 ตร.ฟุต (เจ้าของยืนยัน 10 ต.ค. 69)
+const ENV_FANS = 3;
+const ENV_PAD_SIDES = 3, ENV_PAD_POINTS = 3;   // ลมผ่านแผ่นรังผึ้ง 3 ด้าน ด้านละ 3 จุด
+/* 🎛️ สอบเทียบเซ็นเซอร์ตู้คอนโทรลกับเครื่องวัดมือถือ — เล้ามีเซ็นเซอร์อุณหภูมิ 3 ตัว + ความชื้น 1 ตัว
+   tol = ต่างได้ไม่เกินเท่าไร · อุณหภูมิ 1°C เป็นเกณฑ์ที่หมอใช้
+   ความชื้น 5% — เจ้าของยืนยันให้ใช้ค่านี้ไปก่อน (10 ต.ค. 69) ปรับได้ถ้าเจอว่าจริง ๆ แกว่งกว่านี้ */
+const ENV_CAL = [
+  { id: "t1", name: "อุณหภูมิ ตัวที่ 1", unit: "°C", tol: 1 },
+  { id: "t2", name: "อุณหภูมิ ตัวที่ 2", unit: "°C", tol: 1 },
+  { id: "t3", name: "อุณหภูมิ ตัวที่ 3", unit: "°C", tol: 1 },
+  { id: "h", name: "ความชื้น", unit: "%", tol: 5 },
+];
+/* เกณฑ์มาตรฐานของฟาร์ม (หมอกำหนด · เจ้าของแจ้ง 10 ต.ค. 69)
+   อุณหภูมิยอมให้สูงขึ้นเรื่อย ๆ จากหน้าเล้าไปท้ายเล้า เพราะลมพาความร้อนสะสมไปทางท้าย */
+const ENV_STD = {
+  temp: { head: 29, mid: 30, tail: 31.5 },   // °C ไม่เกิน
+  hum: 90,                                   // % ไม่เกิน
+  wind: [300, 500],                          // ฟุต/นาที ในเล้า ต้องอยู่ในช่วงนี้ทุกจุด
+  pad: 300,                                  // ฟุต/นาที ผ่านแพด ไม่ต่ำกว่านี้ทุกจุด
+  fanCFM: 26000,                             // CFM ต่อตัว ไม่ต่ำกว่านี้ (ค่ากลาง — ของจริงขึ้นกับฤดู/อายุไก่)
+};
+const envCFM = (fpm, area) => (parseFloat(fpm) || 0) * (parseFloat(area) || ENV_FAN_AREA);
 const MED_STOCK_SINCE = "2026-07-24";
 /* 🗂️ หมวดยา/วิตามิน — เจ้าของจัดเอง 2 ต.ค. 69 (ไล่ตามลำดับในใบสรุปยอดคงเหลือ)
    เรียงใหม่ตามที่เจ้าของสั่ง: วิตามินขึ้นก่อน แล้วค่อยยา แล้วค่อยอื่นๆ (ใช้ลำดับเดียวกันตอนนับสต๊อก)
@@ -1927,6 +1963,13 @@ export default function App() {
   useEffect(() => { try { localStorage.setItem("eggVaccines", JSON.stringify(vaccines)); } catch {} }, [vaccines]);
   const addVaccine = (hid, row) => { if (viewOnly) return; setVaccines((p) => ({ ...p, [hid]: [...(p[hid] || []), { ...row, id: "VC" + Date.now(), src: "ฟาร์มเรา" }] })); };   // 👀 แขกห้ามแก้   // รายการที่ฟาร์มเราทำเอง (seed = ฟาร์มต้นทาง)
   const deleteVaccine = (hid, id) => setVaccines((p) => ({ ...p, [hid]: (p[hid] || []).filter((r) => r.id !== id) }));
+  /* 🌬️ ใบตรวจวัดโรงเรือน (ทุกสัปดาห์) [{id,date,houseId,by,ts,timeFrom,timeTo,ctrlTemp,ctrlHum,
+     kesTemp,kesHum, z:{head:{walkWind,cageWind,temp,hum},mid,tail}, fans:[fpm×3], fanArea, note, photos}] */
+  const [envChecks, setEnvChecks] = useState(() => { try { return JSON.parse(localStorage.getItem("eggEnvChecks") || "[]"); } catch { return []; } });
+  useEffect(() => { try { localStorage.setItem("eggEnvChecks", JSON.stringify(envChecks)); } catch {} }, [envChecks]);
+  const addEnvCheck = (r) => { if (viewOnly) return; setEnvChecks((p) => [r, ...p]); };
+  const updateEnvCheck = (id, patch) => setEnvChecks((p) => p.map((x) => x.id === id ? { ...x, ...patch } : x));
+  const deleteEnvCheck = (id) => setEnvChecks((p) => p.filter((x) => x.id !== id));
   // สมุดผลตรวจแล็บประจำหลัง {houseId: [rows]} — เจาะเลือด (serology) / เก็บซาก (necropsy) ส่งตรวจ
   const [labTests, setLabTests] = useState(() => { try { return JSON.parse(localStorage.getItem("eggLabTests") || "{}"); } catch { return {}; } });
   useEffect(() => { try { localStorage.setItem("eggLabTests", JSON.stringify(labTests)); } catch {} }, [labTests]);
@@ -2323,7 +2366,8 @@ export default function App() {
       {view === "manage" && <ManageDashView production={productionByDate} rearingByDate={rearingByDate} flocks={flocks} />}
       {view === "stock" && <StockView salesByDay={salesByDay} productionByDate={productionByDate} defaultDay={isoFromTs(Date.now())} stockCounts={stockCounts} closeMeta={closeMeta} refPrices={refPrices} washLogs={washLogs} addWash={addWash} delWash={delWash} canWash={currentRole === "owner" || currentRole === "office"} onCloseDay={closeDay} onReopenDay={reopenDay} />}
       {view === "production" && <ProductionView houses={houses} setHouses={setHouses} prodDate={prodDate} setProdDate={setProdDate} production={productionByDate} flocks={flocks} readOnly={viewOnly || roleObj.id === "farm"} dayClosed={stockCounts[prodDate] != null} isOwner={roleObj.id === "owner"} />}
-      {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={guard(saveRearing)} flocks={flocks} saveFlock={guard(saveFlock)} production={productionByDate} medTrials={medTrials} medStock={medStock} medInfo={medInfo} vaccines={vaccines} addVaccine={guard(addVaccine)} deleteVaccine={guard(deleteVaccine)} labTests={labTests} addLabTest={guard(addLabTest)} deleteLabTest={guard(deleteLabTest)} viewOnly={viewOnly} />}
+      {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={guard(saveRearing)} flocks={flocks} saveFlock={guard(saveFlock)} production={productionByDate} medTrials={medTrials} medStock={medStock} medInfo={medInfo} vaccines={vaccines} addVaccine={guard(addVaccine)} deleteVaccine={guard(deleteVaccine)} labTests={labTests} addLabTest={guard(addLabTest)} deleteLabTest={guard(deleteLabTest)}
+        envChecks={envChecks} addEnvCheck={guard(addEnvCheck)} updateEnvCheck={guard(updateEnvCheck)} deleteEnvCheck={guard(deleteEnvCheck)} viewOnly={viewOnly} />}
       {view === "feed" && <FeedView rearingByDate={rearingByDate} flocks={flocks} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} feedPrice={feedPrice} setFeedPrice={setFeedPrice} feedUseByMonth={feedUseByMonth} feedCostByMonth={feedCostByMonth} />}
       {view === "med" && <MedView production={productionByDate} medStock={medStock} medInfo={medInfo} medReceipts={medReceipts} addMedItem={guard(addMedItem)} updateMedItem={guard(updateMedItem)} addMedReceipt={guard(addMedReceipt)} medCostByMonth={medCostByMonth}
         medIssues={medIssues} addMedIssue={guard(addMedIssue)} updateMedIssue={guard(updateMedIssue)} deleteMedIssue={guard(deleteMedIssue)}
@@ -7881,6 +7925,506 @@ function HealthPlanModal({ plan = [], houseIds = [], onAdd, onToggle, onDelete, 
   );
 }
 
+/* 🖨️ ฟอร์มกระดาษ "ตรวจวัดโรงเรือน" — พิมพ์ A4 แนวตั้ง เอาไปเขียนที่เล้า
+   ต่างจากใบเดิม: แยกช่องทางเดิน/หน้ากรงออกจากกัน (เดิมเขียน 2 เลขเบียดในช่องเดียว)
+   + มีช่องวันที่/สัปดาห์/ผู้ตรวจ/หมายเหตุ + สูตร CFM ที่ตรงกับที่ฟาร์มคำนวณจริง */
+function EnvPaperForm({ houseId, onPrint }) {
+  const bd = "1px solid #333";
+  const tb = { width: "100%", borderCollapse: "collapse", tableLayout: "fixed" };
+  const hd = { border: bd, padding: "3px 2px", fontSize: 9, fontWeight: 700, background: "#eee", textAlign: "center" };
+  const cl = { border: bd, padding: "3px 2px", height: 21, fontSize: 9, textAlign: "center" };
+  const rh = { border: bd, padding: "3px 4px", fontSize: 9, fontWeight: 700, background: "#f6f6f6", textAlign: "left", width: "16%" };
+  const sec = { fontSize: 10.5, fontWeight: 800, margin: "9px 0 3px" };
+  const line = (w) => <span style={{ display: "inline-block", width: w, borderBottom: "1px dotted #333", height: 13 }} />;
+  return (
+    <div>
+      <div className="no-print" style={{ display: "flex", gap: 9, alignItems: "center", flexWrap: "wrap", marginBottom: 11, background: "#EFF6FF", border: "1.5px solid #BFDBFE", borderRadius: 11, padding: "10px 13px" }}>
+        <div style={{ flex: 1, minWidth: 220, fontSize: 12.5, color: "#1D4ED8", fontWeight: 700, lineHeight: 1.7 }}>
+          ใบนี้พิมพ์ไปเขียนที่เล้าได้เลย · ปรับจากใบเดิม 4 จุด:<br />
+          <span style={{ color: "#3730A3" }}>① แยกช่อง “ทางเดิน / หน้ากรง” ② เพิ่มช่องวันที่-สัปดาห์-ผู้ตรวจ ③ แก้ตัวคูณ CFM เป็น {ENV_FAN_AREA} ④ มีช่องหมายเหตุ</span>
+        </div>
+        <button onClick={onPrint} style={{ border: "none", background: "#1D4ED8", color: "#fff", borderRadius: 10, padding: "10px 18px", fontWeight: 800, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit" }}>🖨️ พิมพ์ใบนี้</button>
+      </div>
+
+      <div id="env-print" style={{ background: "#fff", color: "#111", padding: 14, border: "1px solid #e3ddd0", borderRadius: 10 }}>
+        <div style={{ textAlign: "center", marginBottom: 7 }}>
+          <div style={{ fontSize: 14, fontWeight: 800 }}>แบบบันทึกการตรวจวัด แรงลม / อุณหภูมิ / ความชื้น ภายในโรงเรือน</div>
+          <div style={{ fontSize: 10 }}>บริษัท เอสเจเอฟ ฟาร์ม จำกัด (ท่าม่วง) · ตรวจสัปดาห์ละ 1 ครั้ง</div>
+        </div>
+        <div style={{ fontSize: 10, marginBottom: 7, lineHeight: 2 }}>
+          โรงเรือน <b style={{ fontSize: 12 }}>{houseId}</b> &nbsp;·&nbsp; วันที่ {line(78)} &nbsp; สัปดาห์ที่ {line(34)} &nbsp; เวลา {line(50)} ถึง {line(50)} &nbsp; ผู้ตรวจ {line(96)}
+        </div>
+
+        <div style={sec}>① เทียบตู้คอนโทรล กับ เครื่องวัดมือถือ</div>
+        <table style={tb}><tbody>
+          <tr><th style={{ ...hd, width: "22%" }}></th><th style={hd}>ตู้คอนโทรล</th><th style={hd}>เครื่องวัดมือถือ</th><th style={hd}>ต่างกัน</th><th style={{ ...hd, width: "34%" }}>หมายเหตุ (ต่างเกิน 1°C ให้แจ้งช่าง)</th></tr>
+          {["อุณหภูมิ (°C)", "ความชื้น (%)"].map((t) => (
+            <tr key={t}><td style={rh}>{t}</td><td style={cl} /><td style={cl} /><td style={cl} /><td style={cl} /></tr>
+          ))}
+        </tbody></table>
+
+        {ENV_ZONES.map((z, zi) => (
+          <div key={z.id}>
+            <div style={sec}>{["②", "③", "④"][zi]} {z.name}</div>
+            <table style={tb}><tbody>
+              <tr>
+                <th style={{ ...hd, width: "16%" }} rowSpan={2}></th>
+                {ENV_ROWS.map((r) => <th key={r} style={hd} colSpan={2}>{r}</th>)}
+                <th style={{ ...hd, background: "#ddd" }} colSpan={2}>เฉลี่ย</th>
+              </tr>
+              <tr>
+                {ENV_ROWS.concat(["avg"]).map((r, k) => ENV_LINES.map((ln) => (
+                  <th key={r + ln.id} style={{ ...hd, fontSize: 8, background: k === 3 ? "#ddd" : "#eee" }}>{ln.name}</th>
+                )))}
+              </tr>
+              {[["ความชื้น (%)"], ["อุณหภูมิ (°C)"], ["แรงลม (FPM)"]].map(([t]) => (
+                <tr key={t}><td style={rh}>{t}</td>{Array.from({ length: 8 }).map((_, k) => <td key={k} style={{ ...cl, background: k >= 6 ? "#fafafa" : "#fff" }} />)}</tr>
+              ))}
+            </tbody></table>
+          </div>
+        ))}
+
+        <div style={sec}>⑤ ประสิทธิภาพพัดลม — วัด 9 จุดต่อตัว (บน/กลาง/ล่าง × ซ้าย/กลาง/ขวา)</div>
+        <div style={{ display: "flex", gap: 7 }}>
+          {Array.from({ length: ENV_FANS }).map((_, fi) => (
+            <div key={fi} style={{ flex: 1, border: bd, padding: 5 }}>
+              <div style={{ fontSize: 9.5, fontWeight: 800, textAlign: "center", marginBottom: 3 }}>พัดลมตัวที่ {fi + 1}</div>
+              <table style={tb}><tbody>
+                {[0, 1, 2].map((r) => <tr key={r}>{[0, 1, 2].map((c) => <td key={c} style={{ ...cl, height: 23 }} />)}</tr>)}
+              </tbody></table>
+              <div style={{ fontSize: 8.5, lineHeight: 2.1, marginTop: 4 }}>
+                รวม {line(48)} ÷ 9<br />
+                = {line(44)} FPM<br />
+                × {ENV_FAN_AREA} = {line(52)} <b>CFM</b>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize: 8, marginTop: 3, color: "#555" }}>
+          CFM = แรงลมเฉลี่ย (FPM) × พื้นที่หน้าพัดลม {ENV_FAN_AREA} ตร.ฟุต · ถ้าพัดลมหลังนี้ขนาดไม่เท่านี้ ให้แก้ตัวเลขในระบบตอนคีย์
+        </div>
+
+        <div style={{ fontSize: 9.5, marginTop: 9, lineHeight: 2.3 }}>
+          <b>หมายเหตุ / สิ่งที่พบ</b> (แผ่นรังผึ้ง · สายพาน · รอยรั่ว · เสียงผิดปกติ)<br />
+          {line("100%")}<br />{line("100%")}
+        </div>
+        <div style={{ display: "flex", gap: 20, fontSize: 9.5, marginTop: 11 }}>
+          <div style={{ flex: 1 }}>ลงชื่อผู้ตรวจ {line("55%")}</div>
+          <div style={{ flex: 1 }}>ผู้ตรวจสอบ {line("55%")}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* 🌬️ ใบตรวจวัดโรงเรือน — แรงลม · อุณหภูมิ · ความชื้น (ทุกสัปดาห์)
+   เจ้าของสั่ง 10 ต.ค. 69: เดิมหมอตรวจเดือนละครั้งลงกระดาษอย่างเดียว ไม่มีใครย้อนดูได้
+   ของใหม่: ตรวจทุกสัปดาห์ → ถ่ายรูปใบกระดาษแนบไว้ + คีย์ตัวเลขสรุปไว้ดูแนวโน้ม
+   รายละเอียดรายแถว (Row 1/3/5) ยังอยู่บนกระดาษ ไม่ต้องคีย์ซ้ำ */
+function envCalc(r) {
+  const z = r.z || {};
+  const num = (v) => { const n = parseFloat(v); return isNaN(n) ? null : n; };
+  const windOf = (zid) => {
+    const a = num(z[zid] && z[zid].walkWind), b = num(z[zid] && z[zid].cageWind);
+    if (a == null && b == null) return null;
+    return a != null && b != null ? (a + b) / 2 : (a != null ? a : b);
+  };
+  const area = num(r.fanArea) || ENV_FAN_AREA;
+  const cfms = (r.fans || []).map((f) => num(f) == null ? null : envCFM(f, area));
+  const cfmTot = cfms.filter((x) => x != null).reduce((s, x) => s + x, 0);
+  const temps = ENV_ZONES.map((zz) => num(z[zz.id] && z[zz.id].temp)).filter((v) => v != null);
+  const hums = ENV_ZONES.map((zz) => num(z[zz.id] && z[zz.id].hum)).filter((v) => v != null);
+  const winds = ENV_ZONES.map((zz) => windOf(zz.id));
+  const avg = (a) => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
+  const cal = r.cal || {};
+  const calDiff = {};
+  ENV_CAL.forEach((s) => {
+    const c = num(cal[s.id] && cal[s.id].c), v = num(cal[s.id] && cal[s.id].r);
+    calDiff[s.id] = (c != null && v != null) ? c - v : null;
+  });
+  const padVals = (r.pads || []).map((side) => (side || []).map(num).filter((v) => v != null));
+  const padFlat = padVals.reduce((a, b) => a.concat(b), []);
+  const padAvg = padVals.map((s) => s.length ? s.reduce((a, b) => a + b, 0) / s.length : null);
+  return {
+    windOf, winds, cfms, cfmTot, area,
+    padAvg, padMin: padFlat.length ? Math.min.apply(null, padFlat) : null, padN: padFlat.length,
+    tAvg: avg(temps), hAvg: avg(hums),
+    spread: temps.length >= 2 ? Math.max.apply(null, temps) - Math.min.apply(null, temps) : null,
+    calDiff,
+  };
+}
+/* เตือนเมื่อค่าผิดปกติ — อิงจากของจริงที่ฟาร์มวัดได้ 3 ต.ค. 69 (ลมท้ายเล้า ~700 หน้าเล้า ~330) */
+function envWarns(r, prev) {
+  const c = envCalc(r), out = [];
+  const num = (v) => { const n = parseFloat(v); return isNaN(n) ? null : n; };
+  const z = r.z || {};
+  // เทียบเกณฑ์รายจุด — บอกให้ชัดว่าจุดไหน แนวไหน เกินเท่าไร จะได้ตามแก้ถูกที่
+  ENV_ZONES.forEach((zz) => {
+    const d = z[zz.id] || {};
+    const t = num(d.temp), h = num(d.hum);
+    const lim = ENV_STD.temp[zz.id];
+    if (t != null && t > lim) out.push({ t: "bad", m: `${zz.short}เล้า อุณหภูมิ ${t.toFixed(1)}°C — เกินเกณฑ์ ${lim}°C` });
+    if (h != null && h > ENV_STD.hum) out.push({ t: "bad", m: `${zz.short}เล้า ความชื้น ${h.toFixed(1)}% — เกินเกณฑ์ ${ENV_STD.hum}%` });
+    ENV_LINES.forEach((ln) => {
+      const w = num(d[ln.id + "Wind"]);
+      if (w == null) return;
+      if (w < ENV_STD.wind[0]) out.push({ t: "bad", m: `${zz.short}เล้า ${ln.name} ลม ${fmt1(w)} — ต่ำกว่าเกณฑ์ ${ENV_STD.wind[0]} ฟุต/นาที` });
+      else if (w > ENV_STD.wind[1]) out.push({ t: "warn", m: `${zz.short}เล้า ${ln.name} ลม ${fmt1(w)} — สูงกว่าเกณฑ์ ${ENV_STD.wind[1]} ฟุต/นาที` });
+    });
+  });
+  (c.padAvg || []).forEach((v, i) => {
+    if (v != null && v < ENV_STD.pad) out.push({ t: "bad", m: `ลมผ่านแพดด้านที่ ${i + 1} เฉลี่ย ${fmt1(v)} — ต่ำกว่าเกณฑ์ ${ENV_STD.pad} ฟุต/นาที` });
+  });
+  if (c.padMin != null && c.padMin < ENV_STD.pad) out.push({ t: "bad", m: `มีจุดที่แพดลมต่ำสุด ${fmt1(c.padMin)} ฟุต/นาที — เช็คแพดตัน/รอยรั่วตรงจุดนั้น` });
+  c.cfms.forEach((v, i) => {
+    if (v != null && v > 0 && v < ENV_STD.fanCFM) out.push({ t: "warn", m: `พัดลมตัวที่ ${i + 1} ได้ ${fmt(Math.round(v))} CFM — ต่ำกว่าค่ากลาง ${fmt(ENV_STD.fanCFM)} CFM` });
+  });
+  if (c.spread != null && c.spread > 3) out.push({ t: "warn", m: `อุณหภูมิหัว-ท้ายเล้าต่าง ${c.spread.toFixed(1)}°C (เกิน 3°C) — ลมอาจไหลไม่ทั่ว` });
+  ENV_CAL.forEach((s) => {
+    const d = c.calDiff[s.id];
+    if (d != null && Math.abs(d) > s.tol) out.push({ t: "warn", m: `เซ็นเซอร์ ${s.name} ตู้คอนโทรลต่างจากค่าวัดจริง ${d > 0 ? "+" : ""}${d.toFixed(1)}${s.unit} — เกิน ${s.tol}${s.unit} ควรแจ้งช่างสอบเทียบ` });
+  });
+  const wH = c.winds[0], wT = c.winds[2];
+  if (wH != null && wT != null && wT < wH) out.push({ t: "warn", m: "แรงลมท้ายเล้าน้อยกว่าหน้าเล้า — ปกติท้ายเล้าควรแรงกว่า เช็คสิ่งกีดขวาง/รอยรั่ว" });
+  if (prev) {
+    const p = envCalc(prev);
+    if (p.cfmTot > 0 && c.cfmTot > 0) {
+      const d = (c.cfmTot - p.cfmTot) / p.cfmTot * 100;
+      if (d < -10) out.push({ t: "bad", m: `ลมพัดลมรวมลดลง ${Math.abs(d).toFixed(0)}% จากครั้งก่อน — เช็คสายพาน · ใบพัด · แผ่นรังผึ้งตัน` });
+    }
+  }
+  return out;
+}
+
+function EnvCheckModal({ houseId, rows = [], onAdd, onUpdate, onDelete, viewOnly = false, onClose }) {
+  const sorted = [...rows].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const [tab, setTab] = useState(sorted.length ? "list" : "new");
+  const [busy, setBusy] = useState("");
+  const who = (() => { try { return labelOfAccount(localStorage.getItem("sjfAuthUsername") || "") || ""; } catch (e) { return ""; } })();
+  const blank = {
+    date: isoFromTs(Date.now()), timeFrom: "", timeTo: "", by: who,
+    outTemp: "", outHum: "",
+    cal: ENV_CAL.reduce((o, s) => { o[s.id] = { c: "", r: "" }; return o; }, {}),
+    pads: Array.from({ length: ENV_PAD_SIDES }, () => Array.from({ length: ENV_PAD_POINTS }, () => "")),
+    z: { head: { walkWind: "", cageWind: "", temp: "", hum: "" }, mid: { walkWind: "", cageWind: "", temp: "", hum: "" }, tail: { walkWind: "", cageWind: "", temp: "", hum: "" } },
+    fans: ["", "", ""], fanArea: String(ENV_FAN_AREA), note: "",
+  };
+  const [f, setF] = useState(blank);
+  const setZ = (zid, k, v) => setF((p) => ({ ...p, z: { ...p.z, [zid]: { ...p.z[zid], [k]: v.replace(/[^0-9.]/g, "") } } }));
+  const setFan = (i, v) => setF((p) => ({ ...p, fans: p.fans.map((x, j) => j === i ? v.replace(/[^0-9.]/g, "") : x) }));
+  const setPad = (s, k, v) => setF((p) => ({ ...p, pads: p.pads.map((side, i) => i === s ? side.map((x, j) => j === k ? v.replace(/[^0-9.]/g, "") : x) : side) }));
+  const setCal = (sid, which, v) => setF((p) => ({ ...p, cal: { ...p.cal, [sid]: { ...p.cal[sid], [which]: v.replace(/[^0-9.]/g, "") } } }));
+  const num = (v) => { const n = parseFloat(v); return isNaN(n) ? null : n; };
+  const calc = envCalc(f);
+  const valid = ENV_ZONES.some((z) => num(f.z[z.id].walkWind) != null || num(f.z[z.id].temp) != null) || f.fans.some((x) => num(x) != null);
+
+  const save = () => {
+    if (!valid) return;
+    const rec = { ...f, id: "EV" + Date.now(), houseId, ts: Date.now(), photos: [] };
+    onAdd(rec); setF(blank); setTab("list");
+  };
+  const addPhoto = async (rec, e) => {
+    const files = [...(e.target.files || [])]; e.target.value = "";
+    if (!files.length) return;
+    if (!supabase) { alert("โหมดทดลอง (ยังไม่เชื่อมคลาวด์) — อัพรูปไม่ได้"); return; }
+    setBusy(rec.id);
+    try {
+      const out = [...(rec.photos || [])];
+      for (const file of files.slice(0, 4 - out.length)) {
+        if (!file.type.startsWith("image/")) continue;
+        const dataUrl = await fileToScaledDataURL(file, 1800, 0.75);   // ใบกระดาษ ต้องอ่านลายมือออก จึงย่อน้อยกว่ารูปยา
+        const blob = await (await fetch(dataUrl)).blob();
+        const path = `env/${rec.houseId}/${rec.id}-${Date.now()}.jpg`;
+        const { error } = await supabase.storage.from("slips").upload(path, blob, { contentType: "image/jpeg", upsert: true });
+        if (error) throw error;
+        out.push({ path, url: supabase.storage.from("slips").getPublicUrl(path).data.publicUrl });
+      }
+      onUpdate(rec.id, { photos: out });
+      setBusy("");
+    } catch (err) { setBusy(""); alert("อัพรูปไม่สำเร็จ: " + ((err && err.message) || err)); }
+  };
+  /* พิมพ์ใบกระดาษ — ใส่ @page portrait เฉพาะตอนพิมพ์ใบนี้ แล้วถอดออก
+     (ของเดิมในแอปตั้ง A4 landscape ไว้สำหรับใบจัดของ ถ้าไม่แยกจะตีกัน) */
+  const printForm = () => {
+    const st = document.createElement("style");
+    st.textContent = "@media print{@page{size:A4 portrait !important;margin:8mm !important}body *{visibility:hidden !important}#env-print,#env-print *{visibility:visible !important}#env-print{position:absolute;left:0;top:0;width:100%}}";
+    document.head.appendChild(st);
+    window.print();
+    setTimeout(() => { try { st.remove(); } catch (e) {} }, 1200);
+  };
+
+  const lbl = { fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", display: "block", marginBottom: 4 };
+  const inp = { width: "100%", padding: "8px 9px", border: "1.5px solid #e3ddd0", borderRadius: 9, fontSize: 15, fontFamily: "inherit", outline: "none", textAlign: "right", fontWeight: 700, boxSizing: "border-box" };
+  const th = { padding: "7px 8px", fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", textAlign: "right", whiteSpace: "nowrap", position: "sticky", top: 0, zIndex: 3 };
+  const td = { padding: "7px 8px", fontSize: 12.5, borderBottom: "1px solid #eee7d8", textAlign: "right", whiteSpace: "nowrap" };
+  const tabBtn = (id, t) => (
+    <button key={id} onClick={() => setTab(id)} style={{ padding: "7px 14px", borderRadius: 999, border: `1.5px solid ${tab === id ? "#1D4ED8" : "#e0d7c3"}`, background: tab === id ? "#1D4ED8" : "#fff", color: tab === id ? "#fff" : "#7a6f5c", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>{t}</button>
+  );
+  /* bad(x) = ฟังก์ชันบอกว่าค่านี้หลุดเกณฑ์ไหม → ขึ้นกรอบแดงให้เห็นตั้งแต่ตอนพิมพ์ ไม่ต้องรอกดบันทึก */
+  const fld = (label, val, on, unit, bad) => {
+    const n = parseFloat(val);
+    const off = bad && !isNaN(n) && bad(n);
+    return (
+      <div style={{ flex: "1 1 120px", minWidth: 108 }}>
+        <label style={lbl}>{label}{unit ? <span style={{ fontWeight: 600, color: off ? "#B91C1C" : "#9b8e78" }}> ({unit})</span> : null}</label>
+        <input inputMode="decimal" value={val} onChange={(e) => on(e.target.value)} placeholder="—"
+          style={{ ...inp, borderColor: off ? "#EF4444" : "#e3ddd0", borderWidth: off ? 2 : 1.5, color: off ? "#B91C1C" : "inherit", background: off ? "#FEF2F2" : "#fff" }} />
+      </div>
+    );
+  };
+  const outWind = (x) => x < ENV_STD.wind[0] || x > ENV_STD.wind[1];
+
+  return (
+    <div style={S.modalOverlay} onClick={onClose}>
+      <div style={{ ...S.modal, maxWidth: 940, maxHeight: "94vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <div style={S.modalHead}>
+          <div>
+            <div style={S.modalTitle}>🌬️ ตรวจวัดโรงเรือน · {houseId}</div>
+            <div style={S.modalSub}>แรงลม · อุณหภูมิ · ความชื้น — ตรวจทุกสัปดาห์ แล้วถ่ายรูปใบกระดาษแนบไว้</div>
+          </div>
+          <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
+        </div>
+        <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 13 }}>
+          {tabBtn("list", `📋 ประวัติ${sorted.length ? " · " + sorted.length : ""}`)}
+          {!viewOnly && tabBtn("new", "＋ บันทึกผลตรวจ")}
+          {tabBtn("form", "🖨️ ใบกระดาษไว้ออกตรวจ")}
+        </div>
+
+        {tab === "list" && (!sorted.length ? (
+          <div style={{ padding: "28px 16px", textAlign: "center", color: "#9b8e78", fontWeight: 600 }}>
+            ยังไม่มีผลตรวจของหลังนี้ — กด “🖨️ ใบกระดาษไว้ออกตรวจ” พิมพ์ใบไปวัดที่เล้า แล้วกลับมากด “＋ บันทึกผลตรวจ”
+          </div>
+        ) : (<>
+          {(() => {
+            const w = envWarns(sorted[0], sorted[1]);
+            if (!w.length) return <div style={{ background: "#F0FDF4", border: "1.5px solid #BBF7D0", borderRadius: 12, padding: "10px 13px", marginBottom: 12, fontSize: 13, fontWeight: 800, color: "#15803D" }}>✅ ผลตรวจล่าสุด ({toThaiDate(sorted[0].date, false)}) ปกติดี</div>;
+            return (
+              <div style={{ background: "#FFFBEB", border: "1.5px solid #FDE68A", borderRadius: 12, padding: "10px 13px", marginBottom: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: "#B45309", marginBottom: 5 }}>⚠️ ผลตรวจล่าสุด ({toThaiDate(sorted[0].date, false)}) มีจุดต้องดู</div>
+                {w.map((x, i) => <div key={i} style={{ fontSize: 12.5, color: x.t === "bad" ? "#B91C1C" : "#92400E", fontWeight: 700, lineHeight: 1.7 }}>• {x.m}</div>)}
+              </div>
+            );
+          })()}
+          <div style={{ border: "1px solid #eee3cd", borderRadius: 12, overflowX: "auto", overflowY: "auto", maxHeight: "48vh", marginBottom: 12 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
+              <thead><tr>
+                <th style={{ ...th, textAlign: "left" }}>วันที่</th>
+                <th style={{ ...th, textAlign: "left" }}>ผู้ตรวจ</th>
+                <th style={th}>แรงลม หน้า</th><th style={th}>กลาง</th><th style={th}>ท้าย</th>
+                <th style={th}>อุณหภูมิ</th><th style={th}>ความชื้น</th>
+                <th style={th}>ลมพัดลมรวม</th>
+                <th style={{ ...th, textAlign: "center" }}>หลุดเกณฑ์</th>
+                <th style={{ ...th, textAlign: "center" }}>รูปใบ</th>
+                <th style={th}></th>
+              </tr></thead>
+              <tbody>
+                {sorted.map((r, i) => {
+                  const c = envCalc(r), prev = sorted[i + 1];
+                  const w = envWarns(r, prev);
+                  const n1 = (v, d) => v == null ? "—" : fmt1(Math.round(v * 10) / 10);
+                  return (
+                    <tr key={r.id} style={w.length ? { background: "#FFFDF5" } : undefined}>
+                      <td style={{ ...td, textAlign: "left", fontWeight: 800 }}>{toThaiDate(r.date, false)}
+                        {r.timeFrom ? <div style={{ fontSize: 10.5, fontWeight: 600, color: "#9b8e78" }}>{r.timeFrom}{r.timeTo ? "–" + r.timeTo : ""}</div> : null}</td>
+                      <td style={{ ...td, textAlign: "left", color: "#7a6f5c" }}>{r.by || "—"}</td>
+                      <td style={td}>{n1(c.winds[0])}</td>
+                      <td style={td}>{n1(c.winds[1])}</td>
+                      <td style={{ ...td, fontWeight: 800, color: "#1D4ED8" }}>{n1(c.winds[2])}</td>
+                      <td style={td}>{c.tAvg == null ? "—" : c.tAvg.toFixed(1) + "°"}
+                        {c.spread != null && c.spread > 3 ? <div style={{ fontSize: 10, fontWeight: 800, color: "#B45309" }}>ต่าง {c.spread.toFixed(1)}°</div> : null}</td>
+                      <td style={td}>{c.hAvg == null ? "—" : c.hAvg.toFixed(1) + "%"}</td>
+                      <td style={{ ...td, fontWeight: 800 }}>{c.cfmTot ? fmt(Math.round(c.cfmTot)) : "—"}<span style={{ fontWeight: 500, fontSize: 10.5, color: "#9b8e78" }}> CFM</span></td>
+                      <td style={{ ...td, textAlign: "center", fontWeight: 800, color: w.length ? "#B91C1C" : "#15803D" }}>{w.length ? w.length + " จุด" : "✓ ผ่าน"}</td>
+                      <td style={{ ...td, textAlign: "center" }}>
+                        <span style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
+                          {(r.photos || []).map((p, k) => <img key={k} src={p.url} alt="ใบตรวจ" onClick={() => window.open(p.url, "_blank")} style={{ height: 32, width: 32, objectFit: "cover", borderRadius: 6, border: "1px solid #e6ddca", cursor: "pointer" }} />)}
+                          {!viewOnly && (r.photos || []).length < 4 && (
+                            <label title="แนบรูปใบกระดาษ" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", height: 32, width: 32, border: "1px dashed #d8cfbb", borderRadius: 6, cursor: busy === r.id ? "wait" : "pointer", color: "#9b8e78", fontSize: 14 }}>
+                              {busy === r.id ? "⏳" : "📷"}
+                              <input type="file" accept="image/*" capture="environment" multiple style={{ display: "none" }} onChange={(e) => addPhoto(r, e)} />
+                            </label>
+                          )}
+                        </span>
+                      </td>
+                      <td style={td}>{!viewOnly && <button onClick={() => { if (window.confirm(`ลบผลตรวจวันที่ ${toThaiDate(r.date, false)} ของ ${houseId}?`)) onDelete(r.id); }}
+                        style={{ border: "1px solid #f3d3ce", background: "#FFF5F3", color: "#B3261E", borderRadius: 7, padding: "3px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>✕</button>}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {/* แนวโน้มลมพัดลมรวม — ดูว่าพัดลมอ่อนลงเรื่อย ๆ ไหม */}
+          {(() => {
+            const pts = [...sorted].reverse().filter((r) => envCalc(r).cfmTot > 0).slice(-12);
+            if (pts.length < 2) return null;
+            const vals = pts.map((r) => envCalc(r).cfmTot);
+            const mx = Math.max.apply(null, vals);
+            return (
+              <div style={{ background: "#fff", border: "1px solid #eee3cd", borderRadius: 12, padding: "11px 13px" }}>
+                <div style={{ fontSize: 12.5, fontWeight: 800, color: "#1D4ED8", marginBottom: 8 }}>📉 แนวโน้มลมพัดลมรวม (CFM) · {pts.length} ครั้งล่าสุด</div>
+                <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 92 }}>
+                  {pts.map((r, i) => {
+                    const v = vals[i], h = Math.max(6, (v / mx) * 78);
+                    const drop = i > 0 && v < vals[i - 1] * 0.9;
+                    return (
+                      <div key={r.id} style={{ flex: 1, textAlign: "center" }} title={toThaiDate(r.date, false) + " · " + fmt(Math.round(v)) + " CFM"}>
+                        <div style={{ fontSize: 9.5, fontWeight: 800, color: drop ? "#B91C1C" : "#7a6f5c" }}>{Math.round(v / 1000)}k</div>
+                        <div style={{ height: h, background: drop ? "#EF4444" : "#60A5FA", borderRadius: "4px 4px 0 0" }} />
+                        <div style={{ fontSize: 9, color: "#9b8e78", marginTop: 2 }}>{(r.date || "").slice(8, 10)}/{(r.date || "").slice(5, 7)}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ fontSize: 11, color: "#9b8e78", marginTop: 6 }}>แท่งแดง = ลดลงเกิน 10% จากครั้งก่อน · ลมตกต่อเนื่องมักมาจากสายพานหย่อน ใบพัดสกปรก หรือแผ่นรังผึ้งตัน</div>
+              </div>
+            );
+          })()}
+        </>))}
+
+        {tab === "new" && (<>
+          <div style={{ display: "flex", gap: 9, flexWrap: "wrap", marginBottom: 12 }}>
+            <div style={{ flex: "1 1 170px", minWidth: 160 }}>
+              <label style={lbl}>📅 วันที่ตรวจ</label>
+              <ThaiDateField value={f.date} onChange={(v) => setF((p) => ({ ...p, date: v }))} />
+            </div>
+            {/* เวลา พิมพ์ได้ทั้ง 13.05 และ 13:05 (fld ปกติตัดโคลอนทิ้ง) */}
+            <div style={{ flex: "1 1 120px", minWidth: 108 }}>
+              <label style={lbl}>เวลาเริ่ม <span style={{ fontWeight: 600, color: "#9b8e78" }}>(เช่น 13.05)</span></label>
+              <input value={f.timeFrom} onChange={(e) => setF((p) => ({ ...p, timeFrom: e.target.value.replace(/[^0-9.:]/g, "") }))} placeholder="—" style={inp} />
+            </div>
+            <div style={{ flex: "1 1 120px", minWidth: 108 }}>
+              <label style={lbl}>เวลาจบ <span style={{ fontWeight: 600, color: "#9b8e78" }}>(เช่น 14.35)</span></label>
+              <input value={f.timeTo} onChange={(e) => setF((p) => ({ ...p, timeTo: e.target.value.replace(/[^0-9.:]/g, "") }))} placeholder="—" style={inp} />
+            </div>
+            <div style={{ flex: "1 1 150px", minWidth: 140 }}>
+              <label style={lbl}>ผู้ตรวจ</label>
+              <input value={f.by} onChange={(e) => setF((p) => ({ ...p, by: e.target.value }))} style={{ ...inp, textAlign: "left", fontSize: 14 }} />
+            </div>
+          </div>
+
+          <div style={{ background: "#F8FAFF", border: "1.5px solid #DBEAFE", borderRadius: 12, padding: 12, marginBottom: 11 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 800, color: "#1D4ED8", marginBottom: 8 }}>🌤️ อากาศนอกเล้า</div>
+            <div style={{ display: "flex", gap: 9, flexWrap: "wrap", marginBottom: 13 }}>
+              {fld("นอกเล้า · อุณหภูมิ", f.outTemp, (v) => setF((p) => ({ ...p, outTemp: v.replace(/[^0-9.]/g, "") })), "°C")}
+              {fld("นอกเล้า · ความชื้น", f.outHum, (v) => setF((p) => ({ ...p, outHum: v.replace(/[^0-9.]/g, "") })), "%")}
+            </div>
+            {/* 🎛️ สอบเทียบเซ็นเซอร์ — เล้ามีเซ็นเซอร์อุณหภูมิ 3 ตัว + ความชื้น 1 ตัว ต้องเทียบทุกตัว */}
+            <div style={{ fontSize: 12.5, fontWeight: 800, color: "#1D4ED8", marginBottom: 7 }}>🎛️ สอบเทียบเซ็นเซอร์ · ตู้คอนโทรล เทียบกับ ค่าวัดจริง</div>
+            <div style={{ border: "1px solid #DBEAFE", borderRadius: 10, overflow: "hidden", background: "#fff" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead><tr>
+                  {["เซ็นเซอร์", "ตู้คอนโทรล", "วัดจริง", "ต่างกัน", ""].map((h, i) => (
+                    <th key={i} style={{ padding: "6px 8px", fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "1.5px solid #e6ddca", textAlign: i === 0 ? "left" : (i === 4 ? "left" : "right"), whiteSpace: "nowrap" }}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {ENV_CAL.map((s) => {
+                    const d = calc.calDiff[s.id];
+                    const off = d != null && Math.abs(d) > s.tol;
+                    const cell = { padding: "5px 7px", borderBottom: "1px solid #f1ece0" };
+                    const box = (which) => (
+                      <input inputMode="decimal" value={(f.cal[s.id] || {})[which] || ""} onChange={(e) => setCal(s.id, which, e.target.value)} placeholder="—"
+                        style={{ width: "100%", maxWidth: 92, padding: "6px 8px", border: `1.5px solid ${off ? "#EF4444" : "#e3ddd0"}`, borderRadius: 8, fontSize: 14.5, fontFamily: "inherit", textAlign: "right", fontWeight: 700, outline: "none", background: off ? "#FEF2F2" : "#fff", color: off ? "#B91C1C" : "inherit" }} />
+                    );
+                    return (
+                      <tr key={s.id}>
+                        <td style={{ ...cell, fontSize: 12.5, fontWeight: 800, color: INK }}>{s.name}
+                          <span style={{ fontWeight: 600, color: "#9b8e78", fontSize: 11 }}> ({s.unit})</span></td>
+                        <td style={{ ...cell, textAlign: "right" }}>{box("c")}</td>
+                        <td style={{ ...cell, textAlign: "right" }}>{box("r")}</td>
+                        <td style={{ ...cell, textAlign: "right", fontSize: 13.5, fontWeight: 800, color: off ? "#B91C1C" : "#15803D", whiteSpace: "nowrap" }}>
+                          {d == null ? "—" : (d > 0 ? "+" : "") + d.toFixed(1)}
+                        </td>
+                        <td style={{ ...cell, fontSize: 11.5, fontWeight: 700, color: off ? "#B91C1C" : "#9b8e78", whiteSpace: "nowrap" }}>
+                          {d == null ? "" : off ? `เกิน ${s.tol}${s.unit} — แจ้งช่าง` : "✓ ผ่าน"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {ENV_ZONES.map((z, zi) => (
+            <div key={z.id} style={{ border: "1.5px solid #e3ddd0", borderRadius: 12, padding: 12, marginBottom: 10, background: "#FFFDF8" }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: INK, marginBottom: 8 }}>
+                <span style={{ background: "#EFF6FF", border: "1px solid #BFDBFE", color: "#1D4ED8", borderRadius: 999, padding: "2px 10px", fontSize: 11.5, marginRight: 7 }}>จุดที่ {zi + 1}</span>
+                {z.name}
+              </div>
+              <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
+                {fld("แรงลม · ทางเดิน", f.z[z.id].walkWind, (v) => setZ(z.id, "walkWind", v), `${ENV_STD.wind[0]}–${ENV_STD.wind[1]}`, outWind)}
+                {fld("แรงลม · หน้ากรง", f.z[z.id].cageWind, (v) => setZ(z.id, "cageWind", v), `${ENV_STD.wind[0]}–${ENV_STD.wind[1]}`, outWind)}
+                {fld("อุณหภูมิเฉลี่ย", f.z[z.id].temp, (v) => setZ(z.id, "temp", v), `ไม่เกิน ${ENV_STD.temp[z.id]}°C`, (x) => x > ENV_STD.temp[z.id])}
+                {fld("ความชื้นเฉลี่ย", f.z[z.id].hum, (v) => setZ(z.id, "hum", v), `ไม่เกิน ${ENV_STD.hum}%`, (x) => x > ENV_STD.hum)}
+              </div>
+            </div>
+          ))}
+
+          <div style={{ border: "1.5px solid #e3ddd0", borderRadius: 12, padding: 12, marginBottom: 11, background: "#FFFDF8" }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: INK, marginBottom: 3 }}>🌀 ประสิทธิภาพพัดลม</div>
+            <div style={{ fontSize: 11.5, color: "#7a6f5c", marginBottom: 9 }}>คีย์ <b>ค่าเฉลี่ย FPM</b> ที่คำนวณไว้บนกระดาษแล้ว (ผลรวม 9 จุด ÷ 9) — ระบบคูณเป็น CFM ให้เอง · ไม่ควรต่ำกว่า <b>{fmt(ENV_STD.fanCFM)} CFM</b> ต่อตัว</div>
+            <div style={{ display: "flex", gap: 9, flexWrap: "wrap", alignItems: "flex-end" }}>
+              {f.fans.map((v, i) => (
+                <div key={i} style={{ flex: "1 1 130px", minWidth: 120 }}>
+                  <label style={lbl}>พัดลมตัวที่ {i + 1} <span style={{ fontWeight: 600, color: "#9b8e78" }}>(FPM เฉลี่ย)</span></label>
+                  <input inputMode="decimal" value={v} onChange={(e) => setFan(i, e.target.value)} placeholder="—" style={inp} />
+                  <div style={{ fontSize: 11.5, fontWeight: 800, textAlign: "right", marginTop: 3,
+                                color: calc.cfms[i] == null ? "#1D4ED8" : (calc.cfms[i] < ENV_STD.fanCFM ? "#B91C1C" : "#15803D") }}>
+                    {calc.cfms[i] != null ? fmt(Math.round(calc.cfms[i])) + " CFM" : "\u00A0"}
+                  </div>
+                </div>
+              ))}
+              <div style={{ flex: "1 1 120px", minWidth: 115 }}>
+                <label style={lbl}>พื้นที่หน้าพัดลม <span style={{ fontWeight: 600, color: "#9b8e78" }}>(ตร.ฟุต)</span></label>
+                <input inputMode="decimal" value={f.fanArea} onChange={(e) => setF((p) => ({ ...p, fanArea: e.target.value.replace(/[^0-9.]/g, "") }))} style={inp} />
+              </div>
+            </div>
+            {calc.cfmTot > 0 && <div style={{ fontSize: 13.5, fontWeight: 800, color: "#1D4ED8", marginTop: 9, textAlign: "right" }}>ลมรวมทั้งหมด {fmt(Math.round(calc.cfmTot))} CFM</div>}
+          </div>
+
+          <div style={{ border: "1.5px solid #e3ddd0", borderRadius: 12, padding: 12, marginBottom: 11, background: "#FFFDF8" }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: INK, marginBottom: 3 }}>🧊 ความเร็วลมผ่านแผ่นรังผึ้ง (Cooling pad)</div>
+            <div style={{ fontSize: 11.5, color: "#7a6f5c", marginBottom: 9 }}>3 ด้าน ด้านละ 3 จุด · ทุกจุดต้องไม่ต่ำกว่า <b>{ENV_STD.pad}</b> ฟุต/นาที — ค่าต่ำแปลว่าแพดตัน มีรูรั่วให้ลมลัด หรือพัดลมอ่อน</div>
+            {f.pads.map((side, si) => {
+              const vals = side.map((x) => parseFloat(x)).filter((x) => !isNaN(x));
+              const av = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+              return (
+                <div key={si} style={{ display: "flex", gap: 8, alignItems: "flex-end", marginBottom: 8, flexWrap: "wrap" }}>
+                  <div style={{ width: 74, fontSize: 12.5, fontWeight: 800, color: "#7a6f5c", paddingBottom: 10 }}>ด้านที่ {si + 1}</div>
+                  {side.map((v, k) => {
+                    const n = parseFloat(v), off = !isNaN(n) && n < ENV_STD.pad;
+                    return (
+                      <div key={k} style={{ flex: "1 1 86px", minWidth: 80 }}>
+                        <label style={lbl}>จุดที่ {k + 1}</label>
+                        <input inputMode="decimal" value={v} onChange={(e) => setPad(si, k, e.target.value)} placeholder="—"
+                          style={{ ...inp, borderColor: off ? "#EF4444" : "#e3ddd0", borderWidth: off ? 2 : 1.5, color: off ? "#B91C1C" : "inherit", background: off ? "#FEF2F2" : "#fff" }} />
+                      </div>
+                    );
+                  })}
+                  <div style={{ width: 92, textAlign: "right", paddingBottom: 10, fontSize: 12, fontWeight: 800, color: av == null ? "#c9c0ad" : (av < ENV_STD.pad ? "#B91C1C" : "#15803D") }}>
+                    {av == null ? "—" : "เฉลี่ย " + fmt1(Math.round(av * 10) / 10)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={{ marginBottom: 12 }}>
+            <label style={lbl}>หมายเหตุ</label>
+            <input value={f.note} onChange={(e) => setF((p) => ({ ...p, note: e.target.value }))} placeholder="เช่น แผ่นรังผึ้งตันด้านซ้าย · พัดลมตัวที่ 2 เสียงดัง" style={{ ...inp, textAlign: "left", fontSize: 13.5 }} />
+          </div>
+          <div style={{ fontSize: 11.5, color: "#9b8e78", marginBottom: 9 }}>บันทึกแล้วค่อยกดปุ่ม 📷 ในตารางประวัติ เพื่อถ่ายรูปใบกระดาษแนบเข้าไป (แนบได้ 4 รูป)</div>
+          <button onClick={save} disabled={!valid} style={{ ...S.primaryBtn, background: valid ? "#1D4ED8" : "#cbc4b6", cursor: valid ? "pointer" : "default" }}>บันทึกผลตรวจ · {houseId}</button>
+        </>)}
+
+        {tab === "form" && <EnvPaperForm houseId={houseId} onPrint={printForm} />}
+      </div>
+    </div>
+  );
+}
+
 /* 🧪 สมุดผลตรวจแล็บประจำหลัง — เจาะเลือด (serology/titer) · เก็บซาก (ผ่าซาก necropsy) · อื่นๆ ส่งตรวจ */
 const LAB_TYPES = {
   เลือด: { label: "🩸 เจาะเลือด (serology)", bg: "#FEE2E2", c: "#B91C1C" },
@@ -10871,7 +11415,8 @@ function CostView({ expenses = [], addExpense, deleteExpense, production = {}, m
   );
 }
 
-function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, production = {}, medTrials = [], medStock = [], medInfo = {}, vaccines = {}, addVaccine, deleteVaccine, labTests = {}, addLabTest, deleteLabTest, viewOnly = false }) {
+function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, production = {}, medTrials = [], medStock = [], medInfo = {}, vaccines = {}, addVaccine, deleteVaccine, labTests = {}, addLabTest, deleteLabTest,
+                       envChecks = [], addEnvCheck, updateEnvCheck, deleteEnvCheck, viewOnly = false }) {
   const sbSafe = useSbSafe();   // ⛔ เครื่องยังไม่เชื่อมคลาวด์ → โชว์แถบเตือน + ห้ามบันทึก (กันข้อมูลหายเงียบ)
   const prodDates = Object.keys(production).sort();
   const houseIds = [...new Set([...(production[prodDates[prodDates.length - 1]] || []).map((h) => h.id), ...HOUSE_IDS])];   // รวมหลังใหม่ที่ยังไม่มีผลผลิต (เช่น H7)
@@ -10905,6 +11450,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
   const [flockHouse, setFlockHouse] = useState(null); // houseId ที่กำลังตั้งค่ารุ่น
   const [vacHouse, setVacHouse] = useState(null);     // houseId ที่กำลังเปิดสมุดวัคซีน
   const [labHouse, setLabHouse] = useState(null);     // houseId ที่กำลังเปิดสมุดผลตรวจแล็บ
+  const [envHouse, setEnvHouse] = useState(null);     // 🌬️ houseId ที่กำลังเปิดใบตรวจวัดโรงเรือน
   const [afterFlock, setAfterFlock] = useState(null); // วันแรกของรุ่น: เซฟหน้ารุ่นเสร็จ → เปิดหน้ากรอกรายวันต่อทันที ({hid,date})
   // เกณฑ์เตือนอาหารใกล้หมด (กก./ไซโล) — จัดการในแท็บ "อาหารไก่" ; ที่นี่ใช้ไฮไลต์ในตาราง + ส่งให้ฟอร์มกรอก
   const [feedMin] = useState(() => { const v = parseFloat(localStorage.getItem("eggFeedAlertMin")); return isNaN(v) ? 4000 : v; });
@@ -11249,6 +11795,11 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
             <button onClick={() => setVacHouse(selHouse)} style={{ alignSelf: "center", border: "1px solid #d8cdb6", background: "#fff", color: "#7a6f5c", borderRadius: 10, padding: "10px 14px", cursor: "pointer", fontSize: 13, fontWeight: 800, fontFamily: "inherit" }}>💉 วัคซีน{(vaccines[selHouse] || []).length > 0 ? ` · ${(vaccines[selHouse] || []).length}` : ""}</button>
             <button onClick={() => setMedBook(selHouse)} title="สมุดรวมของหลังนี้: ยา วิตามิน และวัคซีน ในหน้าเดียว · สลับดูรวมทุกอย่าง/แยกประเภท/ทุกหลังได้" style={{ alignSelf: "center", border: "1px solid #d8cdb6", background: "#fff", color: "#0E7490", borderRadius: 10, padding: "10px 14px", cursor: "pointer", fontSize: 13, fontWeight: 800, fontFamily: "inherit" }}>📚 สมุดยา·วิตามิน·วัคซีน</button>
             <button onClick={() => setLabHouse(selHouse)} style={{ alignSelf: "center", border: "1px solid #d8cdb6", background: "#fff", color: "#7a6f5c", borderRadius: 10, padding: "10px 14px", cursor: "pointer", fontSize: 13, fontWeight: 800, fontFamily: "inherit" }}>🧪 ผลตรวจ{(labTests[selHouse] || []).length > 0 ? ` · ${(labTests[selHouse] || []).length}` : ""}</button>
+            {(() => {
+              const n = envChecks.filter((r) => r.houseId === selHouse).length;
+              return <button onClick={() => setEnvHouse(selHouse)} title="แรงลม · อุณหภูมิ · ความชื้น ภายในโรงเรือน — ตรวจทุกสัปดาห์"
+                style={{ alignSelf: "center", border: "1px solid #93C5FD", background: "#fff", color: "#1D4ED8", borderRadius: 10, padding: "10px 14px", cursor: "pointer", fontSize: 13, fontWeight: 800, fontFamily: "inherit" }}>🌬️ ตรวจวัดโรงเรือน{n ? ` · ${n}` : ""}</button>;
+            })()}
           </div>
           {/* ปุ่มกรอกวันถัดไป */}
           <div style={{ marginBottom: 12 }}>
@@ -11633,6 +12184,10 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
       )}
       {medBook && (
         <MedBookModal rearingByDate={rearingByDate} vaccines={vaccines} houseIds={houseIds} initial={medBook} onClose={() => setMedBook(null)} />
+      )}
+      {envHouse && (
+        <EnvCheckModal houseId={envHouse} rows={envChecks.filter((r) => r.houseId === envHouse)}
+          onAdd={addEnvCheck} onUpdate={updateEnvCheck} onDelete={deleteEnvCheck} viewOnly={viewOnly} onClose={() => setEnvHouse(null)} />
       )}
       {showPlan && (
         <HealthPlanModal plan={healthPlan} houseIds={houseIds} onAdd={addPlan} onToggle={togglePlan} onDelete={deletePlan} onCopyMonth={copyPlanMonth} onClose={() => setShowPlan(false)} />
