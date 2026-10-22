@@ -1476,19 +1476,24 @@ const TOPIC_LABELS = {
   salesum: "สรุปยอดขายรายเดือน",
 };
 const ALL_TOPIC_IDS = Object.keys(TOPIC_LABELS);
+// หัวข้อที่เป็น "รายงานอ่านอย่างเดียว" อยู่แล้ว ไม่มีปุ่มบันทึกให้กด → ไม่ต้องเลือกระดับแก้ไข
+const READONLY_TOPICS = new Set(["dash", "manage", "salesum", "houseecon"]);
 const DEFAULT_ROLES = [
   { id: "owner", name: "เจ้าของ/ผู้จัดการ", emoji: "👑", pin: "1234", topics: ALL_TOPIC_IDS.slice() },
-  { id: "sales", name: "ฝ่ายขาย/เสมียนโรงคัด", emoji: "🛒", pin: "", topics: ["sales", "bills", "account", "tray", "booking", "plan", "stock", "salesum"] },
-  { id: "farm", name: "สัตวบาล/ดูแลไก่", emoji: "🐔", pin: "", topics: ["production", "rear", "feed", "med", "trial", "health", "stock"] },
-  { id: "acct", name: "บัญชี", emoji: "💰", pin: "", topics: ["bills", "account", "cost", "salesum", "dash", "manage", "houseecon"] },
-  { id: "medclerk", name: "เสมียนห้องสต๊อคยา", emoji: "💊", pin: "", topics: ["med"] },
+  { id: "sales", name: "ฝ่ายขาย/เสมียนโรงคัด", emoji: "🛒", pin: "", topics: ["sales", "bills", "account", "tray", "booking", "plan", "stock", "salesum"],
+    edit: ["sales", "bills", "account", "tray", "booking", "plan", "stock"] },
+  { id: "farm", name: "สัตวบาล/ดูแลไก่", emoji: "🐔", pin: "", topics: ["production", "rear", "feed", "med", "trial", "health", "stock"],
+    edit: ["rear", "feed", "med", "trial", "health"] },   // ผลผลิต/สต๊อคไข่ = ดูอย่างเดียวมาแต่เดิม
+  // 💰 บัญชี — เจ้าของสั่ง 15 ต.ค. 69: เข้าดูได้ทุกหัวข้อที่ให้ไว้ แต่ไม่ให้แก้/เพิ่ม/ลบ
+  { id: "acct", name: "บัญชี", emoji: "💰", pin: "", topics: ["bills", "account", "cost", "salesum", "dash", "manage", "houseecon"], edit: [] },
+  { id: "medclerk", name: "เสมียนห้องสต๊อคยา", emoji: "💊", pin: "", topics: ["med"], edit: ["med"] },
   // บทบาทร้านค้าภายนอก — เข้าได้แค่ "จองออเดอร์" และเห็นเฉพาะลูกค้า/ใบจองของกลุ่มตัวเอง (custGroup)
-  { id: "retail_shop", name: "ร้านค้าขายปลีก (ฉันจะกินไข่สดทุกวัน)", emoji: "🛍️", pin: "", topics: ["booking"], custGroup: "retail" },
-  { id: "branch_shop", name: "ร้านฟาร์มสมบูรณ์", emoji: "🏪", pin: "", topics: ["booking"], custGroup: "branch" },
+  { id: "retail_shop", name: "ร้านค้าขายปลีก (ฉันจะกินไข่สดทุกวัน)", emoji: "🛍️", pin: "", topics: ["booking"], edit: ["booking"], custGroup: "retail" },
+  { id: "branch_shop", name: "ร้านฟาร์มสมบูรณ์", emoji: "🏪", pin: "", topics: ["booking"], edit: ["booking"], custGroup: "branch" },
   /* 👀 แขกของฟาร์ม — ที่ปรึกษา/ผู้มาเยี่ยมที่ช่วยดูสุขภาพไก่กับผลผลิต
      viewOnly: true = ดูได้อย่างเดียว แก้ไม่ได้เลยทุกหน้า (เจ้าของสั่ง 4 ก.ย. 69)
      ไม่ให้เห็นหัวข้อเงิน (บิล/ลูกหนี้/ต้นทุน) และรายชื่อลูกค้า */
-  { id: "guest", name: "แขกของฟาร์ม (ดูอย่างเดียว)", emoji: "👀", pin: "", topics: ["production", "rear", "health", "med", "trial", "manage"], viewOnly: true },
+  { id: "guest", name: "แขกของฟาร์ม (ดูอย่างเดียว)", emoji: "👀", pin: "", topics: ["production", "rear", "health", "med", "trial", "manage"], edit: [], viewOnly: true },
 ];
 
 // บทบาทผูกกับบัญชีล็อกอิน (ชั้นเดียว) — อยากได้มุมไหนต้องล็อกอินบัญชีนั้น ไม่มี PIN ชั้นสอง
@@ -1694,17 +1699,42 @@ function ActivityLogView({ roles = [] }) {
 }
 
 function RoleSettingsModal({ roles, onSave, accessLog = [], onClose }) {
-  const [local, setLocal] = useState(() => roles.map((r) => ({ ...r, topics: [...(r.topics || [])] })));
-  const toggleTopic = (rid, tid) => setLocal((prev) => prev.map((r) => r.id !== rid ? r : { ...r, topics: r.topics.includes(tid) ? r.topics.filter((x) => x !== tid) : [...r.topics, tid] }));
+  const [local, setLocal] = useState(() => roles.map((r) => ({ ...r, topics: [...(r.topics || [])], edit: [...(r.edit || [])] })));
+  /* กดวน 3 ระดับ: ไม่เห็น → ดูอย่างเดียว → แก้ไขได้ → ไม่เห็น
+     หัวข้อที่เป็นรายงานล้วน (READONLY_TOPICS) ข้ามระดับ "แก้ไขได้" ไปเลย เพราะไม่มีอะไรให้แก้ */
+  const lvlOf = (r, tid) => (r.edit || []).includes(tid) ? 2 : (r.topics || []).includes(tid) ? 1 : 0;
+  const cycleTopic = (rid, tid) => setLocal((prev) => prev.map((r) => {
+    if (r.id !== rid) return r;
+    const max = READONLY_TOPICS.has(tid) ? 1 : 2;
+    const next = (lvlOf(r, tid) + 1) > max ? 0 : lvlOf(r, tid) + 1;
+    const topics = next >= 1 ? [...new Set([...(r.topics || []), tid])] : (r.topics || []).filter((x) => x !== tid);
+    const edit = next === 2 ? [...new Set([...(r.edit || []), tid])] : (r.edit || []).filter((x) => x !== tid);
+    return { ...r, topics, edit };
+  }));
+  const setAll = (rid, lvl) => setLocal((prev) => prev.map((r) => {
+    if (r.id !== rid) return r;
+    if (lvl === 0) return { ...r, topics: [], edit: [] };
+    if (lvl === 1) return { ...r, topics: [...ALL_TOPIC_IDS], edit: [] };
+    return { ...r, topics: [...ALL_TOPIC_IDS], edit: ALL_TOPIC_IDS.filter((t) => !READONLY_TOPICS.has(t)) };
+  }));
   const setPin = (rid, v) => setLocal((prev) => prev.map((r) => r.id !== rid ? r : { ...r, pin: v.replace(/\D/g, "").slice(0, 8) }));
   return (
     <div style={S.modalOverlay} onClick={onClose}>
       <div style={{ ...S.modal, maxWidth: 700, maxHeight: "92vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
         <div style={S.modalHead}>
-          <div><div style={S.modalTitle}>⚙️ ตั้งค่าสิทธิ์การเข้าดู</div><div style={S.modalSub}>กำหนดหัวข้อที่แต่ละบทบาทเห็น + ตั้ง PIN (เจ้าของเท่านั้น)</div></div>
+          <div><div style={S.modalTitle}>⚙️ ตั้งค่าสิทธิ์การเข้าดู</div><div style={S.modalSub}>กดที่ชื่อหัวข้อเพื่อวนสิทธิ์ · ไม่เห็น → ดูอย่างเดียว → แก้ไขได้</div></div>
           <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
         </div>
-        <div style={{ fontSize: 11.5, color: "#7A4F16", background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 8, padding: "8px 11px", marginBottom: 12 }}>⚠️ เป็นการควบคุมระดับหน้าจอ (client-side) — กันเปิดข้ามบทบาท/กดผิดหน้า · PIN ว่าง = บทบาทนั้นเข้าได้เลยไม่ต้องใส่รหัส</div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", background: "#F7F5F0", border: "1px solid #eee3cd", borderRadius: 10, padding: "9px 12px", marginBottom: 10, fontSize: 12.5, fontWeight: 700 }}>
+          <span style={{ color: "#7a6f5c" }}>ความหมายของสี:</span>
+          <span style={{ border: "1px solid #e0d7c3", background: "#fff", color: "#9b8e78", borderRadius: 999, padding: "3px 11px" }}>ไม่เห็นหัวข้อนี้</span>
+          <span style={{ border: "1px solid #BFDBFE", background: "#EFF6FF", color: "#1D4ED8", borderRadius: 999, padding: "3px 11px" }}>👁️ ดูอย่างเดียว</span>
+          <span style={{ border: "1px solid #86C99A", background: "#F0FDF4", color: "#15803D", borderRadius: 999, padding: "3px 11px" }}>✏️ แก้ไขได้</span>
+        </div>
+        <div style={{ fontSize: 11.5, color: "#7A4F16", background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 8, padding: "8px 11px", marginBottom: 12, lineHeight: 1.7 }}>
+          ⚠️ เป็นการควบคุมระดับหน้าจอ (client-side) — กันเปิดข้ามบทบาท/กดผิดหน้า ไม่ใช่กำแพงกันคนตั้งใจเจาะ · PIN ว่าง = เข้าได้เลยไม่ต้องใส่รหัส<br />
+          หัวข้อที่เป็นรายงานล้วน (แดชบอร์ด · ผู้บริหาร · สรุปยอดขาย · ประสิทธิภาพไก่) ไม่มีปุ่มบันทึกอยู่แล้ว จึงมีแค่ “ดูอย่างเดียว”
+        </div>
         {local.map((r) => (
           <div key={r.id} style={{ border: "1px solid #eee3cd", borderRadius: 12, padding: "12px 14px", marginBottom: 12 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 9 }}>
@@ -1714,15 +1744,30 @@ function RoleSettingsModal({ roles, onSave, accessLog = [], onClose }) {
                 🔒 PIN <input value={r.pin} onChange={(e) => setPin(r.id, e.target.value)} inputMode="numeric" placeholder="ว่าง=ไม่ล็อก" style={{ width: 96, padding: "5px 8px", border: "1.5px solid #e3ddd0", borderRadius: 7, fontSize: 13, textAlign: "center", fontFamily: "inherit", outline: "none" }} />
               </span>
             </div>
+            {r.id !== "owner" && (
+              <div style={{ display: "flex", gap: 6, marginBottom: 7, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 11.5, color: "#9b8e78", fontWeight: 700, alignSelf: "center" }}>ตั้งทั้งหมด:</span>
+                {[[0, "ไม่เห็น"], [1, "👁️ ดูอย่างเดียว"], [2, "✏️ แก้ไขได้"]].map(([lv, t]) => (
+                  <button key={lv} onClick={() => setAll(r.id, lv)} style={{ fontSize: 11.5, fontWeight: 700, padding: "3px 10px", borderRadius: 8, border: "1px solid #e0d7c3", background: "#fff", color: "#7a6f5c", cursor: "pointer", fontFamily: "inherit" }}>{t}</button>
+                ))}
+              </div>
+            )}
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
               {ALL_TOPIC_IDS.map((tid) => {
-                const owner = r.id === "owner", on = owner || r.topics.includes(tid);
+                const owner = r.id === "owner";
+                const lv = owner ? (READONLY_TOPICS.has(tid) ? 1 : 2) : lvlOf(r, tid);
+                const sty = lv === 2 ? { bd: "#86C99A", bg: "#F0FDF4", c: "#15803D", icon: "✏️ " }
+                          : lv === 1 ? { bd: "#BFDBFE", bg: "#EFF6FF", c: "#1D4ED8", icon: "👁️ " }
+                          : { bd: "#e0d7c3", bg: "#fff", c: "#9b8e78", icon: "" };
                 return (
-                  <button key={tid} disabled={owner} onClick={() => toggleTopic(r.id, tid)} style={{ fontSize: 12, fontWeight: 700, padding: "4px 10px", borderRadius: 999, cursor: owner ? "default" : "pointer", fontFamily: "inherit", border: `1px solid ${on ? "#86C99A" : "#e0d7c3"}`, background: on ? "#F0FDF4" : "#fff", color: on ? "#15803D" : "#9b8e78", opacity: owner ? 0.75 : 1 }}>{on ? "✓ " : ""}{TOPIC_LABELS[tid]}</button>
+                  <button key={tid} disabled={owner} onClick={() => cycleTopic(r.id, tid)}
+                    title={lv === 2 ? "แก้ไขได้ — กดเพื่อเปลี่ยนเป็น ไม่เห็น" : lv === 1 ? "ดูอย่างเดียว — กดเพื่อให้แก้ไขได้" : "ไม่เห็น — กดเพื่อให้ดูได้"}
+                    style={{ fontSize: 12, fontWeight: 700, padding: "4px 10px", borderRadius: 999, cursor: owner ? "default" : "pointer", fontFamily: "inherit", border: `1px solid ${sty.bd}`, background: sty.bg, color: sty.c, opacity: owner ? 0.75 : 1 }}>{sty.icon}{TOPIC_LABELS[tid]}</button>
                 );
               })}
             </div>
-            {r.id === "owner" && <div style={{ fontSize: 11, color: "#9b8e78", marginTop: 6 }}>เจ้าของเห็นทุกหัวข้อเสมอ (แก้หัวข้อไม่ได้ · ตั้ง PIN ได้)</div>}
+            {r.id === "owner" && <div style={{ fontSize: 11, color: "#9b8e78", marginTop: 6 }}>เจ้าของเห็นและแก้ได้ทุกหัวข้อเสมอ (เปลี่ยนไม่ได้ · ตั้ง PIN ได้)</div>}
+            {r.viewOnly && <div style={{ fontSize: 11.5, color: "#B45309", marginTop: 6, fontWeight: 700 }}>👀 บทบาทนี้ถูกล็อกเป็นดูอย่างเดียวในโค้ด — ต่อให้ตั้งเป็น “แก้ไขได้” ระบบก็จะไม่ยอมให้แก้</div>}
           </div>
         ))}
         {accessLog.length > 0 && (
@@ -1750,7 +1795,7 @@ export default function App() {
       const stored = Array.isArray(s) ? s : [];
       const byId = Object.fromEntries(stored.map((r) => [r.id, r]));
       // ชื่อ/emoji ยึดตาม DEFAULT_ROLES (โค้ด) เสมอ · คง topics/pin ที่ user ปรับไว้ในเครื่อง · เติมบทบาทใหม่อัตโนมัติ
-      const merged = DEFAULT_ROLES.map((d) => { const u = byId[d.id]; return u ? { ...d, topics: u.topics || d.topics, pin: u.pin != null ? u.pin : d.pin } : d; });
+      const merged = DEFAULT_ROLES.map((d) => { const u = byId[d.id]; return u ? { ...d, topics: u.topics || d.topics, edit: u.edit || d.edit || [], pin: u.pin != null ? u.pin : d.pin } : d; });
       const extra = stored.filter((r) => !DEFAULT_ROLES.some((d) => d.id === r.id));   // บทบาทที่ user เพิ่มเอง (เผื่ออนาคต)
       return [...merged, ...extra];
     } catch { return DEFAULT_ROLES; }
@@ -1813,6 +1858,15 @@ export default function App() {
      ยึดจาก DEFAULT_ROLES เสมอ ไม่เอาจาก localStorage กันคนแก้ eggRoles ในเครื่องเพื่อปลดล็อก */
   const viewOnly = (DEFAULT_ROLES.find((r) => r.id === currentRole) || {}).viewOnly === true;
   const guard = (fn) => (viewOnly ? undefined : fn);   // แขก → ส่ง undefined แทนฟังก์ชันบันทึก ปุ่มจะหายไปเอง
+  /* 🔐 สิทธิ์รายหัวข้อ (เจ้าของสั่ง 15 ต.ค. 69)
+     เห็นหัวข้อ = อยู่ใน topics · แก้ไขได้ = อยู่ใน edit ด้วย · อยู่ใน topics แต่ไม่อยู่ใน edit = ดูอย่างเดียว
+     เจ้าของแก้ได้ทุกหัวข้อเสมอ · แขก (viewOnly ฝังในโค้ด) แก้ไม่ได้เลยไม่ว่าตั้งค่ายังไง */
+  const canEdit = (tid) => {
+    if (viewOnly) return false;
+    if (roleObj.id === "owner") return true;
+    return (roleObj.edit || []).includes(tid);
+  };
+  const ge = (tid, fn) => (canEdit(tid) ? fn : undefined);   // ส่ง undefined → หน้าจอซ่อนปุ่มเอง
   const allowedTopics = roleObj.id === "owner" ? ALL_TOPIC_IDS : (roleObj.topics || []);
   const roleCustGroup = roleObj.id === "owner" ? null : (roleObj.custGroup || null);   // บทบาทร้านค้า → จำกัดให้เห็นเฉพาะกลุ่มลูกค้านี้
   const canSwitchRole = realRole === "owner";          // 👑 เจ้าของสลับดูมุมคนอื่นได้ ไม่ต้องใส่รหัส
@@ -2360,27 +2414,27 @@ export default function App() {
       </header>
 
       {view === "sales" && <SalesView stock={stock} addBill={addBill} bills={activeBills} payments={payments} trayStock={trayStock} setTrayStock={setTrayStock} trayRecords={trayRecords} trayEvents={trayEvents} drafts={drafts} setDrafts={setDrafts} isOwner={currentRole === "owner"} />}
-      {view === "bills" && <BillHistoryView bills={bills} payments={payments} cancelBill={cancelBill} recordPayment={recordPayment} isOwner={currentRole === "owner"} />}
-      {view === "account" && <AccountView bills={activeBills} payments={payments} recordPayment={recordPayment} isOwner={currentRole === "owner"} />}
+      {view === "bills" && <BillHistoryView bills={bills} payments={payments} cancelBill={ge("bills", cancelBill)} recordPayment={ge("bills", recordPayment)} isOwner={currentRole === "owner"} />}
+      {view === "account" && <AccountView bills={activeBills} payments={payments} recordPayment={ge("account", recordPayment)} isOwner={currentRole === "owner"} />}
       {view === "dash" && <DashboardView bills={activeBills} payments={payments} production={productionByDate} rearingByDate={rearingByDate} flocks={flocks} />}
       {view === "manage" && <ManageDashView production={productionByDate} rearingByDate={rearingByDate} flocks={flocks} />}
       {view === "stock" && <StockView salesByDay={salesByDay} productionByDate={productionByDate} defaultDay={isoFromTs(Date.now())} stockCounts={stockCounts} closeMeta={closeMeta} refPrices={refPrices} washLogs={washLogs} addWash={addWash} delWash={delWash} canWash={currentRole === "owner" || currentRole === "office"} onCloseDay={closeDay} onReopenDay={reopenDay} />}
-      {view === "production" && <ProductionView houses={houses} setHouses={setHouses} prodDate={prodDate} setProdDate={setProdDate} production={productionByDate} flocks={flocks} readOnly={viewOnly || roleObj.id === "farm"} dayClosed={stockCounts[prodDate] != null} isOwner={roleObj.id === "owner"} />}
-      {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={guard(saveRearing)} flocks={flocks} saveFlock={guard(saveFlock)} production={productionByDate} medTrials={medTrials} medStock={medStock} medInfo={medInfo} vaccines={vaccines} addVaccine={guard(addVaccine)} deleteVaccine={guard(deleteVaccine)} labTests={labTests} addLabTest={guard(addLabTest)} deleteLabTest={guard(deleteLabTest)}
-        envChecks={envChecks} addEnvCheck={guard(addEnvCheck)} updateEnvCheck={guard(updateEnvCheck)} deleteEnvCheck={guard(deleteEnvCheck)} viewOnly={viewOnly} />}
+      {view === "production" && <ProductionView houses={houses} setHouses={setHouses} prodDate={prodDate} setProdDate={setProdDate} production={productionByDate} flocks={flocks} readOnly={!canEdit("production")} dayClosed={stockCounts[prodDate] != null} isOwner={roleObj.id === "owner"} />}
+      {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={ge("rear", saveRearing)} flocks={flocks} saveFlock={ge("rear", saveFlock)} production={productionByDate} medTrials={medTrials} medStock={medStock} medInfo={medInfo} vaccines={vaccines} addVaccine={ge("rear", addVaccine)} deleteVaccine={ge("rear", deleteVaccine)} labTests={labTests} addLabTest={ge("rear", addLabTest)} deleteLabTest={ge("rear", deleteLabTest)}
+        envChecks={envChecks} addEnvCheck={ge("rear", addEnvCheck)} updateEnvCheck={ge("rear", updateEnvCheck)} deleteEnvCheck={ge("rear", deleteEnvCheck)} viewOnly={!canEdit("rear")} />}
       {view === "feed" && <FeedView rearingByDate={rearingByDate} flocks={flocks} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} feedPrice={feedPrice} setFeedPrice={setFeedPrice} feedUseByMonth={feedUseByMonth} feedCostByMonth={feedCostByMonth} />}
-      {view === "med" && <MedView production={productionByDate} medStock={medStock} medInfo={medInfo} medReceipts={medReceipts} addMedItem={guard(addMedItem)} updateMedItem={guard(updateMedItem)} addMedReceipt={guard(addMedReceipt)} medCostByMonth={medCostByMonth}
-        medIssues={medIssues} addMedIssue={guard(addMedIssue)} updateMedIssue={guard(updateMedIssue)} deleteMedIssue={guard(deleteMedIssue)}
-        medOrders={medOrders} addMedOrder={guard(addMedOrder)} updateMedOrder={guard(updateMedOrder)} rearingByDate={rearingByDate}
-        medCounts={medCounts} addMedCount={guard(addMedCount)}
-        canIssue={!viewOnly && (currentRole === "owner" || currentRole === "farm")}
-        canManage={!viewOnly && (currentRole === "owner" || currentRole === "medclerk")}
+      {view === "med" && <MedView production={productionByDate} medStock={medStock} medInfo={medInfo} medReceipts={medReceipts} addMedItem={ge("med", addMedItem)} updateMedItem={ge("med", updateMedItem)} addMedReceipt={ge("med", addMedReceipt)} medCostByMonth={medCostByMonth}
+        medIssues={medIssues} addMedIssue={ge("med", addMedIssue)} updateMedIssue={ge("med", updateMedIssue)} deleteMedIssue={ge("med", deleteMedIssue)}
+        medOrders={medOrders} addMedOrder={ge("med", addMedOrder)} updateMedOrder={ge("med", updateMedOrder)} rearingByDate={rearingByDate}
+        medCounts={medCounts} addMedCount={ge("med", addMedCount)}
+        canIssue={canEdit("med") && (currentRole === "owner" || currentRole === "farm")}
+        canManage={canEdit("med") && (currentRole === "owner" || currentRole === "medclerk")}
         canSeeCost={currentRole === "owner" || currentRole === "medclerk"}
-        canCount={!viewOnly && currentRole === "owner"} />}
-      {view === "trial" && <TrialView medTrials={medTrials} addMedTrial={guard(addMedTrial)} deleteMedTrial={guard(deleteMedTrial)} production={productionByDate} rearingByDate={rearingByDate} />}
-      {view === "health" && <HealthHubView production={productionByDate} flocks={flocks} vaccines={vaccines} addVaccine={guard(addVaccine)} deleteVaccine={guard(deleteVaccine)} />}
+        canCount={canEdit("med") && currentRole === "owner"} />}
+      {view === "trial" && <TrialView medTrials={medTrials} addMedTrial={ge("trial", addMedTrial)} deleteMedTrial={ge("trial", deleteMedTrial)} production={productionByDate} rearingByDate={rearingByDate} />}
+      {view === "health" && <HealthHubView production={productionByDate} flocks={flocks} vaccines={vaccines} addVaccine={ge("health", addVaccine)} deleteVaccine={ge("health", deleteVaccine)} />}
       {view === "salesum" && <MonthlySalesView bills={activeBills} />}
-      {view === "cost" && <CostView expenses={expenses} addExpense={addExpense} deleteExpense={deleteExpense} production={productionByDate} medCostByMonth={medCostByMonth} feedCostByMonth={feedCostByMonth} feedPrice={feedPrice} bills={activeBills} />}
+      {view === "cost" && <CostView expenses={expenses} addExpense={ge("cost", addExpense)} deleteExpense={ge("cost", deleteExpense)} production={productionByDate} medCostByMonth={medCostByMonth} feedCostByMonth={feedCostByMonth} feedPrice={feedPrice} bills={activeBills} />}
       {view === "houseecon" && <HouseEconView production={productionByDate} flocks={flocks} expenses={expenses} medCostByMonth={medCostByMonth} feedCostByMonth={feedCostByMonth} feedUseByMonth={feedUseByMonth} feedPrice={feedPrice} refPrices={refPrices} bills={activeBills} />}
       {view === "activity" && <ActivityLogView roles={roles} />}
       {view === "accounts" && roleObj.id === "owner" && <AccountsView />}
@@ -4011,7 +4065,7 @@ function PaymentModal({ bill, current, onClose, onPay, isOwner }) {
   const [dragging, setDragging] = useState(false);  // กำลังลากรูปมาวางในโมดัล
   const [override, setOverride] = useState(false);  // ผู้ใช้ยืนยันเองเมื่อตรวจยอดอัตโนมัติไม่ผ่าน
   const amt = parseFloat(amount) || 0;
-  const MAX_SLIPS = 5;
+  const MAX_SLIPS = 7;   // เจ้าของสั่งเพิ่มจาก 5 เป็น 7 (22 ต.ค. 69) — บางบิลลูกค้าโอนย่อยหลายครั้ง
   const anyChecking = slips.some((s) => s.status === "checking");
   const slipChecked = slips.length > 0 && !anyChecking;
   // ตรวจยอด: สลิปใบเดียว → ตัวเลขใดตัวหนึ่งในสลิปต้องตรงยอดที่รับ
@@ -11171,11 +11225,11 @@ function AddMedModal({ onSave, onClose }) {
    หน้าจอ: บัญชีต้นทุน — ค่าใช้จ่าย 6 หมวด ระบุหลังได้ + สรุปรายเดือนต่อหมวด
 ============================================================ */
 // ช่องกรอกอัตราทศนิยม — เก็บข้อความที่พิมพ์แยกจากตัวเลขจริง (เดิม parse ทุกตัวอักษร → พิมพ์จุดทศนิยม/ลบค่าไม่ได้)
-function RateInput({ val, onCommit, style }) {
+function RateInput({ val, onCommit, style, readOnly = false }) {
   const [txt, setTxt] = useState(String(val));
   const [focus, setFocus] = useState(false);
   useEffect(() => { if (!focus) setTxt(String(val)); }, [val, focus]);
-  return <input inputMode="decimal" value={txt}
+  return <input inputMode="decimal" value={txt} readOnly={readOnly} disabled={readOnly}
     onFocus={() => setFocus(true)}
     onChange={(e) => { const t = e.target.value.replace(/[^0-9.]/g, ""); setTxt(t); const n = parseFloat(t); if (!isNaN(n)) onCommit(n); }}
     onBlur={() => { setFocus(false); const n = parseFloat(txt); const v = isNaN(n) ? 0 : n; onCommit(v); setTxt(String(v)); }}
@@ -11316,10 +11370,11 @@ function CostView({ expenses = [], addExpense, deleteExpense, production = {}, m
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 10, fontSize: 12, color: "#7a6f5c" }}>
               <span style={{ fontWeight: 700 }}>อัตราคิดต่อฟอง:</span>
               <span>สายพันธุ์</span>
-              <RateInput val={rates.breed} onCommit={(n) => setRates((p) => ({ ...p, breed: n }))}
+              {/* อัตรานี้กระทบต้นทุนต่อฟองโดยตรง — ไม่มีสิทธิ์แก้หัวข้อนี้ ก็แก้ไม่ได้ */}
+              <RateInput val={rates.breed} readOnly={!addExpense} onCommit={(n) => setRates((p) => ({ ...p, breed: n }))}
                 style={{ width: 52, padding: "3px 6px", border: "1px solid #e0d7c3", borderRadius: 6, textAlign: "right", fontSize: 12, fontFamily: "inherit", fontWeight: 700 }} />
               <span>บ./ฟอง · ค่าเสื่อมโรงเรือน</span>
-              <RateInput val={rates.depre} onCommit={(n) => setRates((p) => ({ ...p, depre: n }))}
+              <RateInput val={rates.depre} readOnly={!addExpense} onCommit={(n) => setRates((p) => ({ ...p, depre: n }))}
                 style={{ width: 52, padding: "3px 6px", border: "1px solid #e0d7c3", borderRadius: 6, textAlign: "right", fontSize: 12, fontFamily: "inherit", fontWeight: 700 }} />
               <span>บ./ฟอง</span>
             </div>
@@ -11347,8 +11402,8 @@ function CostView({ expenses = [], addExpense, deleteExpense, production = {}, m
       </div>
 
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-start", marginBottom: 12 }}>
-        {/* ฟอร์มกรอกค่าใช้จ่าย */}
-        <div style={{ flex: "1 1 300px", background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 12, padding: "12px 12px 10px" }}>
+        {/* ฟอร์มกรอกค่าใช้จ่าย — ไม่มีสิทธิ์แก้ (เช่น บัญชี) จะไม่เห็นกล่องนี้ */}
+        {addExpense && <div style={{ flex: "1 1 300px", background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 12, padding: "12px 12px 10px" }}>
           <div style={{ fontWeight: 800, color: ACCENT_DK, fontSize: 13, marginBottom: 8 }}>＋ บันทึกค่าใช้จ่าย</div>
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
             <div style={{ flex: 1.2 }}><label style={lbl}>วันที่</label><ThaiDateField value={date} onChange={setDate} style={inp} /></div>
@@ -11361,7 +11416,7 @@ function CostView({ expenses = [], addExpense, deleteExpense, production = {}, m
           </div>
           <div style={{ marginBottom: 10 }}><label style={lbl}>หมายเหตุ (เช่น ค่าไฟเดือน มิ.ย. หลัง 2)</label><input style={inp} value={note} onChange={(e) => setNote(e.target.value)} /></div>
           <button disabled={!valid} onClick={save} style={{ ...S.primaryBtn, opacity: valid ? 1 : 0.5 }}>บันทึก {cat}{amt > 0 ? ` · ${fmt(Math.round(amt))} บาท` : ""}</button>
-        </div>
+        </div>}
 
         {/* สรุปรายเดือน × หมวด */}
         <div style={{ flex: "2 1 420px", background: "#fff", border: "1px solid #eee3cd", borderRadius: 14, overflow: "auto" }}>
@@ -11406,7 +11461,7 @@ function CostView({ expenses = [], addExpense, deleteExpense, production = {}, m
             <span style={{ fontWeight: 700, color: ACCENT_DK }}>{x.houseId || "ทั้งฟาร์ม"}</span>
             <span style={{ fontWeight: 800, color: "#B91C1C" }}>{fmt(Math.round(x.amount))} บ.</span>
             {x.note ? <span style={{ color: "#9b8e78" }}>· {x.note}</span> : null}
-            <button onClick={() => { if (window.confirm(`ลบรายการ "${x.cat} ${fmt(Math.round(x.amount))} บ." ?`)) deleteExpense(x.id); }} title="ลบรายการ" style={{ marginLeft: "auto", border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 7, padding: "2px 8px", cursor: "pointer", fontWeight: 800 }}>✕</button>
+            {deleteExpense && <button onClick={() => { if (window.confirm(`ลบรายการ "${x.cat} ${fmt(Math.round(x.amount))} บ." ?`)) deleteExpense(x.id); }} title="ลบรายการ" style={{ marginLeft: "auto", border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 7, padding: "2px 8px", cursor: "pointer", fontWeight: 800 }}>✕</button>}
           </div>
         ))}
       </div>
