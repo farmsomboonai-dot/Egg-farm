@@ -1478,18 +1478,30 @@ const TOPIC_LABELS = {
 const ALL_TOPIC_IDS = Object.keys(TOPIC_LABELS);
 // หัวข้อที่เป็น "รายงานอ่านอย่างเดียว" อยู่แล้ว ไม่มีปุ่มบันทึกให้กด → ไม่ต้องเลือกระดับแก้ไข
 const READONLY_TOPICS = new Set(["dash", "manage", "salesum", "houseecon"]);
+/* สิทธิ์ "แก้ไขได้" ตั้งต้นของแต่ละบทบาท = ทุกหัวข้อที่เห็น (ตรงกับพฤติกรรมเดิมก่อนมีระบบ 3 ระดับ)
+   หักออกเฉพาะข้อยกเว้นที่มีมาแต่เดิม:
+     • หัวข้อรายงานล้วน — ไม่มีอะไรให้แก้อยู่แล้ว
+     • สัตวบาล → ผลผลิตประจำวัน (เดิมโค้ดบังคับ readOnly ไว้)
+     • บัญชี / แขก → ดูอย่างเดียวทั้งหมด
+   เขียนเป็นฟังก์ชันแทนลิสต์ตายตัว เพื่อให้หัวข้อที่เจ้าของเพิ่มให้เองทีหลังยังแก้ได้เหมือนเดิม */
+const ROLE_EDIT_V = 2;   // ขึ้นเลขนี้เมื่อกติกาสิทธิ์ตั้งต้นเปลี่ยน → ทุกเครื่องคำนวณใหม่พร้อมกัน
+const NO_EDIT_ROLES = new Set(["acct", "guest"]);
+const ROLE_EDIT_EXCLUDE = { farm: new Set(["production"]) };
+const defaultEditFor = (roleId, topics) => {
+  if (NO_EDIT_ROLES.has(roleId)) return [];
+  const ex = ROLE_EDIT_EXCLUDE[roleId];
+  return (topics || []).filter((t) => !READONLY_TOPICS.has(t) && !(ex && ex.has(t)));
+};
 const DEFAULT_ROLES = [
   { id: "owner", name: "เจ้าของ/ผู้จัดการ", emoji: "👑", pin: "1234", topics: ALL_TOPIC_IDS.slice() },
-  { id: "sales", name: "ฝ่ายขาย/เสมียนโรงคัด", emoji: "🛒", pin: "", topics: ["sales", "bills", "account", "tray", "booking", "plan", "stock", "salesum"],
-    edit: ["sales", "bills", "account", "tray", "booking", "plan", "stock"] },
-  { id: "farm", name: "สัตวบาล/ดูแลไก่", emoji: "🐔", pin: "", topics: ["production", "rear", "feed", "med", "trial", "health", "stock"],
-    edit: ["rear", "feed", "med", "trial", "health"] },   // ผลผลิต/สต๊อคไข่ = ดูอย่างเดียวมาแต่เดิม
+  { id: "sales", name: "ฝ่ายขาย/เสมียนโรงคัด", emoji: "🛒", pin: "", topics: ["sales", "bills", "account", "tray", "booking", "plan", "stock", "salesum"] },
+  { id: "farm", name: "สัตวบาล/ดูแลไก่", emoji: "🐔", pin: "", topics: ["production", "rear", "feed", "med", "trial", "health", "stock"] },
   // 💰 บัญชี — เจ้าของสั่ง 15 ต.ค. 69: เข้าดูได้ทุกหัวข้อที่ให้ไว้ แต่ไม่ให้แก้/เพิ่ม/ลบ
   { id: "acct", name: "บัญชี", emoji: "💰", pin: "", topics: ["bills", "account", "cost", "salesum", "dash", "manage", "houseecon"], edit: [] },
-  { id: "medclerk", name: "เสมียนห้องสต๊อคยา", emoji: "💊", pin: "", topics: ["med"], edit: ["med"] },
+  { id: "medclerk", name: "เสมียนห้องสต๊อคยา", emoji: "💊", pin: "", topics: ["med"] },
   // บทบาทร้านค้าภายนอก — เข้าได้แค่ "จองออเดอร์" และเห็นเฉพาะลูกค้า/ใบจองของกลุ่มตัวเอง (custGroup)
-  { id: "retail_shop", name: "ร้านค้าขายปลีก (ฉันจะกินไข่สดทุกวัน)", emoji: "🛍️", pin: "", topics: ["booking"], edit: ["booking"], custGroup: "retail" },
-  { id: "branch_shop", name: "ร้านฟาร์มสมบูรณ์", emoji: "🏪", pin: "", topics: ["booking"], edit: ["booking"], custGroup: "branch" },
+  { id: "retail_shop", name: "ร้านค้าขายปลีก (ฉันจะกินไข่สดทุกวัน)", emoji: "🛍️", pin: "", topics: ["booking"], custGroup: "retail" },
+  { id: "branch_shop", name: "ร้านฟาร์มสมบูรณ์", emoji: "🏪", pin: "", topics: ["booking"], custGroup: "branch" },
   /* 👀 แขกของฟาร์ม — ที่ปรึกษา/ผู้มาเยี่ยมที่ช่วยดูสุขภาพไก่กับผลผลิต
      viewOnly: true = ดูได้อย่างเดียว แก้ไม่ได้เลยทุกหน้า (เจ้าของสั่ง 4 ก.ย. 69)
      ไม่ให้เห็นหัวข้อเงิน (บิล/ลูกหนี้/ต้นทุน) และรายชื่อลูกค้า */
@@ -1780,7 +1792,7 @@ function RoleSettingsModal({ roles, onSave, accessLog = [], onClose }) {
         )}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <button onClick={onClose} style={S.ghostBtn}>ยกเลิก</button>
-          <button onClick={() => { onSave(local); onClose(); }} style={{ ...S.primaryBtn, width: "auto", padding: "9px 20px" }}>💾 บันทึกสิทธิ์</button>
+          <button onClick={() => { onSave(local.map((r) => ({ ...r, editV: ROLE_EDIT_V }))); onClose(); }} style={{ ...S.primaryBtn, width: "auto", padding: "9px 20px" }}>💾 บันทึกสิทธิ์</button>
         </div>
       </div>
     </div>
@@ -1795,10 +1807,20 @@ export default function App() {
       const stored = Array.isArray(s) ? s : [];
       const byId = Object.fromEntries(stored.map((r) => [r.id, r]));
       // ชื่อ/emoji ยึดตาม DEFAULT_ROLES (โค้ด) เสมอ · คง topics/pin ที่ user ปรับไว้ในเครื่อง · เติมบทบาทใหม่อัตโนมัติ
-      const merged = DEFAULT_ROLES.map((d) => { const u = byId[d.id]; return u ? { ...d, topics: u.topics || d.topics, edit: u.edit || d.edit || [], pin: u.pin != null ? u.pin : d.pin } : d; });
+      const merged = DEFAULT_ROLES.map((d) => {
+        const u = byId[d.id];
+        const topics = (u && u.topics) || d.topics || [];
+        /* u.edit มีค่า = เจ้าของตั้งเองแล้ว ใช้ตามนั้น
+           ไม่มี = เครื่องยังไม่เคยเจอระบบ 3 ระดับ → ให้สิทธิ์เท่าของเดิม (เห็นอะไรแก้ได้นั่น) */
+        /* รับค่าที่เจ้าของตั้งเองเฉพาะที่ติดเลขรุ่นปัจจุบัน
+           ค่าที่ไม่มีเลขรุ่น = มาจากโค้ดรุ่นที่ตั้งค่าตั้งต้นผิด ให้ทิ้งแล้วคำนวณใหม่ */
+        const edit = (u && u.editV === ROLE_EDIT_V && Array.isArray(u.edit)) ? u.edit : defaultEditFor(d.id, topics);
+        return u ? { ...d, topics, edit, editV: ROLE_EDIT_V, pin: u.pin != null ? u.pin : d.pin }
+                 : { ...d, edit: defaultEditFor(d.id, d.topics), editV: ROLE_EDIT_V };
+      });
       const extra = stored.filter((r) => !DEFAULT_ROLES.some((d) => d.id === r.id));   // บทบาทที่ user เพิ่มเอง (เผื่ออนาคต)
       return [...merged, ...extra];
-    } catch { return DEFAULT_ROLES; }
+    } catch { return DEFAULT_ROLES.map((d) => ({ ...d, edit: defaultEditFor(d.id, d.topics), editV: ROLE_EDIT_V })); }
   });
   useEffect(() => { try { localStorage.setItem("eggRoles", JSON.stringify(roles)); } catch {} }, [roles]);
   const [currentRole, setCurrentRole] = useState(() => {
