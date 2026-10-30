@@ -31,12 +31,12 @@ const SB_SYNC_RE = /^egg/;
 const SB_SKIP = new Set(["eggDeviceId", "eggSyncMeta", "eggCurrentRole", "eggAccessLog"]);
 // ลิสต์ (อาเรย์) ที่ให้รวมแบบ union ตาม id/เลขบิล แทนการทับทั้งก้อน — เฉพาะลิสต์ที่ "ไม่เคยลบสมาชิกออก"
 // (บิล: ยกเลิก = ติดธง cancelled ไม่ได้ลบออก) จึง union ปลอดภัย กัน 2 คนเพิ่มพร้อมกันแล้วหาย
-const SB_MERGE_ARRAY_KEYS = new Set(["eggBills", "eggMedIssues", "eggMedOrders", "eggMedCounts", "eggEnvChecks"]);
+const SB_MERGE_ARRAY_KEYS = new Set(["eggBills", "eggMedIssues", "eggMedOrders", "eggMedCounts", "eggEnvChecks", "eggDeadCages"]);
 // 📋 บันทึกกิจกรรม: ป้ายชื่อไทยของแต่ละคีย์ข้อมูล (ไว้โชว์ว่า "แก้อะไร" ในหน้าใครแก้อะไร)
 const ACTIVITY_KEY_LABELS = {
   eggBills: "บิลขาย", eggPayments: "รับชำระเงิน", eggProduction: "ผลผลิตประจำวัน",
   eggRearing: "บันทึกการเลี้ยง", eggFlocks: "รุ่นการเลี้ยง", eggVaccines: "วัคซีน", eggLabTests: "ผลตรวจแล็บ",
-  eggEnvChecks: "ตรวจวัดโรงเรือน",
+  eggEnvChecks: "ตรวจวัดโรงเรือน", eggDeadCages: "เลขกรงไก่ตาย",
   eggMedStock: "สต๊อกยา", eggMedReceipts: "รับยาเข้าสต๊อก", eggMedTrials: "ทดลอง·ติดตามผล",
   eggMedIssues: "ใบเบิกยา", eggMedOrders: "ขอสั่งซื้อยา", eggMedCounts: "นับสต๊อกยา",
   eggFeedDeliveries: "รับอาหาร", eggFeedPrice: "ราคาอาหาร", eggStockCounts: "ปิดยอดสต๊อกไข่", eggCloseMeta: "ปิดยอดสิ้นวัน", eggWashLogs: "ล้างไข่เปื้อน",
@@ -2046,6 +2046,11 @@ export default function App() {
   const addEnvCheck = (r) => { if (viewOnly) return; setEnvChecks((p) => [r, ...p]); };
   const updateEnvCheck = (id, patch) => setEnvChecks((p) => p.map((x) => x.id === id ? { ...x, ...patch } : x));
   const deleteEnvCheck = (id) => setEnvChecks((p) => p.filter((x) => x.id !== id));
+  /* ☠️ เลขกรงไก่ตาย — 1 เรกคอร์ด = 1 หลัง × 1 วัน × 1 กะ (คีย์ซ้ำวัน/กะเดิม = ทับของเดิม) */
+  const [deadCages, setDeadCages] = useState(() => { try { return JSON.parse(localStorage.getItem("eggDeadCages") || "[]"); } catch { return []; } });
+  useEffect(() => { try { localStorage.setItem("eggDeadCages", JSON.stringify(deadCages)); } catch {} }, [deadCages]);
+  const saveDeadCage = (rec) => { if (viewOnly) return; setDeadCages((p) => [rec, ...p.filter((x) => !(x.houseId === rec.houseId && x.date === rec.date && x.shift === rec.shift))]); };
+  const deleteDeadCage = (id) => setDeadCages((p) => p.filter((x) => x.id !== id));
   // สมุดผลตรวจแล็บประจำหลัง {houseId: [rows]} — เจาะเลือด (serology) / เก็บซาก (necropsy) ส่งตรวจ
   const [labTests, setLabTests] = useState(() => { try { return JSON.parse(localStorage.getItem("eggLabTests") || "{}"); } catch { return {}; } });
   useEffect(() => { try { localStorage.setItem("eggLabTests", JSON.stringify(labTests)); } catch {} }, [labTests]);
@@ -2443,7 +2448,8 @@ export default function App() {
       {view === "stock" && <StockView salesByDay={salesByDay} productionByDate={productionByDate} defaultDay={isoFromTs(Date.now())} stockCounts={stockCounts} closeMeta={closeMeta} refPrices={refPrices} washLogs={washLogs} addWash={addWash} delWash={delWash} canWash={currentRole === "owner" || currentRole === "office"} onCloseDay={closeDay} onReopenDay={reopenDay} />}
       {view === "production" && <ProductionView houses={houses} setHouses={setHouses} prodDate={prodDate} setProdDate={setProdDate} production={productionByDate} flocks={flocks} readOnly={!canEdit("production")} dayClosed={stockCounts[prodDate] != null} isOwner={roleObj.id === "owner"} />}
       {view === "rear" && <RearingView rearingByDate={rearingByDate} saveRearing={ge("rear", saveRearing)} flocks={flocks} saveFlock={ge("rear", saveFlock)} production={productionByDate} medTrials={medTrials} medStock={medStock} medInfo={medInfo} vaccines={vaccines} addVaccine={ge("rear", addVaccine)} deleteVaccine={ge("rear", deleteVaccine)} labTests={labTests} addLabTest={ge("rear", addLabTest)} deleteLabTest={ge("rear", deleteLabTest)}
-        envChecks={envChecks} addEnvCheck={ge("rear", addEnvCheck)} updateEnvCheck={ge("rear", updateEnvCheck)} deleteEnvCheck={ge("rear", deleteEnvCheck)} viewOnly={!canEdit("rear")} />}
+        envChecks={envChecks} addEnvCheck={ge("rear", addEnvCheck)} updateEnvCheck={ge("rear", updateEnvCheck)} deleteEnvCheck={ge("rear", deleteEnvCheck)}
+        deadCages={deadCages} saveDeadCage={ge("rear", saveDeadCage)} deleteDeadCage={ge("rear", deleteDeadCage)} viewOnly={!canEdit("rear")} />}
       {view === "feed" && <FeedView rearingByDate={rearingByDate} flocks={flocks} production={productionByDate} feedDeliveries={feedDeliveries} addFeedDelivery={addFeedDelivery} deleteFeedDelivery={deleteFeedDelivery} feedPrice={feedPrice} setFeedPrice={setFeedPrice} feedUseByMonth={feedUseByMonth} feedCostByMonth={feedCostByMonth} />}
       {view === "med" && <MedView production={productionByDate} medStock={medStock} medInfo={medInfo} medReceipts={medReceipts} addMedItem={ge("med", addMedItem)} updateMedItem={ge("med", updateMedItem)} addMedReceipt={ge("med", addMedReceipt)} medCostByMonth={medCostByMonth}
         medIssues={medIssues} addMedIssue={ge("med", addMedIssue)} updateMedIssue={ge("med", updateMedIssue)} deleteMedIssue={ge("med", deleteMedIssue)}
@@ -4087,23 +4093,38 @@ function PaymentModal({ bill, current, onClose, onPay, isOwner }) {
   const [dragging, setDragging] = useState(false);  // กำลังลากรูปมาวางในโมดัล
   const [override, setOverride] = useState(false);  // ผู้ใช้ยืนยันเองเมื่อตรวจยอดอัตโนมัติไม่ผ่าน
   const amt = parseFloat(amount) || 0;
-  const MAX_SLIPS = 7;   // เจ้าของสั่งเพิ่มจาก 5 เป็น 7 (22 ต.ค. 69) — บางบิลลูกค้าโอนย่อยหลายครั้ง
+  // แนบสลิปได้ไม่จำกัดใบ (เจ้าของสั่ง 29 ต.ค. 69) — ลูกค้ารายใหญ่โอนย่อยหลายสิบครั้งต่อบิล
   const anyChecking = slips.some((s) => s.status === "checking");
   const slipChecked = slips.length > 0 && !anyChecking;
-  // ตรวจยอด: สลิปใบเดียว → ตัวเลขใดตัวหนึ่งในสลิปต้องตรงยอดที่รับ
-  // หลายใบ (โอนแยกก้อน) → เลือกตัวเลขใบละ 1 ตัว รวมกันแล้วต้องเท่ายอดที่รับ (หรือใบเดียวครอบทั้งยอดก็ผ่าน)
+  /* ตรวจยอดอัตโนมัติ
+     ใบเดียว  → ตัวเลขใดตัวหนึ่งในสลิปต้องตรงยอดที่รับ
+     หลายใบ   → เลือกตัวเลขใบละ 1 ตัว รวมกันต้องเท่ายอดที่รับ (หรือใบเดียวครอบทั้งยอดก็ผ่าน)
+
+     ⚠️ ทำไมจำกัดไว้ที่ SLIP_AUTO_MAX ใบ
+     สลิปจริงมีตัวเลขเพ่นพ่านใบละ ~7-12 ตัว (เลขบัญชี วันที่ ค่าธรรมเนียม ยอดคงเหลือ)
+     ยิ่งแนบหลายใบ จำนวนคู่ผสมยิ่งโตแบบทวีคูณ — 10 ใบ = 12^10 ≈ 6 หมื่นล้านชุด
+     ถึงจุดนั้น "มีชุดที่รวมได้ตรงยอด" เกิดขึ้นได้ด้วยความบังเอิญเสมอ = ตรวจแล้วพิสูจน์อะไรไม่ได้
+     จึงยอมบอกตรงๆ ว่าตรวจอัตโนมัติไม่ไหว แล้วให้คนตรวจด้วยตา ดีกว่าขึ้นเครื่องหมายถูกหลอกให้สบายใจ
+     (ทดสอบแล้ว 6 ใบยังจับยอดผิดได้ถูกต้อง — คลาดแค่ 25 สตางค์ก็ไม่ผ่าน) */
+  const SLIP_AUTO_MAX = 6;
+  const tooManyToAutoCheck = slips.length > SLIP_AUTO_MAX;
   const slipHasAmt = (() => {
     if (!slipChecked || !amt) return false;
     if (slips.some((s) => (s.nums || []).some((n) => Math.abs(n - amt) < 0.005))) return true;
+    if (tooManyToAutoCheck) return false;
     if (slips.length < 2 || slips.some((s) => s.status !== "done" || !s.nums.length)) return false;
-    let sums = [0];
+    // คิดเป็นสตางค์ (จำนวนเต็ม) เก็บเฉพาะผลรวมที่ไม่ซ้ำ + ตัดกิ่งที่เกินยอดทิ้งทันที (ตัวเลขทุกตัวเป็นบวก)
+    const target = Math.round(amt * 100);
+    let sums = new Set([0]);
     for (const s of slips) {
-      const pick = s.nums.slice(0, 12), next = [];
-      for (const acc of sums) for (const n of pick) next.push(acc + n);
+      const pick = s.nums.slice(0, 12).map((n) => Math.round(n * 100));
+      const next = new Set();
+      for (const acc of sums) for (const c of pick) { const t = acc + c; if (t <= target + 1) next.add(t); }
       sums = next;
-      if (sums.length > 25000) return false;   // กันระเบิด (ตัวเลขเยอะผิดปกติ) → ให้ใช้ช่องยืนยันเองแทน
+      if (!sums.size) return false;              // ทุกเส้นทางเกินยอดไปแล้ว = รวมให้เท่าไม่ได้
+      if (sums.size > 400000) return false;      // กันค้างเครื่อง → ให้ใช้ช่องยืนยันเองแทน
     }
-    return sums.some((t) => Math.abs(t - amt) < 0.01);
+    return sums.has(target) || sums.has(target - 1) || sums.has(target + 1);
   })();
   const valid = amt > 0 && slips.length > 0 && !anyChecking && (slipHasAmt || (slipChecked && override));
 
@@ -4126,7 +4147,7 @@ function PaymentModal({ bill, current, onClose, onPay, isOwner }) {
     reader.onload = () => {
       const id = "sl" + Math.random().toString(36).slice(2, 9);
       setOverride(false);
-      setSlips((p) => p.length >= MAX_SLIPS ? p : [...p, { id, src: reader.result, name: file.name || "สลิป", status: "checking", nums: [] }]);
+      setSlips((p) => [...p, { id, src: reader.result, name: file.name || "สลิป", status: "checking", nums: [] }]);
       ocrSlip(id, reader.result);
     };
     reader.readAsDataURL(file);
@@ -4194,21 +4215,22 @@ function PaymentModal({ bill, current, onClose, onPay, isOwner }) {
             <div style={{ marginTop: 7, fontSize: 12.5, fontWeight: 700 }}>
               {anyChecking ? <span style={{ color: "#B45309" }}>⏳ กำลังอ่านยอดเงินจากสลิป…</span>
                 : slipHasAmt ? <span style={{ color: "#15803D" }}>✓ ตรวจสลิปแล้ว — ยอด{slips.length > 1 ? "รวมจากทั้ง " + slips.length + " ใบ" : "ในสลิป"}ตรงกับ {fmt2(amt)} บาท</span>
-                  : <span style={{ color: "#B91C1C" }}>⚠️ ยอด{slips.length > 1 ? "จากสลิปทั้ง " + slips.length + " ใบรวมกัน" : "ในสลิป"}ไม่ตรงกับ {fmt2(amt)} บาท</span>}
+                  : tooManyToAutoCheck ? <span style={{ color: "#B45309" }}>🔍 สลิป {slips.length} ใบ — เยอะเกินกว่าระบบจะตรวจยอดให้ได้อย่างน่าเชื่อถือ กรุณาบวกยอดด้วยตาแล้วติ๊กยืนยันด้านล่าง</span>
+                    : <span style={{ color: "#B91C1C" }}>⚠️ ยอด{slips.length > 1 ? "จากสลิปทั้ง " + slips.length + " ใบรวมกัน" : "ในสลิป"}ไม่ตรงกับ {fmt2(amt)} บาท</span>}
             </div>
           )}
-          {slips.length < MAX_SLIPS && (
-            <label style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 8, padding: slips.length ? "10px 12px" : "18px 12px", border: "1.5px dashed #E0A875", borderRadius: 10, background: "#FDF6EE", color: "#8a8170", fontSize: 13, cursor: "pointer", textAlign: "center" }}>
-              <ImageIcon size={20} color={ACCENT_DK} />
-              <span>{slips.length ? "＋ เพิ่มสลิปอีกใบ" : "แตะเพื่อเลือก / ถ่ายรูป · ลากรูปมาวาง · วาง (Ctrl+V)"}</span>
-              <input type="file" accept="image/*" multiple style={{ display: "none" }} onChange={onPickFile} />
-            </label>
-          )}
+          <label style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 8, padding: slips.length ? "10px 12px" : "18px 12px", border: "1.5px dashed #E0A875", borderRadius: 10, background: "#FDF6EE", color: "#8a8170", fontSize: 13, cursor: "pointer", textAlign: "center" }}>
+            <ImageIcon size={20} color={ACCENT_DK} />
+            <span>{slips.length ? `＋ เพิ่มสลิปอีกใบ (แนบแล้ว ${slips.length} ใบ)` : "แตะเพื่อเลือก / ถ่ายรูป · ลากรูปมาวาง · วาง (Ctrl+V)"}</span>
+            <input type="file" accept="image/*" multiple style={{ display: "none" }} onChange={onPickFile} />
+          </label>
         </div>
         {slips.length > 0 && slipChecked && !slipHasAmt && (
           <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12.5, color: "#7A4F16", background: "#FDF6EE", border: "1.5px solid #E0A875", borderRadius: 9, padding: "8px 10px", marginBottom: 10, cursor: "pointer" }}>
             <input type="checkbox" checked={override} onChange={(e) => setOverride(e.target.checked)} style={{ marginTop: 2 }} />
-            <span>ตรวจยอดด้วยตาแล้ว ยืนยันว่าสลิปนี้ถูกต้อง (ระบบจะระบุ "ข้ามตรวจสลิป" ไว้ในประวัติ)</span>
+            <span>{tooManyToAutoCheck
+              ? `บวกยอดจากสลิปทั้ง ${slips.length} ใบด้วยตาแล้ว ยืนยันว่ารวมได้ ${fmt2(amt)} บาทถูกต้อง (ระบบจะระบุ "ข้ามตรวจสลิป" ไว้ในประวัติ)`
+              : 'ตรวจยอดด้วยตาแล้ว ยืนยันว่าสลิปนี้ถูกต้อง (ระบบจะระบุ "ข้ามตรวจสลิป" ไว้ในประวัติ)'}</span>
           </label>
         )}
         <div style={{ marginBottom: 14 }}>
@@ -6279,6 +6301,63 @@ const HOUSES_4_7 = [
 
 // โรงเรือนทั้งหมดของฟาร์ม — เพิ่มหลังใหม่ที่นี่ที่เดียว ทุกหน้า (ผลผลิต/เลี้ยง/อาหาร/ยา/ต้นทุน) เห็นเอง
 // H7 เริ่มเข้าไก่ 8/7/69 (ยังไม่มีผลผลิตย้อนหลัง — วันเก่าไม่โชว์ H7 ตามจริง)
+/* ☠️ เลขกรงไก่ตาย — พนักงานเขียนเลขกรงลงกระดาษ (ชั้น×ร่อง) แล้วหมอมาคีย์ที่นี่
+   โครงเล้า: ร่อง (H2–H6 = 6 ร่อง, H7 = 7 ร่อง) × ชั้น 1–5 × กรง 1–180
+   กรง 1 = ต้นเล้า ติดคูลลิ่งแพด (ลมเข้า) · กรง 180 = ท้ายเล้า ติดพัดลม (ลมออก)
+   1 เรกคอร์ด = 1 หลัง × 1 วัน × 1 กะ ; cells = { "ร่อง-ชั้น": [เลขกรง,...] } */
+const DEAD_RONG = { H2: 6, H3: 6, H4: 6, H5: 6, H6: 6, H7: 7 };
+const DEAD_TIERS = [5, 4, 3, 2, 1];
+const DEAD_CAGE_MAX = 180;
+const DEAD_BIN = 10;                                   // แผนผัง 1 ช่อง = 10 กรง → 18 ช่อง
+const DEAD_NBIN = DEAD_CAGE_MAX / DEAD_BIN;
+const deadRongOf = (hid) => DEAD_RONG[hid] || 6;
+const deadKey = (r, t) => `${r}-${t}`;
+/* รับได้ทุกแบบที่หมอพิมพ์: "12 47", "12,47", "12/47" → [12,47] ; ตัดค่านอกช่วง 1–180 ทิ้ง */
+function parseCages(str) {
+  const out = [], seen = new Set();
+  for (const p of String(str || "").split(/[^0-9]+/)) {
+    const n = parseInt(p, 10);
+    if (n >= 1 && n <= DEAD_CAGE_MAX && !seen.has(n)) { seen.add(n); out.push(n); }
+  }
+  return out;
+}
+const cagesStr = (a) => (a || []).join(" ");
+const deadCount = (rec) => Object.values(rec?.cells || {}).reduce((s, a) => s + (a?.length || 0), 0);
+/* รวมทุกเรกคอร์ดของหลังหนึ่ง → แผนผัง + ตารางต่างๆ (กรองช่วงวันที่/กะได้) */
+function deadAgg(rows, { from = "", to = "", shift = "" } = {}) {
+  const inRange = (r) => (!from || (r.date || "") >= from) && (!to || (r.date || "") <= to) && (!shift || r.shift === shift);
+  const byCell = {}, byCage = {}, byBin = {}, byTier = {}, byRong = {};
+  let total = 0;
+  for (const r of rows) {
+    if (!inRange(r)) continue;
+    for (const [k, arr] of Object.entries(r.cells || {})) {
+      const [rg, ti] = k.split("-");
+      for (const cg of arr || []) {
+        total++;
+        byCell[k] = (byCell[k] || 0) + 1;
+        byTier[ti] = (byTier[ti] || 0) + 1;
+        byRong[rg] = (byRong[rg] || 0) + 1;
+        const b = Math.min(DEAD_NBIN - 1, Math.floor((cg - 1) / DEAD_BIN));
+        byBin[`${k}|${b}`] = (byBin[`${k}|${b}`] || 0) + 1;
+        const ck = `${k}|${cg}`;
+        (byCage[ck] = byCage[ck] || { rong: +rg, tier: +ti, cage: cg, n: 0, dates: [] }).n++;
+        if (!byCage[ck].dates.includes(r.date)) byCage[ck].dates.push(r.date);
+      }
+    }
+  }
+  const repeats = Object.values(byCage).filter((x) => x.n >= 2)
+    .sort((a, b) => b.n - a.n || a.rong - b.rong || b.tier - a.tier || a.cage - b.cage);
+  return { total, byCell, byBin, byTier, byRong, byCage, repeats };
+}
+/* ไล่สีแผนผัง: ขาว → เหลือง → ส้ม → แดง ตามสัดส่วนของค่าสูงสุด */
+function deadHeat(v, max) {
+  if (!v) return { bg: "#fff", fg: "#c9c0ad" };
+  const t = max > 0 ? v / max : 0;
+  if (t < 0.34) return { bg: "#FEF3C7", fg: "#92570B" };
+  if (t < 0.6) return { bg: "#FDE68A", fg: "#7C3F06" };
+  if (t < 0.8) return { bg: "#F59E0B", fg: "#fff" };
+  return { bg: "#DC2626", fg: "#fff" };
+}
 const HOUSE_IDS = ["H2", "H3", "H4", "H5", "H6", "H7"];
 /* 📋 แยกข้อความรายงานตกเกรดจากไลน์ → ตัวเลขลงช่องอัตโนมัติ (เจ้าของสั่ง 6 ก.ย. 69)
    เดิมเสมียนคนหนึ่งพิมพ์ลงไลน์ อีกคนมานั่งคีย์ซ้ำ 13 ช่อง × 7 หลัง ทุกวัน
@@ -8172,6 +8251,321 @@ function envWarns(r, prev) {
   return out;
 }
 
+/* ☠️ เลขกรงไก่ตาย — หมอคีย์จากกระดาษที่พนักงานเขียนมา แล้วดูแผนผัง/จุดเสี่ยงได้ในหน้าเดียว */
+function DeadCageModal({ houseId, rows = [], onSave, onDelete, viewOnly = false, onClose }) {
+  const nr = deadRongOf(houseId);
+  const sorted = [...rows].sort((a, b) => (b.date || "").localeCompare(a.date || "") || (b.shift === "am" ? -1 : 1));
+  const who = (() => { try { return labelOfAccount(localStorage.getItem("sjfAuthUsername") || "") || ""; } catch (e) { return ""; } })();
+  const [tab, setTab] = useState(viewOnly ? "map" : "new");
+  const [date, setDate] = useState(isoFromTs(Date.now()));
+  const [shift, setShift] = useState("am");
+  const [cells, setCells] = useState({});
+  const [note, setNote] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [mapShift, setMapShift] = useState("");
+
+  /* เปลี่ยนวัน/กะ แล้วดึงของเดิมมาแก้ต่อ (ถ้าเคยคีย์ไว้) */
+  const existing = rows.find((r) => r.date === date && r.shift === shift);
+  useEffect(() => {
+    setCells(existing ? { ...existing.cells } : {});
+    setNote(existing?.note || "");
+  }, [date, shift, existing?.id]);
+
+  const setCell = (r, t, v) => setCells((p) => ({ ...p, [deadKey(r, t)]: parseCages(v), [deadKey(r, t) + "_raw"]: v }));
+  const rawOf = (r, t) => {
+    const k = deadKey(r, t);
+    return cells[k + "_raw"] !== undefined ? cells[k + "_raw"] : cagesStr(cells[k]);
+  };
+  const cleanCells = () => {
+    const out = {};
+    for (const [k, v] of Object.entries(cells)) if (!k.endsWith("_raw") && (v || []).length) out[k] = v;
+    return out;
+  };
+  const typedTotal = Object.entries(cells).reduce((n, [k, v]) => k.endsWith("_raw") ? n : n + (v?.length || 0), 0);
+
+  const save = () => {
+    const c = cleanCells();
+    if (!Object.keys(c).length) { alert("ยังไม่ได้ใส่เลขกรงสักช่อง"); return; }
+    onSave({ id: existing?.id || "DC" + Date.now(), houseId, date, shift, by: who, ts: Date.now(), cells: c, note });
+    setTab("list");
+  };
+
+  const agg = deadAgg(rows, { from, to, shift: mapShift });
+  const binMax = Math.max(1, ...Object.values(agg.byBin));
+  const cellMax = Math.max(1, ...Object.values(agg.byCell));
+
+  const lbl = { fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", display: "block", marginBottom: 4 };
+  const inp = { width: "100%", padding: "7px 8px", border: "1.5px solid #e3ddd0", borderRadius: 8, fontSize: 14, fontFamily: "inherit", outline: "none", fontWeight: 700, boxSizing: "border-box" };
+  const th = { padding: "6px 7px", fontSize: 11.5, fontWeight: 800, color: "#7a6f5c", background: "#F6F1E7", borderBottom: "2px solid #e6ddca", textAlign: "center", whiteSpace: "nowrap" };
+  const td = { padding: "6px 7px", fontSize: 12.5, borderBottom: "1px solid #eee7d8", textAlign: "center", whiteSpace: "nowrap" };
+  const tabBtn = (id, t) => (
+    <button key={id} onClick={() => setTab(id)} style={{ padding: "7px 14px", borderRadius: 999, border: `1.5px solid ${tab === id ? "#B91C1C" : "#e0d7c3"}`, background: tab === id ? "#B91C1C" : "#fff", color: tab === id ? "#fff" : "#7a6f5c", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>{t}</button>
+  );
+  const shiftBtn = (id, t, cur, set) => (
+    <button onClick={() => set(id)} style={{ padding: "6px 13px", borderRadius: 9, border: `1.5px solid ${cur === id ? "#B45309" : "#e0d7c3"}`, background: cur === id ? "#FEF3C7" : "#fff", color: cur === id ? "#92570B" : "#9b8e78", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>{t}</button>
+  );
+  const dateInp = { padding: "7px 9px", border: "1.5px solid #e3ddd0", borderRadius: 9, fontSize: 13.5, fontFamily: "inherit", fontWeight: 700 };
+
+  return (
+    <div style={S.modalOverlay} onClick={onClose}>
+      <div style={{ ...S.modal, maxWidth: 1060, maxHeight: "94vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <div style={S.modalHead}>
+          <div>
+            <div style={S.modalTitle}>☠️ เลขกรงไก่ตาย · {houseId}</div>
+            <div style={S.modalSub}>คีย์เลขกรงจากกระดาษที่พนักงานเขียนมา — {nr} ร่อง × 5 ชั้น × กรง 1–180</div>
+          </div>
+          <button style={S.modalClose} onClick={onClose}><X size={18} /></button>
+        </div>
+        <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 13 }}>
+          {!viewOnly && tabBtn("new", "✎ คีย์เลขกรง")}
+          {tabBtn("list", `📋 ประวัติ${sorted.length ? " · " + sorted.length : ""}`)}
+          {tabBtn("map", "🗺️ แผนผังเล้า")}
+          {tabBtn("risk", `🎯 จุดเสี่ยง${agg.repeats.length ? " · " + agg.repeats.length : ""}`)}
+        </div>
+
+        {/* ───────── คีย์เลขกรง ───────── */}
+        {tab === "new" && (<>
+          <div style={{ display: "flex", gap: 9, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 11 }}>
+            <div><label style={lbl}>วันที่</label>
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={dateInp} /></div>
+            <div><label style={lbl}>กะ</label>
+              <div style={{ display: "flex", gap: 6 }}>
+                {shiftBtn("am", "☀ เช้า", shift, setShift)}
+                {shiftBtn("pm", "☾ บ่าย", shift, setShift)}
+              </div></div>
+            <div style={{ flex: 1, minWidth: 130, textAlign: "right" }}>
+              <div style={{ fontSize: 11.5, color: "#9b8e78", fontWeight: 700 }}>ใส่แล้ว</div>
+              <div style={{ fontSize: 23, fontWeight: 900, color: typedTotal ? "#B91C1C" : "#c9c0ad" }}>{typedTotal} <span style={{ fontSize: 13, fontWeight: 700, color: "#9b8e78" }}>ตัว</span></div>
+            </div>
+          </div>
+          {existing && <div style={{ background: "#FFFBEB", border: "1.5px solid #FDE68A", borderRadius: 10, padding: "8px 12px", marginBottom: 10, fontSize: 12.5, fontWeight: 700, color: "#B45309" }}>
+            มีข้อมูลของวัน/กะนี้อยู่แล้ว ({deadCount(existing)} ตัว โดย {existing.by || "—"}) — กดบันทึกจะทับของเดิม</div>}
+          <div style={{ fontSize: 12, color: "#9b8e78", marginBottom: 8, lineHeight: 1.7 }}>
+            พิมพ์เลขกรงในช่อง <b>เว้นวรรคหรือคอมมา</b> ถ้าช่องนั้นเจอหลายตัว เช่น <b style={{ color: "#B91C1C" }}>12 47 160</b> · ช่องไหนไม่เจอ ปล่อยว่าง
+          </div>
+          <div style={{ border: "1px solid #eee3cd", borderRadius: 12, overflowX: "auto", marginBottom: 12 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 120 + nr * 120 }}>
+              <thead><tr>
+                <th style={{ ...th, position: "sticky", left: 0, zIndex: 2 }}>ชั้น \ ร่อง</th>
+                {Array.from({ length: nr }, (_, i) => <th key={i} style={th}>{i + 1}</th>)}
+                <th style={th}>รวม</th>
+              </tr></thead>
+              <tbody>
+                {DEAD_TIERS.map((t) => {
+                  const rowN = Array.from({ length: nr }, (_, i) => (cells[deadKey(i + 1, t)] || []).length).reduce((a, b) => a + b, 0);
+                  return (
+                    <tr key={t}>
+                      <td style={{ ...td, fontWeight: 900, background: "#FFF9F0", position: "sticky", left: 0 }}>{t}</td>
+                      {Array.from({ length: nr }, (_, i) => {
+                        const r = i + 1, n = (cells[deadKey(r, t)] || []).length;
+                        return <td key={r} style={{ ...td, padding: 3 }}>
+                          <input value={rawOf(r, t)} onChange={(e) => setCell(r, t, e.target.value)} placeholder="—" inputMode="numeric"
+                            style={{ ...inp, textAlign: "center", background: n ? "#FEF2F2" : "#fff", borderColor: n ? "#FCA5A5" : "#e3ddd0", color: n ? "#B91C1C" : "inherit" }} />
+                        </td>;
+                      })}
+                      <td style={{ ...td, fontWeight: 900, color: rowN ? "#B91C1C" : "#c9c0ad", background: "#FFF9F0" }}>{rowN || "—"}</td>
+                    </tr>
+                  );
+                })}
+                <tr>
+                  <td style={{ ...td, fontWeight: 900, background: "#F6F1E7", position: "sticky", left: 0 }}>รวม</td>
+                  {Array.from({ length: nr }, (_, i) => {
+                    const n = DEAD_TIERS.reduce((a, t) => a + (cells[deadKey(i + 1, t)] || []).length, 0);
+                    return <td key={i} style={{ ...td, fontWeight: 900, background: "#F6F1E7", color: n ? "#B91C1C" : "#c9c0ad" }}>{n || "—"}</td>;
+                  })}
+                  <td style={{ ...td, fontWeight: 900, background: "#F6F1E7", color: "#B91C1C" }}>{typedTotal || "—"}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={lbl}>หมายเหตุ</label>
+            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น ร่อง 3 มีน้ำรั่ว" style={{ ...inp, textAlign: "left" }} />
+          </div>
+          <button onClick={save} disabled={!typedTotal}
+            style={{ width: "100%", padding: "13px", borderRadius: 12, border: "none", background: typedTotal ? "#B91C1C" : "#e0d7c3", color: "#fff", fontSize: 15.5, fontWeight: 800, cursor: typedTotal ? "pointer" : "default", fontFamily: "inherit" }}>
+            บันทึก {typedTotal ? `${typedTotal} ตัว` : ""} · {toThaiDate(date, false)} {shift === "am" ? "เช้า" : "บ่าย"}
+          </button>
+        </>)}
+
+        {/* ───────── ประวัติ ───────── */}
+        {tab === "list" && (!sorted.length ? (
+          <div style={{ padding: "28px 16px", textAlign: "center", color: "#9b8e78", fontWeight: 600 }}>ยังไม่มีข้อมูลของหลังนี้</div>
+        ) : (
+          <div style={{ border: "1px solid #eee3cd", borderRadius: 12, overflow: "auto", maxHeight: "60vh" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead><tr><th style={th}>วันที่</th><th style={th}>กะ</th><th style={th}>ตาย</th><th style={{ ...th, textAlign: "left" }}>เลขกรง</th><th style={th}>คีย์โดย</th>{!viewOnly && <th style={th}></th>}</tr></thead>
+              <tbody>
+                {sorted.map((r) => (
+                  <tr key={r.id}>
+                    <td style={td}>{toThaiDate(r.date, false)}</td>
+                    <td style={td}>{r.shift === "am" ? "☀ เช้า" : "☾ บ่าย"}</td>
+                    <td style={{ ...td, fontWeight: 900, color: "#B91C1C" }}>{deadCount(r)}</td>
+                    <td style={{ ...td, textAlign: "left", whiteSpace: "normal", fontSize: 12, lineHeight: 1.8 }}>
+                      {Object.entries(r.cells || {}).sort().map(([k, a]) => {
+                        const [rg, ti] = k.split("-");
+                        return <span key={k} style={{ display: "inline-block", background: "#FFF9F0", border: "1px solid #F0E3CC", borderRadius: 7, padding: "1px 7px", marginRight: 5, marginBottom: 3 }}>
+                          <b style={{ color: "#7a6f5c" }}>ร{rg} ช{ti}</b> <span style={{ color: "#B91C1C", fontWeight: 800 }}>{cagesStr(a)}</span></span>;
+                      })}
+                      {r.note ? <div style={{ color: "#9b8e78", fontStyle: "italic", marginTop: 2 }}>{r.note}</div> : null}
+                    </td>
+                    <td style={{ ...td, fontSize: 11.5, color: "#9b8e78" }}>{r.by || "—"}</td>
+                    {!viewOnly && <td style={td}>
+                      <button onClick={() => { if (window.confirm(`ลบข้อมูล ${toThaiDate(r.date, false)} ${r.shift === "am" ? "เช้า" : "บ่าย"} ?`)) onDelete(r.id); }}
+                        style={{ border: "1px solid #FCA5A5", background: "#fff", color: "#B91C1C", borderRadius: 7, padding: "3px 9px", fontSize: 11.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>ลบ</button>
+                    </td>}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+
+        {/* ───────── แผนผังเล้า ───────── */}
+        {tab === "map" && (<>
+          <DeadFilter {...{ from, setFrom, to, setTo, mapShift, setMapShift, lbl, dateInp, shiftBtn, total: agg.total }} />
+          {!agg.total ? <div style={{ padding: "28px 16px", textAlign: "center", color: "#9b8e78", fontWeight: 600 }}>ยังไม่มีข้อมูลในช่วงที่เลือก</div> : (<>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, fontWeight: 800, marginBottom: 4, padding: "0 2px" }}>
+              <span style={{ color: "#1D4ED8" }}>◀ ต้นเล้า · คูลลิ่งแพด (ลมเข้า)</span>
+              <span style={{ color: "#9b8e78" }}>กลางเล้า</span>
+              <span style={{ color: "#B91C1C" }}>ท้ายเล้า · พัดลม (ลมออก) ▶</span>
+            </div>
+            <div style={{ border: "1px solid #eee3cd", borderRadius: 12, overflowX: "auto", marginBottom: 10 }}>
+              <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 760 }}>
+                <thead><tr>
+                  <th style={{ ...th, padding: "4px 5px" }}>ร่อง</th><th style={{ ...th, padding: "4px 5px" }}>ชั้น</th>
+                  {Array.from({ length: DEAD_NBIN }, (_, b) => <th key={b} style={{ ...th, padding: "4px 2px", fontSize: 9, color: "#a8977c" }}>{b * DEAD_BIN + 1}</th>)}
+                  <th style={{ ...th, padding: "4px 5px" }}>รวม</th>
+                </tr></thead>
+                <tbody>
+                  {Array.from({ length: nr }, (_, ri) => DEAD_TIERS.map((t, ti) => {
+                    const rg = ri + 1, k = deadKey(rg, t);
+                    const rowTot = agg.byCell[k] || 0;
+                    return (
+                      <tr key={k} style={ti === 0 && ri > 0 ? { borderTop: "2px solid #d8cdb6" } : undefined}>
+                        {ti === 0 && <td rowSpan={5} style={{ ...td, fontWeight: 900, fontSize: 15, background: "#FFF9F0", borderBottom: "1px solid #eee7d8" }}>{rg}</td>}
+                        <td style={{ ...td, fontSize: 11, fontWeight: 800, background: "#FFFCF6", padding: "3px 5px" }}>{t}</td>
+                        {Array.from({ length: DEAD_NBIN }, (_, b) => {
+                          const v = agg.byBin[`${k}|${b}`] || 0, h = deadHeat(v, binMax);
+                          return <td key={b} title={`ร่อง ${rg} ชั้น ${t} · กรง ${b * DEAD_BIN + 1}–${(b + 1) * DEAD_BIN} · ตาย ${v}`}
+                            style={{ ...td, padding: "3px 1px", fontSize: 10.5, fontWeight: 800, background: h.bg, color: h.fg, border: "1px solid #EFE6D4", minWidth: 22 }}>{v || ""}</td>;
+                        })}
+                        <td style={{ ...td, fontWeight: 900, background: "#F1FAF7", color: rowTot ? "#0F766E" : "#c9c0ad", padding: "3px 6px" }}>{rowTot || ""}</td>
+                      </tr>
+                    );
+                  }))}
+                  <tr>
+                    <td colSpan={2} style={{ ...td, fontWeight: 900, background: "#F6F1E7", fontSize: 11 }}>รวมทุกร่อง/ชั้น</td>
+                    {Array.from({ length: DEAD_NBIN }, (_, b) => {
+                      const v = Array.from({ length: nr }, (_, ri) => DEAD_TIERS.reduce((a, t) => a + (agg.byBin[`${deadKey(ri + 1, t)}|${b}`] || 0), 0)).reduce((a, x) => a + x, 0);
+                      const mx = Math.max(1, ...Array.from({ length: DEAD_NBIN }, (_, bb) => Array.from({ length: nr }, (_, ri) => DEAD_TIERS.reduce((a, t) => a + (agg.byBin[`${deadKey(ri + 1, t)}|${bb}`] || 0), 0)).reduce((a, x) => a + x, 0)));
+                      const alpha = v ? 0.15 + 0.75 * (v / mx) : 0;
+                      return <td key={b} style={{ ...td, padding: "4px 1px", fontWeight: 900, fontSize: 11, background: v ? `rgba(37,99,235,${alpha})` : "#F6F1E7", color: v / mx > 0.6 ? "#fff" : "#1D4ED8" }}>{v || ""}</td>;
+                    })}
+                    <td style={{ ...td, fontWeight: 900, background: "#F6F1E7", color: "#B91C1C" }}>{agg.total}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div style={{ fontSize: 11.5, color: "#9b8e78", lineHeight: 1.85 }}>
+              แต่ละแถว = 1 ชั้นของ 1 ร่อง · 1 ช่อง = 10 กรง · ซ้ายสุด = กรง 1 (คูลลิ่งแพด) ขวาสุด = กรง 180 (พัดลม)<br />
+              <b style={{ color: "#7a6f5c" }}>แดงเป็นแนวตั้งขอบซ้าย</b> → ต้นเล้าลมเย็นเข้าแรงเกิน ไก่หนาว (ดูคู่กับกะเช้า) ·
+              <b style={{ color: "#7a6f5c" }}> ขอบขวา</b> → ท้ายเล้าร้อนสะสม heat stress (ดูคู่กับกะบ่าย) ·
+              <b style={{ color: "#7a6f5c" }}> แดงทั้งแถว</b> → ร่อง/ชั้นนั้นมีปัญหาทั้งแนว ·
+              <b style={{ color: "#7a6f5c" }}> แดงจุดเดียว</b> → กรงนั้นเอง (นิปเปิลตัน/รางอาหารไม่ถึง)
+            </div>
+          </>)}
+        </>)}
+
+        {/* ───────── จุดเสี่ยง ───────── */}
+        {tab === "risk" && (<>
+          <DeadFilter {...{ from, setFrom, to, setTo, mapShift, setMapShift, lbl, dateInp, shiftBtn, total: agg.total }} />
+          <div style={{ display: "flex", gap: 9, flexWrap: "wrap", marginBottom: 13 }}>
+            {[["ตายทั้งหมด", agg.total, "#B91C1C"],
+              ["กรงที่ตายซ้ำ", agg.repeats.length, "#B45309"],
+              ["ซ้ำ 3 ครั้งขึ้นไป", agg.repeats.filter((x) => x.n >= 3).length, "#7F1D1D"]].map(([l, v, c], i) => (
+              <div key={i} style={{ flex: "1 1 150px", background: "#fff", border: "1.5px solid #eee3cd", borderRadius: 12, padding: "10px 13px" }}>
+                <div style={{ fontSize: 11.5, color: "#9b8e78", fontWeight: 700 }}>{l}</div>
+                <div style={{ fontSize: 24, fontWeight: 900, color: c }}>{v}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 13.5, fontWeight: 900, color: "#8a5a1b", marginBottom: 7 }}>🔁 กรงที่ไก่ตายซ้ำ</div>
+          {!agg.repeats.length ? (
+            <div style={{ background: "#F0FDF4", border: "1.5px solid #BBF7D0", borderRadius: 12, padding: "12px 14px", marginBottom: 14, fontSize: 13, fontWeight: 800, color: "#15803D" }}>
+              ✅ ยังไม่มีกรงไหนตายซ้ำในช่วงนี้ — ไก่ตายกระจายทั่วเล้า ไม่ได้กระจุกที่จุดใดจุดหนึ่ง</div>
+          ) : (
+            <div style={{ border: "1px solid #eee3cd", borderRadius: 12, overflow: "auto", maxHeight: "34vh", marginBottom: 14 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead><tr><th style={th}>ร่อง</th><th style={th}>ชั้น</th><th style={th}>กรง</th><th style={th}>ตายกี่ครั้ง</th><th style={{ ...th, textAlign: "left" }}>วันที่เจอ</th></tr></thead>
+                <tbody>
+                  {agg.repeats.map((x, i) => (
+                    <tr key={i} style={{ background: x.n >= 3 ? "#FEF2F2" : "#FFFBEB" }}>
+                      <td style={{ ...td, fontWeight: 800 }}>{x.rong}</td>
+                      <td style={{ ...td, fontWeight: 800 }}>{x.tier}</td>
+                      <td style={{ ...td, fontWeight: 900, fontSize: 15, color: "#B91C1C" }}>{x.cage}</td>
+                      <td style={{ ...td, fontWeight: 900, color: x.n >= 3 ? "#7F1D1D" : "#B45309" }}>{x.n} ครั้ง</td>
+                      <td style={{ ...td, textAlign: "left", fontSize: 11.5, color: "#9b8e78", whiteSpace: "normal" }}>{x.dates.sort().map((d) => toThaiDate(d, false)).join(" · ")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div style={{ fontSize: 13.5, fontWeight: 900, color: "#8a5a1b", marginBottom: 7 }}>📊 ตายกี่ตัวในแต่ละ ชั้น × ร่อง</div>
+          <div style={{ border: "1px solid #eee3cd", borderRadius: 12, overflowX: "auto", marginBottom: 12 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead><tr><th style={th}>ชั้น \ ร่อง</th>{Array.from({ length: nr }, (_, i) => <th key={i} style={th}>{i + 1}</th>)}<th style={th}>รวม</th></tr></thead>
+              <tbody>
+                {DEAD_TIERS.map((t) => (
+                  <tr key={t}>
+                    <td style={{ ...td, fontWeight: 900, background: "#FFF9F0" }}>{t}</td>
+                    {Array.from({ length: nr }, (_, i) => {
+                      const v = agg.byCell[deadKey(i + 1, t)] || 0, h = deadHeat(v, cellMax);
+                      return <td key={i} style={{ ...td, fontWeight: 800, background: h.bg, color: h.fg }}>{v || ""}</td>;
+                    })}
+                    <td style={{ ...td, fontWeight: 900, background: "#F1FAF7", color: "#0F766E" }}>{agg.byTier[t] || ""}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <td style={{ ...td, fontWeight: 900, background: "#F6F1E7" }}>รวม</td>
+                  {Array.from({ length: nr }, (_, i) => <td key={i} style={{ ...td, fontWeight: 900, background: "#F6F1E7", color: "#0F766E" }}>{agg.byRong[i + 1] || ""}</td>)}
+                  <td style={{ ...td, fontWeight: 900, background: "#F6F1E7", color: "#B91C1C" }}>{agg.total}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div style={{ fontSize: 11.5, color: "#9b8e78", lineHeight: 1.85 }}>
+            แถวแดงในตารางบน = กรงนั้นตายซ้ำ <b style={{ color: "#7a6f5c" }}>3 ครั้งขึ้นไป</b> ให้เดินไปดูของจริงก่อน — เกือบทุกครั้งคือนิปเปิลน้ำตัน รางอาหารไม่ถึง หรือพื้นกรงชำรุด
+          </div>
+        </>)}
+      </div>
+    </div>
+  );
+}
+/* แถบกรองช่วงวันที่ + กะ ใช้ร่วมกันระหว่างแท็บแผนผังกับจุดเสี่ยง */
+function DeadFilter({ from, setFrom, to, setTo, mapShift, setMapShift, lbl, dateInp, shiftBtn, total }) {
+  return (
+    <div style={{ display: "flex", gap: 9, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 12, background: "#FFF9F0", border: "1px solid #F0E3CC", borderRadius: 12, padding: "9px 12px" }}>
+      <div><label style={lbl}>ตั้งแต่</label><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={dateInp} /></div>
+      <div><label style={lbl}>ถึง</label><input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={dateInp} /></div>
+      <div><label style={lbl}>กะ</label>
+        <div style={{ display: "flex", gap: 5 }}>
+          {shiftBtn("", "ทั้งวัน", mapShift, setMapShift)}
+          {shiftBtn("am", "☀ เช้า", mapShift, setMapShift)}
+          {shiftBtn("pm", "☾ บ่าย", mapShift, setMapShift)}
+        </div></div>
+      {(from || to || mapShift) && <button onClick={() => { setFrom(""); setTo(""); setMapShift(""); }}
+        style={{ padding: "7px 12px", borderRadius: 9, border: "1px solid #e0d7c3", background: "#fff", color: "#9b8e78", fontSize: 12, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>ล้างตัวกรอง</button>}
+      <div style={{ flex: 1, minWidth: 90, textAlign: "right" }}>
+        <span style={{ fontSize: 11.5, color: "#9b8e78", fontWeight: 700 }}>ในช่วงนี้ </span>
+        <b style={{ fontSize: 19, color: "#B91C1C" }}>{total}</b>
+        <span style={{ fontSize: 12, color: "#9b8e78", fontWeight: 700 }}> ตัว</span>
+      </div>
+    </div>
+  );
+}
 function EnvCheckModal({ houseId, rows = [], onAdd, onUpdate, onDelete, viewOnly = false, onClose }) {
   const sorted = [...rows].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   const [tab, setTab] = useState(sorted.length ? "list" : "new");
@@ -11493,7 +11887,8 @@ function CostView({ expenses = [], addExpense, deleteExpense, production = {}, m
 }
 
 function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, production = {}, medTrials = [], medStock = [], medInfo = {}, vaccines = {}, addVaccine, deleteVaccine, labTests = {}, addLabTest, deleteLabTest,
-                       envChecks = [], addEnvCheck, updateEnvCheck, deleteEnvCheck, viewOnly = false }) {
+                       envChecks = [], addEnvCheck, updateEnvCheck, deleteEnvCheck,
+                       deadCages = [], saveDeadCage, deleteDeadCage, viewOnly = false }) {
   const sbSafe = useSbSafe();   // ⛔ เครื่องยังไม่เชื่อมคลาวด์ → โชว์แถบเตือน + ห้ามบันทึก (กันข้อมูลหายเงียบ)
   const prodDates = Object.keys(production).sort();
   const houseIds = [...new Set([...(production[prodDates[prodDates.length - 1]] || []).map((h) => h.id), ...HOUSE_IDS])];   // รวมหลังใหม่ที่ยังไม่มีผลผลิต (เช่น H7)
@@ -11528,6 +11923,7 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
   const [vacHouse, setVacHouse] = useState(null);     // houseId ที่กำลังเปิดสมุดวัคซีน
   const [labHouse, setLabHouse] = useState(null);     // houseId ที่กำลังเปิดสมุดผลตรวจแล็บ
   const [envHouse, setEnvHouse] = useState(null);     // 🌬️ houseId ที่กำลังเปิดใบตรวจวัดโรงเรือน
+  const [deadHouse, setDeadHouse] = useState(null);   // ☠️ houseId ที่กำลังเปิดสมุดเลขกรงไก่ตาย
   const [afterFlock, setAfterFlock] = useState(null); // วันแรกของรุ่น: เซฟหน้ารุ่นเสร็จ → เปิดหน้ากรอกรายวันต่อทันที ({hid,date})
   // เกณฑ์เตือนอาหารใกล้หมด (กก./ไซโล) — จัดการในแท็บ "อาหารไก่" ; ที่นี่ใช้ไฮไลต์ในตาราง + ส่งให้ฟอร์มกรอก
   const [feedMin] = useState(() => { const v = parseFloat(localStorage.getItem("eggFeedAlertMin")); return isNaN(v) ? 4000 : v; });
@@ -11876,6 +12272,13 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
               const n = envChecks.filter((r) => r.houseId === selHouse).length;
               return <button onClick={() => setEnvHouse(selHouse)} title="แรงลม · อุณหภูมิ · ความชื้น ภายในโรงเรือน — ตรวจทุกสัปดาห์"
                 style={{ alignSelf: "center", border: "1px solid #93C5FD", background: "#fff", color: "#1D4ED8", borderRadius: 10, padding: "10px 14px", cursor: "pointer", fontSize: 13, fontWeight: 800, fontFamily: "inherit" }}>🌬️ ตรวจวัดโรงเรือน{n ? ` · ${n}` : ""}</button>;
+            })()}
+            {(() => {
+              const mine = deadCages.filter((r) => r.houseId === selHouse);
+              const rep = deadAgg(mine).repeats.length;
+              return <button onClick={() => setDeadHouse(selHouse)} title="คีย์เลขกรงที่เจอไก่ตายจากกระดาษ แล้วดูแผนผังว่ากระจุกตรงไหน"
+                style={{ alignSelf: "center", border: `1px solid ${rep ? "#FCA5A5" : "#d8cdb6"}`, background: "#fff", color: "#B91C1C", borderRadius: 10, padding: "10px 14px", cursor: "pointer", fontSize: 13, fontWeight: 800, fontFamily: "inherit" }}>
+                ☠️ เลขกรงไก่ตาย{mine.length ? ` · ${mine.length}` : ""}{rep ? <span style={{ marginLeft: 6, background: "#FEE2E2", borderRadius: 999, padding: "1px 7px", fontSize: 11.5 }}>🔁 {rep}</span> : null}</button>;
             })()}
           </div>
           {/* ปุ่มกรอกวันถัดไป */}
@@ -12265,6 +12668,10 @@ function RearingView({ rearingByDate = {}, saveRearing, flocks = {}, saveFlock, 
       {envHouse && (
         <EnvCheckModal houseId={envHouse} rows={envChecks.filter((r) => r.houseId === envHouse)}
           onAdd={addEnvCheck} onUpdate={updateEnvCheck} onDelete={deleteEnvCheck} viewOnly={viewOnly} onClose={() => setEnvHouse(null)} />
+      )}
+      {deadHouse && (
+        <DeadCageModal houseId={deadHouse} rows={deadCages.filter((r) => r.houseId === deadHouse)}
+          onSave={saveDeadCage} onDelete={deleteDeadCage} viewOnly={viewOnly} onClose={() => setDeadHouse(null)} />
       )}
       {showPlan && (
         <HealthPlanModal plan={healthPlan} houseIds={houseIds} onAdd={addPlan} onToggle={togglePlan} onDelete={deletePlan} onCopyMonth={copyPlanMonth} onClose={() => setShowPlan(false)} />
