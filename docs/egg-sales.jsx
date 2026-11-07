@@ -2440,7 +2440,7 @@ export default function App() {
         </nav>
       </header>
 
-      {view === "sales" && <SalesView stock={stock} addBill={addBill} bills={activeBills} payments={payments} trayStock={trayStock} setTrayStock={setTrayStock} trayRecords={trayRecords} trayEvents={trayEvents} drafts={drafts} setDrafts={setDrafts} isOwner={currentRole === "owner"} />}
+      {view === "sales" && <SalesView stock={stock} addBill={addBill} bills={activeBills} stockDay={stockDay} payments={payments} trayStock={trayStock} setTrayStock={setTrayStock} trayRecords={trayRecords} trayEvents={trayEvents} drafts={drafts} setDrafts={setDrafts} isOwner={currentRole === "owner"} />}
       {view === "bills" && <BillHistoryView bills={bills} payments={payments} cancelBill={ge("bills", cancelBill)} recordPayment={ge("bills", recordPayment)} isOwner={currentRole === "owner"} />}
       {view === "account" && <AccountView bills={activeBills} payments={payments} recordPayment={ge("account", recordPayment)} isOwner={currentRole === "owner"} />}
       {view === "dash" && <DashboardView bills={activeBills} payments={payments} production={productionByDate} rearingByDate={rearingByDate} flocks={flocks} />}
@@ -2591,7 +2591,9 @@ async function shrinkImage(file, maxDim = 1600, quality = 0.82) {
 /* ============================================================
    หน้าจอ: ขายไข่  (ตรงตามฟอร์มบิลจริง)
 ============================================================ */
-function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, trayRecords = [], trayEvents = [], drafts = [], setDrafts, isOwner = false }) {
+/* กลุ่มลูกค้าที่เปิดได้หลายบิลต่อวันโดยไม่ต้องยืนยัน — เป็น "ชื่อรวม" ไม่ใช่ลูกค้ารายเดียว */
+const MULTI_BILL_GROUPS = new Set(["frontretail"]);
+function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, trayRecords = [], trayEvents = [], drafts = [], setDrafts, isOwner = false, stockDay = "" }) {
   const [customerId, setCustomerId] = useState(null);
   const [editingDraftId, setEditingDraftId] = useState(null);  // กำลังแก้บิลร่างใบไหนอยู่
   const [custSearch, setCustSearch] = useState("");
@@ -2615,6 +2617,7 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
   const [billRef, setBillRef] = useState("");      // เลขอ้างอิง / ใบสั่งซื้อ (PO)
   const [whtPct, setWhtPct] = useState("");        // หัก ณ ที่จ่าย (%)
   const [confirmedBill, setConfirmedBill] = useState(null);
+  const [dupBillWarn, setDupBillWarn] = useState(null);   // บิลของลูกค้ารายนี้ที่ยังค้างอยู่ในวันเดียวกัน
   const [savingImg, setSavingImg] = useState(false);
   const [printing, setPrinting] = useState(false);
   const printBill = async () => { setPrinting(true); try { await printReceiptImage("delivery-note"); } catch (e) { alert("พิมพ์ไม่สำเร็จ ลองใหม่ หรือใช้ 'บันทึกเป็นรูป' แล้วสั่งพิมพ์"); } finally { setPrinting(false); } };
@@ -2790,7 +2793,15 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
   const noPrice = cartItems.filter((i) => !i.priced);  // รายการที่ยังไม่ใส่ราคา (สินค้าชั่ง = ทุกก้อนต้องมีราคา)
   const canConfirm = customer && cartItems.length > 0 && noPrice.length === 0;
 
-  const confirmBill = () => {
+  /* 🧾 ลูกค้า 1 ราย = 1 บิลต่อวัน — bills ที่ส่งเข้ามาคือ activeBills (ยกเลิกแล้วไม่นับ)
+     ถ้ามีใบค้างอยู่ ต้องไปยกเลิกใบเดิมก่อน ไม่งั้นยอดขายจะซ้ำและต้องมาไล่จับตอนสิ้นเดือน */
+  const sameDayBills = useMemo(() => {
+    if (!customerId || !stockDay) return [];
+    if (customer && MULTI_BILL_GROUPS.has(customer.group)) return [];
+    return (bills || []).filter((b) => b.customerId === customerId && (b.workDay || "") === stockDay);
+  }, [bills, customerId, customer, stockDay]);
+
+  const doConfirmBill = () => {
     // สต็อกลดอัตโนมัติจากบิลที่บันทึก (bills = แหล่งข้อมูลเดียว) — ไม่ต้องหัก state แยก
     // เลขบิลสุ่ม 4 หลักต้องไม่ชนกับบิลเดิม — เคยชนแล้วทำระบบรวมข้อมูลเพี้ยน (บิลทวีคูณ 512 ชุด 8 ส.ค. 69)
     let billNo;
@@ -2816,6 +2827,7 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
       date: new Date().toLocaleDateString("th-TH"),
       ts: Date.now(),
     };
+    if (sameDayBills.length) bill.multiBill = true;   // ติดธงไว้ว่าเป็นใบที่ 2+ ของวัน — ไว้ตรวจย้อนหลัง
     setConfirmedBill(bill);
     addBill(bill);
     // ออกบิลจากบิลร่าง → ลบร่างนั้นทิ้ง
@@ -2826,6 +2838,11 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
     setDiscount(""); setDeliveryFee(""); setNote(""); setBillRef(""); setWhtPct("");
   };
 
+  // ขวางก่อนออกบิล ถ้าลูกค้ารายนี้มีบิลของวันนี้ค้างอยู่
+  const confirmBill = () => {
+    if (sameDayBills.length) { setDupBillWarn(sameDayBills); return; }
+    doConfirmBill();
+  };
   const newBill = () => { setConfirmedBill(null); setCustomerId(null); };
 
   // ---------- บิลร่าง (draft) ----------
@@ -3513,8 +3530,53 @@ function SalesView({ stock, addBill, bills, payments, trayStock, setTrayStock, t
             <span style={{ fontSize: 18, fontWeight: 800, color: INK }}>{fmt(grandTotal)} บาท</span>
           </div>
           {canConfirm
-            ? <button style={S.stickyConfirm} onClick={confirmBill}><Check size={17} /> ยืนยันออกบิล</button>
+            ? <button style={{ ...S.stickyConfirm, ...(sameDayBills.length ? { background: "#B91C1C" } : {}) }} onClick={confirmBill}>
+                <Check size={17} /> {sameDayBills.length ? "มีบิลค้างวันนี้ — ตรวจก่อน" : "ยืนยันออกบิล"}
+              </button>
             : <button style={S.stickyView} onClick={() => { const el = document.getElementById("cart-panel"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }}>ดูบิล / แก้ไข ▸</button>}
+        </div>
+      )}
+      {dupBillWarn && (
+        <div style={S.modalOverlay} onClick={() => setDupBillWarn(null)}>
+          <div style={{ ...S.modal, maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+            <div style={S.modalHead}>
+              <div>
+                <div style={{ ...S.modalTitle, color: "#B91C1C" }}>🧾 ลูกค้ารายนี้มีบิลของวันนี้อยู่แล้ว</div>
+                <div style={S.modalSub}>{customer ? customer.name : ""} · {toThaiDate(stockDay)}</div>
+              </div>
+              <button style={S.modalClose} onClick={() => setDupBillWarn(null)}><X size={18} /></button>
+            </div>
+            <div style={{ fontSize: 13, color: "#7A4F16", background: "#FFF7EC", border: "1px solid #F5DEB9", borderRadius: 9, padding: "10px 12px", marginBottom: 12, lineHeight: 1.75 }}>
+              กติกาฟาร์ม: <b>ลูกค้า 1 ราย ออกได้ 1 บิลต่อวัน</b><br />
+              ถ้าออกใบใหม่เพราะแก้ตัวเลข <b>ต้องไปยกเลิกใบเดิมก่อน</b> ไม่งั้นยอดขายจะถูกนับซ้ำ
+            </div>
+            {dupBillWarn.map((b) => (
+              <div key={b.no} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "9px 11px", border: "1.5px solid #FCA5A5", background: "#FEF2F2", borderRadius: 10, marginBottom: 7 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 800, fontSize: 14, color: INK }}>{b.no}</div>
+                  <div style={{ fontSize: 12.5, color: "#8a8170" }}>
+                    {fmt(b.totalPrang || 0)} แผง · {fmt(b.eggTotal || b.total || 0)} บาท
+                    {b.ts ? " · ออกเมื่อ " + new Date(b.ts).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }) + " น." : ""}
+                    {b.by ? " · โดย " + b.by : ""}
+                  </div>
+                </div>
+              </div>
+            ))}
+            <div style={{ fontSize: 12.5, color: "#8a8170", margin: "10px 0 12px", lineHeight: 1.7 }}>
+              ไปที่หน้า <b>บิล/ลูกหนี้</b> เพื่อยกเลิกใบเดิม แล้วค่อยกลับมาออกใบใหม่ (รายการในตะกร้าไม่หาย)
+            </div>
+            <button style={{ ...S.primaryBtn, background: "#6b6358" }} onClick={() => setDupBillWarn(null)}>
+              เข้าใจแล้ว — กลับไปจัดการใบเดิมก่อน
+            </button>
+            <button
+              style={{ ...S.ghostBtn, width: "100%", marginTop: 8, color: "#B45309", borderColor: "#E0A875", fontSize: 13 }}
+              onClick={() => { setDupBillWarn(null); doConfirmBill(); }}>
+              ลูกค้ารายนี้ซื้อหลายรอบจริง — ออกบิลใบที่ {dupBillWarn.length + 1} ต่อไป
+            </button>
+            <div style={{ fontSize: 11.5, color: "#9b8e78", textAlign: "center", marginTop: 7, lineHeight: 1.6 }}>
+              ถ้ากดปุ่มล่าง ระบบจะติดธงไว้ว่าเป็นบิลใบที่ 2 ของวัน เจ้าของตรวจย้อนหลังได้
+            </div>
+          </div>
         </div>
       )}
     </>
@@ -4105,8 +4167,14 @@ function PaymentModal({ bill, current, onClose, onPay, isOwner }) {
      ยิ่งแนบหลายใบ จำนวนคู่ผสมยิ่งโตแบบทวีคูณ — 10 ใบ = 12^10 ≈ 6 หมื่นล้านชุด
      ถึงจุดนั้น "มีชุดที่รวมได้ตรงยอด" เกิดขึ้นได้ด้วยความบังเอิญเสมอ = ตรวจแล้วพิสูจน์อะไรไม่ได้
      จึงยอมบอกตรงๆ ว่าตรวจอัตโนมัติไม่ไหว แล้วให้คนตรวจด้วยตา ดีกว่าขึ้นเครื่องหมายถูกหลอกให้สบายใจ
-     (ทดสอบแล้ว 6 ใบยังจับยอดผิดได้ถูกต้อง — คลาดแค่ 25 สตางค์ก็ไม่ผ่าน) */
-  const SLIP_AUTO_MAX = 6;
+
+     เส้นแบ่งมาจากการทดสอบจริง 120 เคสต่อจำนวนใบ (ป้อนยอดที่เพี้ยนไป 25 สต. / 7 บ. / 500 บ.
+     แล้วดูว่าระบบเผลอขึ้น ✓ ให้กี่ครั้ง):
+       3 ใบ → หลุด 0%    ← ปลอดภัย ใช้ค่านี้
+       4 ใบ → หลุด 0.8%
+       5 ใบ → หลุด 4%
+       6 ใบ → หลุด 21%  (และครึ่งหนึ่งคำนวณไม่ไหวจนต้องยอมแพ้อยู่ดี) */
+  const SLIP_AUTO_MAX = 3;
   const tooManyToAutoCheck = slips.length > SLIP_AUTO_MAX;
   const slipHasAmt = (() => {
     if (!slipChecked || !amt) return false;
@@ -9416,7 +9484,7 @@ function MedSlipModal({ rows = [], onClose }) {
   );
 }
 
-function MedIssueModal({ medStock = [], medInfo = {}, houseIds = [], by = "", onSave, onClose }) {
+function MedIssueModal({ medStock = [], medInfo = {}, houseIds = [], by = "", medIssues = [], onSave, onClose }) {
   /* ใบเบิกกระดาษของฟาร์มเป็นแบบ: ยา 1 ตัว → เลือกหลายหลังพร้อมกัน → ใส่จำนวนรวม
      (เจ้าของแจ้ง 2 ต.ค. 69: หมอเบิกรวมหลายหลังทีเดียว เพราะพยายามให้วิตามินเหมือนกันทุกหลัง
       จะได้ไม่ตกหล่น · และเบิกครั้งละพอใช้ 3-5 วัน เพราะบางตัวให้แค่วันละครึ่งขวดต่อหลัง)
@@ -9450,6 +9518,30 @@ function MedIssueModal({ medStock = [], medInfo = {}, houseIds = [], by = "", on
   }));
   const valid = rows.some((r) => r.medId && r.houses.length && sumPer(r) > 0);
   const needHouse = rows.some((r) => r.medId && totalOf(r) > 0 && !r.houses.length);   // ใส่จำนวนแล้วแต่ยังไม่ได้เลือกหลัง
+  /* 🔁 กันคีย์ซ้ำ — เกิดจริง 14 ต.ค. 69: หมอกดเบิกซีลีเนี่ยม H6 3 ขวด แล้วกดซ้ำห่างกัน 3 นาที
+     สต๊อกถูกตัดเกินจริง 3 ขวด กว่าจะเจอก็ 20 วันให้หลัง
+     เทียบ ยา + หลัง + จำนวน + วันที่ ตรงกันครบ = สงสัยซ้ำ
+     (เบิกยาตัวเดิม หลังเดิม จำนวนเท่ากันเป๊ะ ในวันเดียวกัน แทบไม่เกิดขึ้นจริง ถ้าเกิดก็ให้ยืนยันเอง) */
+  const dupHits = useMemo(() => {
+    const hits = [];
+    rows.forEach((r) => {
+      const it = medStock.find((x) => x.id === r.medId);
+      if (!it) return;
+      r.houses.forEach((h) => {
+        const q = parseFloat(r.per[h]) || 0;
+        if (q <= 0) return;
+        const old = medIssues.find((o) => o.medId === it.id && o.houseId === h && o.date === date
+          && Math.abs((parseFloat(o.qty) || 0) - q) < 0.001);
+        if (old) hits.push({ name: it.name, unit: it.unit || "", qty: q, house: h, old });
+      });
+    });
+    return hits;
+  }, [rows, date, medStock, medIssues]);
+  const dupText = (d) => {
+    const t = d.old.ts ? new Date(d.old.ts) : null;
+    const when = t ? `${toThaiDate(isoFromTs(d.old.ts), false)} ${t.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })} น.` : "ไม่ทราบเวลา";
+    return `• ${d.name} ${fmt1(d.qty)} ${d.unit} → ${d.house}\n   เคยเบิกแล้วโดย ${d.old.by || "ไม่ระบุชื่อ"} · คีย์เมื่อ ${when}`;
+  };
   const save = () => {
     const ts = Date.now(); const out = [];
     rows.forEach((r, i) => {
@@ -9464,6 +9556,10 @@ function MedIssueModal({ medStock = [], medInfo = {}, houseIds = [], by = "", on
       });
     });
     if (!out.length) return;
+    if (dupHits.length && !window.confirm(
+        "🔁 รายการนี้เคยเบิกไปแล้ว — ยา หลัง จำนวน และวันที่ ตรงกันทุกอย่าง\n\n"
+        + dupHits.map(dupText).join("\n")
+        + "\n\nถ้ากดตกลง สต๊อกจะถูกตัดซ้ำอีกรอบ\nต้องการเบิกเพิ่มจริงหรือไม่?")) return;
     const over = noStock ? [] : rows.filter((r) => { const it = medStock.find((x) => x.id === r.medId); if (!it) return false; const inf = medInfo[(it.name || "").trim()]; return inf && sumPer(r) > inf.remain; })
       .map((r) => { const it = medStock.find((x) => x.id === r.medId); return `• ${it.name} เบิกรวม ${fmt1(sumPer(r))} แต่เหลือ ${fmt1(medInfo[(it.name || "").trim()].remain)}`; });
     if (over.length && !window.confirm("⚠️ เบิกเกินยอดคงเหลือ:\n" + over.join("\n") + "\n\nบันทึกต่อไหม? (สต๊อกจะติดลบ)")) return;
@@ -9552,6 +9648,18 @@ function MedIssueModal({ medStock = [], medInfo = {}, houseIds = [], by = "", on
           );
         })}
         <button onClick={() => setRows((p) => [...p, { medId: "", houses: [], total: "", per: {}, note: "" }])} style={{ ...S.ghostBtn, marginBottom: 12 }}>＋ เพิ่มยาอีกตัว</button>
+        {dupHits.length > 0 && (
+          <div style={{ background: "#FEF2F2", border: "1.5px solid #FCA5A5", borderRadius: 10, padding: "10px 12px", marginBottom: 9, fontSize: 12.5, color: "#991B1B", lineHeight: 1.75 }}>
+            <div style={{ fontWeight: 800, marginBottom: 3 }}>🔁 เคยเบิกรายการนี้ไปแล้วในวันเดียวกัน</div>
+            {dupHits.map((d, i) => (
+              <div key={i}>
+                <b>{d.name} {fmt1(d.qty)} {d.unit} → {d.house}</b>
+                <span style={{ color: "#B45309" }}> · โดย {d.old.by || "ไม่ระบุชื่อ"}{d.old.ts ? " เวลา " + new Date(d.old.ts).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }) + " น." : ""}</span>
+              </div>
+            ))}
+            <div style={{ marginTop: 3, fontWeight: 700 }}>ถ้าบันทึก สต๊อกจะถูกตัดซ้ำอีกรอบ — ถ้าเบิกเพิ่มจริงกดต่อได้</div>
+          </div>
+        )}
         {needHouse && <div style={{ fontSize: 12.5, fontWeight: 800, color: "#C2410C", marginBottom: 8 }}>⚠️ มีรายการที่ใส่จำนวนแล้วแต่ยังไม่ได้เลือกหลัง — รายการนั้นจะไม่ถูกบันทึก</div>}
         <button onClick={save} disabled={!valid} style={{ ...S.primaryBtn, background: !valid ? "#cbc4b6" : noStock ? "#1D4ED8" : "#0F766E", cursor: valid ? "pointer" : "default" }}>
           {noStock ? "บันทึกยอดยาที่ค้างอยู่ที่เล้า · ไม่ตัดสต๊อก" : "บันทึกใบเบิก · ตัดสต๊อก"}
@@ -11562,7 +11670,7 @@ function MedView({ production = {}, medStock = [], medInfo = {}, medReceipts = [
           onSave={(rec) => { addMedCount(rec); setShowCount(false); }} onClose={() => setShowCount(false)} />
       )}
       {showIssue && (
-        <MedIssueModal medStock={medStock} medInfo={medInfo} houseIds={houseIds} by={who}
+        <MedIssueModal medStock={medStock} medInfo={medInfo} houseIds={houseIds} by={who} medIssues={medIssues}
           onSave={(list) => { list.forEach((r) => addMedIssue(r)); setShowIssue(false); setSlipRows(list); }} onClose={() => setShowIssue(false)} />
       )}
       {slipRows && slipRows.length > 0 && <MedSlipModal rows={slipRows} onClose={() => setSlipRows(null)} />}
