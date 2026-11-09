@@ -2326,13 +2326,20 @@ export default function App() {
     });
   // ยกเลิกใบเสร็จ (soft void + audit): เก็บเหตุผล/เวลา/ผู้ยกเลิก ; บิลยังอยู่ในประวัติแต่ถูกตัดออกจากทุกยอดคำนวณ (activeBills)
   const cancelBill = (billNo, reason, by) => {
-    // 🔒 กำแพงชั้นที่สอง: ยกเลิกใบเสร็จได้เฉพาะเจ้าของ — กันทุกเส้นทาง ไม่ใช่แค่ซ่อนปุ่ม (เจ้าของสั่ง 20 ส.ค. 69: บัญชี acct ห้ามยกเลิก)
-    if (currentRole !== "owner") {
-      window.alert("⛔ เฉพาะเจ้าของฟาร์มเท่านั้นที่ยกเลิกใบเสร็จได้\n\nถ้าจำเป็นต้องยกเลิกบิลนี้ ให้แจ้งเจ้าของฟาร์ม");
+    /* 🔒 กำแพงชั้นที่สอง — กันทุกเส้นทาง ไม่ใช่แค่ซ่อนปุ่ม
+       20 ส.ค. 69: เดิมอนุญาตเฉพาะเจ้าของ (กันบัญชี acct ยกเลิก)
+       8 พ.ย. 69: เจ้าของเปิดให้พนักงานขายยกเลิกเองได้ เพราะรอเจ้าของแล้วข้ามวัน
+                  เลยเปลี่ยนมาผูกกับสิทธิ์แก้ไขหัวข้อ "บิล/ลูกหนี้" แทน — บัญชียังยกเลิกไม่ได้เหมือนเดิม
+                  เพราะบทบาทบัญชีถูกตั้งเป็นดูอย่างเดียวทุกหัวข้อ */
+    if (!canEdit("bills")) {
+      window.alert("⛔ คุณไม่มีสิทธิ์ยกเลิกใบเสร็จ\n\nถ้าจำเป็นต้องยกเลิกบิลนี้ ให้แจ้งเจ้าของฟาร์มหรือฝ่ายขาย");
       return;
     }
+    const whoCancelled = (() => { try { return labelOfAccount(localStorage.getItem("sjfAuthUsername") || "") || ""; } catch (e) { return ""; } })();
     setBills((prev) => prev.map((b) => b.no === billNo
-      ? { ...b, cancelled: true, cancelReason: (reason || "").trim(), cancelBy: (by || "").trim(), cancelAt: Date.now(), cancelAtStr: new Date().toLocaleString("th-TH") }
+      ? { ...b, cancelled: true, cancelReason: (reason || "").trim(), cancelBy: (by || "").trim(),
+          cancelledBy: whoCancelled, cancelRole: currentRole,
+          cancelAt: Date.now(), cancelAtStr: new Date().toLocaleString("th-TH") }
       : b));
     // ลบใบแผง "รอคัด" ที่ระบบสร้างจากบิลนี้ (ยังไม่คัด) ออกจากคิว — ถ้าคัดไปแล้วคงไว้ (ของจริงจัดการแล้ว)
     setTrayRecords((prev) => prev.filter((t) => !(t.fromBill === billNo && t.status === "รอคัด" && !t.sorted)));
@@ -3708,7 +3715,7 @@ function BillHistoryView({ bills, payments, cancelBill, recordPayment, isOwner }
   if (selected) return (
     <>
       {/* ยกเลิกบิลได้เฉพาะเจ้าของ (เดิมเสมียนก็กดได้) · รับชำระได้ถ้าบิลยังไม่ถูกยกเลิกและยังค้างอยู่ */}
-      <BillDetail bill={selected} payment={payments[selected.no]} onBack={() => setSelected(null)} onCancel={isOwner ? cancelBill : null}
+      <BillDetail bill={selected} payment={payments[selected.no]} onBack={() => setSelected(null)} onCancel={cancelBill || null}
         onPay={recordPayment && !selected.cancelled && (payments[selected.no]?.paid || 0) < selected.total ? () => setPayModal(selected) : null} />
       {payModal && <PaymentModal bill={payModal} current={payments[payModal.no]?.paid || 0} isOwner={isOwner} onClose={() => setPayModal(null)}
         onPay={(amt, method, slip, note) => { recordPayment(payModal.no, amt, method, slip, note); setPayModal(null); }} />}
@@ -3795,6 +3802,11 @@ function BillDetail({ bill, payment, onBack, onCancel, onPay }) {
   const [showCancel, setShowCancel] = useState(false);
   const [reason, setReason] = useState("");
   const [by, setBy] = useState("");
+  const [cat, setCat] = useState("");        // หมวดสาเหตุ — ไว้สรุปรายเดือนว่ายกเลิกเพราะอะไรบ่อยสุด
+  const CANCEL_MIN = 15;                     // รายละเอียดขั้นต่ำ — กันเขียนสั้นว่า "ซ้ำ" แล้วย้อนดูทีหลังไม่รู้เรื่อง
+  const CANCEL_CATS = ["คีย์ซ้ำ / ออกบิลซ้ำใบ", "ออกบิลผิดจำนวน", "ออกบิลผิดราคา",
+                       "ผิดชื่อลูกค้า", "ลูกค้ายกเลิกออเดอร์", "ลูกค้าคืนของทั้งบิล", "อื่น ๆ"];
+  const reasonOk = cat && reason.trim().length >= CANCEL_MIN && by.trim();
   return (
     <div style={S.stage}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
@@ -3815,6 +3827,7 @@ function BillDetail({ bill, payment, onBack, onCancel, onPay }) {
             <div style={{ fontSize: 18, fontWeight: 900, letterSpacing: 2 }}>✕ ยกเลิกแล้ว · CANCELLED</div>
             <div style={{ fontSize: 12.5, marginTop: 4, color: "#7F1D1D", lineHeight: 1.6 }}>
               เหตุผล: <b>{b.cancelReason || "—"}</b><br />เวลา: {b.cancelAtStr || "—"} · ผู้ทำผิดพลาด: <b>{b.cancelBy || "—"}</b>
+              {b.cancelledBy ? <> · ผู้กดยกเลิก: <b>{b.cancelledBy}</b></> : null}
             </div>
           </div>
         )}
@@ -3954,18 +3967,38 @@ function BillDetail({ bill, payment, onBack, onCancel, onPay }) {
               <div><div style={S.modalTitle}>✕ ยกเลิกใบเสร็จ {b.no}</div><div style={S.modalSub}>บิลจะถูกตัดออกจากยอดขาย/ลูกหนี้/สต๊อก · ยังเห็นในประวัติ (มีตราประทับ)</div></div>
               <button style={S.modalClose} onClick={() => setShowCancel(false)}><X size={18} /></button>
             </div>
-            <label style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: INK, marginBottom: 4 }}>เหตุผลการยกเลิก *</label>
-            <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} autoFocus placeholder="เช่น ลูกค้ายกเลิกออเดอร์ / ออกบิลผิด / คีย์ซ้ำ"
-              style={{ width: "100%", padding: "9px 11px", border: "1.5px solid #e3ddd0", borderRadius: 9, fontSize: 14, fontFamily: "inherit", outline: "none", boxSizing: "border-box", resize: "vertical" }} />
-            {/* เก็บ "ผู้ทำผิดพลาด" แทน "ผู้ยกเลิก" — ยกเลิกได้เฉพาะเจ้าของอยู่แล้ว ชื่อคนยกเลิกจึงไม่มีประโยชน์ (เจ้าของสั่ง 29 ส.ค. 69) */}
+            <label style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: INK, marginBottom: 4 }}>หมวดสาเหตุ *</label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+              {CANCEL_CATS.map((c) => (
+                <button key={c} onClick={() => setCat(c)}
+                  style={{ fontSize: 12.5, fontWeight: 700, padding: "5px 11px", borderRadius: 999, cursor: "pointer", fontFamily: "inherit",
+                           border: `1.5px solid ${cat === c ? "#B91C1C" : "#e0d7c3"}`, background: cat === c ? "#FEF2F2" : "#fff",
+                           color: cat === c ? "#B91C1C" : "#8a8170" }}>{c}</button>
+              ))}
+            </div>
+            <label style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: INK, marginBottom: 4 }}>
+              รายละเอียด * <span style={{ fontWeight: 500, color: "#9b8e78" }}>— เขียนให้ย้อนดูทีหลังแล้วเข้าใจ</span>
+            </label>
+            <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} autoFocus
+              placeholder="เช่น คีย์เบอร์ 2 เป็น 300 แผง ที่ถูกคือ 200 แผง ออกใบใหม่เลขที่ IVE6906-xxxx แทนแล้ว"
+              style={{ width: "100%", padding: "9px 11px", borderRadius: 9, fontSize: 14, fontFamily: "inherit", outline: "none", boxSizing: "border-box", resize: "vertical",
+                       border: `1.5px solid ${reason.trim().length >= CANCEL_MIN ? "#86C99A" : "#e3ddd0"}` }} />
+            <div style={{ fontSize: 11.5, marginTop: 3, color: reason.trim().length >= CANCEL_MIN ? "#15803D" : "#B45309", fontWeight: 700 }}>
+              {reason.trim().length >= CANCEL_MIN
+                ? `✓ ${reason.trim().length} ตัวอักษร`
+                : `ต้องอีก ${CANCEL_MIN - reason.trim().length} ตัวอักษร (ห้ามเขียนสั้นแค่ "ซ้ำ" หรือ "ผิด")`}
+            </div>
+            {/* ผู้ทำผิดพลาด = คนที่ออกบิลผิด · คนกดยกเลิก ระบบบันทึกเองจากบัญชีที่ล็อกอิน (ตั้งแต่ 8 พ.ย. 69 ที่เปิดให้พนักงานยกเลิกเอง) */}
             <label style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: INK, margin: "10px 0 4px" }}>ผู้ทำผิดพลาด *</label>
             <input value={by} onChange={(e) => setBy(e.target.value)} placeholder="ชื่อคนที่ออกบิลผิด / คีย์ผิด"
               style={{ width: "100%", padding: "9px 11px", border: "1.5px solid #e3ddd0", borderRadius: 9, fontSize: 14, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
-            <div style={{ fontSize: 12, color: "#9b8e78", margin: "8px 0 0" }}>⏱️ เวลายกเลิก = เวลาที่กดยืนยัน (บันทึกอัตโนมัติ) · ยกเลิกได้เฉพาะเจ้าของฟาร์ม</div>
+            <div style={{ fontSize: 12, color: "#9b8e78", margin: "8px 0 0", lineHeight: 1.7 }}>
+              ⏱️ เวลายกเลิกบันทึกอัตโนมัติ · 👤 <b>ชื่อคนที่กดยกเลิกถูกบันทึกจากบัญชีที่ล็อกอินอยู่</b> เจ้าของตรวจย้อนหลังได้ทุกใบ
+            </div>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
               <button onClick={() => setShowCancel(false)} style={S.ghostBtn}>ไม่ยกเลิก</button>
-              <button disabled={!reason.trim() || !by.trim()} onClick={() => { onCancel(b.no, reason, by); setShowCancel(false); onBack(); }}
-                style={{ ...S.primarySmBtn, background: "#DC2626", opacity: (reason.trim() && by.trim()) ? 1 : 0.5 }}>✕ ยืนยันยกเลิกใบเสร็จ</button>
+              <button disabled={!reasonOk} onClick={() => { onCancel(b.no, cat + " — " + reason.trim(), by); setShowCancel(false); onBack(); }}
+                style={{ ...S.primarySmBtn, background: "#DC2626", opacity: reasonOk ? 1 : 0.5 }}>✕ ยืนยันยกเลิกใบเสร็จ</button>
             </div>
           </div>
         </div>
